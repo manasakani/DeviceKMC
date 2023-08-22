@@ -126,3 +126,5 @@ double h_bar_eV = 6.582119569e-16; //[eV]
 double m_0 = 9.11e-31; // [kg]
 double eV_to_J = 1.6e-19; // [C]
 double m_e = m_r*m_0; //[kg]
+
+double try = 1;
