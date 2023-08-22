@@ -73,10 +73,9 @@ def make_image(names, positions, potential, temperature, structure_folder, imnam
     
     ax = fig.add_subplot(3, 1, 3)
     ax.grid(True)
-    ax.scatter(x, temperature*1e9, c=y, s=2, alpha=0.5, cmap='coolwarm')
-    ax.set_ylim(ymin=0, ymax=50)#, ymax = 3000)
+    ax.scatter(x, temperature, c=y, s=2, alpha=0.5, cmap='coolwarm')
     ax.set_xlabel("x position(s) (A)")
-    ax.set_ylabel("Dissipated Power (nW)")
+    ax.set_ylabel("Temperature (K)")
 
     plt.savefig(structure_folder+'/'+imname)
 

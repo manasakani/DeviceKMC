@@ -37,7 +37,7 @@ int main() {
 		xyz_files.push_back(interstitial_xyz_file);
     }
     
-    Device device(xyz_files, lattice, shift, shifts, pbc, nn_dist);
+    Device device(xyz_files, lattice, shift, shifts, pbc, nn_dist, background_temp);
     if (pristine) device.makeSubstoichiometric(initial_vacancy_concentration);
     
     // Initialize the fields - implement these member functions inside Device.cpp!

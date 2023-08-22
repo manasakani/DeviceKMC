@@ -50,13 +50,13 @@ class Device{
         Graph atom_neighbors;											// list of neighbors of each atom (excluding defects)
         double nn_dist;													// neighbor distance
         
-        //std::vector<double> site_layer;									// layerID for each site
+        //std::vector<double> site_layer;								// layerID for each site
         std::vector<double> site_charge;								// charge of each site
         std::vector<double> site_potential;								// potential of each site
         std::vector<double> site_temperature;							// temperature of each site
         
         // constructor from input xyz file(s)
-        Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, bool shift, std::vector<double> shifts, bool pbc, double nn_dist);
+        Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg);
         
         // get number of sites with this element
         int get_num_of_element(std::string element_);
