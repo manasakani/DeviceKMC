@@ -1,0 +1,15 @@
+mol new {snapshot_0.xyz} type {xyz} first 0 last -1 step 1 waitfor 1 
+set in [open snapshot_0.xyz r] 
+set out [open somefile.tocheck w] 
+seek $in 0 start 
+gets $in line 
+gets $in line 
+set i 0 
+while { [gets $in line] != -1} { 
+scan $line "%s%s%s%s%s%s" d1 d2 d3 d4 d5 ch 
+set sel1 [atomselect top "index $i"] 
+set i [expr {$i+1}] 
+$sel1 set charge $ch 
+puts $out "$i $ch" 
+$sel1 delete 
+} 
