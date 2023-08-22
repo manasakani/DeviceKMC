@@ -23,7 +23,7 @@ void Site::disp_site(){
 
 
 // Construct the device
-Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, bool shift, std::vector<double> shifts, bool pbc, double nn_dist){
+Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg){
 	
 	// parse xyz file(s)
 	std::vector<double> x, y, z;
@@ -48,6 +48,10 @@ Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice,
 	this->nn_dist = nn_dist;
 	site_neighbors.initialize(N);
 	constructSiteNeighborList();
+	
+	site_charge.resize(N);
+	site_potential.resize(N);
+	site_temperature.resize(N, T_bg);
    
     std::cout << "Loaded " << N << " sites into device" << "\n";
 
@@ -114,17 +118,14 @@ void Device::makeSubstoichiometric(double vacancy_concentration){
 
 void Device::updateCharge(){
     // this function should populate the "site_charge" attribute of this object 
-    site_charge.resize(N);
 }
 
 void Device::updatePotential(){
     // this function should populate the "site_potential" attribute of this object 
-    site_potential.resize(N);
 }
 
 void Device::updateTemperature(){
     // this function should populate the "site_temperature" attribute of this object 
-    site_temperature.resize(N);
 }
 
 void Device::writeSnapshot(std::string filename, std::string foldername){
