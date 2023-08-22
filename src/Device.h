@@ -12,7 +12,7 @@ struct Site{
     int ind; 															// index in neighbor list
     std::vector<double> pos;    										// xyz position
     std::string element;												// atomic element ('d' for defect)
-    bool isdefect; 														// is this a interstitial position?
+    //bool isdefect; 													// is this a interstitial position?
 
     Site();
 	void init_site(int ind_, double x_, double y_, double z_, std::string element);
@@ -40,7 +40,7 @@ struct Graph{
     ~Graph(){}
 };
 
-// A device is a collection of sites seperated into layers, and a neighbor list
+// A device is a collection of sites, a neighbor list, and their fields
 class Device{
 	
 	public:
@@ -56,7 +56,8 @@ class Device{
         std::vector<double> site_temperature;							// temperature of each site
         
         // constructor from input xyz file(s)
-        Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg);
+        Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, 
+			   bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg);
         
         // get number of sites with this element
         int get_num_of_element(std::string element_);
@@ -67,10 +68,16 @@ class Device{
         // update the neighbor list of just the atoms (excluding the defects)
         void updateAtomNeighborList();
         
+        // update the charge of each vacancy and ion
         void updateCharge();
+        
+        // update the potential of each site
         void updatePotential();
+        
+        // update the local heat at each site
 	    void updateTemperature();
 	    
+	    // write an xyz file with [element, x, y, z, potential, temperature] data 
 	    void writeSnapshot(std::string filename, std::string foldername);
 
     private:
@@ -80,6 +87,8 @@ class Device{
 	    
 	    // initialize site_neighbors depending on nn_dist	    
         void constructSiteNeighborList();
+        
+        // initialize laplacian for heat solver
         //void initLaplacian();
 	
 };

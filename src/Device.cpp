@@ -23,7 +23,8 @@ void Site::disp_site(){
 
 
 // Construct the device
-Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg){
+Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, 
+			   bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg){
 	
 	// parse xyz file(s)
 	std::vector<double> x, y, z;
@@ -49,6 +50,7 @@ Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice,
 	site_neighbors.initialize(N);
 	constructSiteNeighborList();
 	
+	// initialize the size of the field vectors
 	site_charge.resize(N);
 	site_potential.resize(N);
 	site_temperature.resize(N, T_bg);
