@@ -3,7 +3,6 @@
 #include <vector>
 #include <random>
 #include <omp.h>
-#include <iostream>
 #include "random_num.h"
 
 #ifndef DEVICE_H
@@ -47,15 +46,7 @@ struct Graph{
 		}
 	}   
 	
-	void printAdjList(){
-        for(int i=0; i<N; i++){
-            std::cout<<"vertex "<<i<<"->";
-            for(int j:l[i]){
-                std::cout<<j<<" ";
-            }
-            std::cout << std::endl;
-        }
-    }
+	void printAdjList();
 
     ~Graph(){}
 };
