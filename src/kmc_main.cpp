@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <stdlib.h>
 #include <chrono>
+#include <omp.h>
 
 #include "parameters.h"
 #include "utils.h"
@@ -37,14 +38,14 @@ int main() {
 		xyz_files.push_back(interstitial_xyz_file);
     }
     
-    Device device(xyz_files, lattice, shift, shifts, pbc, nn_dist, background_temp);
+    Device device(xyz_files, lattice, shift, shifts, pbc, nn_dist, background_temp, rnd_seed);
     if (pristine) device.makeSubstoichiometric(initial_vacancy_concentration);
+    outputBuffer << "Device was constructed\n";
     
     // Initialize the fields - implement these member functions inside Device.cpp!
     device.updateCharge();
     device.updatePotential();
     device.updateTemperature();
-    outputBuffer << "Device has been constructed\n";
     
     // Initial snapshot to test:
     const std::string file_name = "snapshot_init.xyz";
@@ -52,6 +53,7 @@ int main() {
     
     // Initialize KMC simulation
     // instantiate a KMCprocess object by sending a pointer to this device and a dictionary of input settings
+    // KMCProcess sim();
     
     // outer simulation loop over Vd, t:
     //    prepare output folder and update the simulation
