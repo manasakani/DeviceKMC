@@ -53,6 +53,7 @@ class Device{
         //std::vector<double> site_layer;								// layerID for each site
         std::vector<double> site_charge;								// charge of each site
         std::vector<double> site_potential;								// potential of each site
+        std::vector<double> site_power;                                 // power of each site
         std::vector<double> site_temperature;							// temperature of each site
         
         // constructor from input xyz file(s)
@@ -69,6 +70,7 @@ class Device{
         
         void updateCharge();
         void updatePotential();
+        void updatePower();
 	    void updateTemperature();
 	    
 	    void writeSnapshot(std::string filename, std::string foldername);

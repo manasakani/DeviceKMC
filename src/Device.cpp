@@ -124,6 +124,10 @@ void Device::updatePotential(){
     // this function should populate the "site_potential" attribute of this object 
 }
 
+void Device::updatePower(){
+     // this function should populate the "site_power" attribute of this object 
+}
+
 void Device::updateTemperature(){
     // this function should populate the "site_temperature" attribute of this object 
 }
