@@ -23,6 +23,16 @@ void Site::disp_site(){
   print("atom #" << ind << " with type " << element << ": " << " at position " << pos[0] << " " << pos[1] << " " << pos[2] << " ");
 }
 
+void Graph::printAdjList(){
+    for(int i=0; i<N; i++){
+        std::cout<<"vertex "<<i<<"->";
+        for(int j:l[i]){
+            std::cout<<j<<" ";
+        }
+        std::cout << std::endl;
+    }
+}
+
 
 // Construct the device
 Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, 
@@ -62,8 +72,7 @@ Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice,
 	// initialize and construct the neighbor lists
 	site_neighbors.initialize(N);
 	constructSiteNeighborList();
-	//std::cout << "updating atom list\n";
-	//updateAtomNeighborList();
+	updateAtomNeighborList();
 	
 	// initialize the size of the field vectors
 	site_charge.resize(N);
@@ -93,18 +102,21 @@ void Device::constructSiteNeighborList(){
 
 void Device::updateAtomNeighborList(){
     // updates (1) the atoms list and (2) the atom neighbor graph (excluding defects)
+    
+    // reset the atoms array and neighbor list
     atoms.clear();
-    atom_neighbors.erase();
-    
+    if (!atom_neighbors.l.empty()){
+        atom_neighbors.erase();
+    }
     int atom_count = 0;
-    int threads_num = omp_get_max_threads();
     
+    int threads_num = omp_get_max_threads();
     int local_iter_num = (int) std::ceil((double) N / threads_num);
     std::vector<std::vector<Site*>> atoms_local(threads_num);
     for (auto i = 0; i < threads_num; ++i) {
         atoms_local[i].reserve(local_iter_num);
     }
-    
+        
     // locate the non-defect sites
     #pragma omp parallel
     {
@@ -117,7 +129,7 @@ void Device::updateAtomNeighborList(){
             }
         }
     }
-    
+        
     // populate the atoms array with the non-defect sites
     for (auto i = 0; i < threads_num; ++i) {
         if (atoms_local[i].size() > 0) {			
@@ -141,7 +153,6 @@ void Device::updateAtomNeighborList(){
     }
     
     this->N_atom = atom_count;
-    //atom_neighbors.printAdjList();
        
 }
 
