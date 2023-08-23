@@ -19,6 +19,7 @@ std::vector<double> lattice = {93.72586, 26.914773122, 26.6371955996}; // 1x1 de
 bool pristine = !restart;
 double initial_vacancy_concentration = 0.01;
 double freq = 10e13; // [1/s]
+unsigned int rnd_seed = 1;
 
 //translate cell across the periodic boundary
 bool shift = !restart;

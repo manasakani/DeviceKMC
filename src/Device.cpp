@@ -1,5 +1,6 @@
 #include "Device.h"
 #include "utils.h"
+#include "random_num.h"
 #include <stdlib.h>
 #include <iostream>
 #include <string>
@@ -25,7 +26,10 @@ void Site::disp_site(){
 
 // Construct the device
 Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, 
-			   bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg){
+			   bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg, unsigned int rnd_seed){
+	
+	// initialize the random number generator
+	random_generator.setSeed(rnd_seed);
 	
 	// parse xyz file(s)
 	std::vector<double> x, y, z;
@@ -58,7 +62,8 @@ Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice,
 	// initialize and construct the neighbor lists
 	site_neighbors.initialize(N);
 	constructSiteNeighborList();
-	updateAtomNeighborList();
+	//std::cout << "updating atom list\n";
+	//updateAtomNeighborList();
 	
 	// initialize the size of the field vectors
 	site_charge.resize(N);
@@ -135,6 +140,7 @@ void Device::updateAtomNeighborList(){
         }
     }
     
+    this->N_atom = atom_count;
     //atom_neighbors.printAdjList();
        
 }
@@ -155,11 +161,6 @@ int Device::get_num_of_element(std::string element_){
 // distributes some initial vacancies in the oxide
 void Device::makeSubstoichiometric(double vacancy_concentration){
 
-    //random number generator
-    std::random_device rd; 
-    std::mt19937 gen(rd());
-    std::uniform_real_distribution<> rndm_double(0, 1);
-
     int num_O, num_V_add, loc;
     double random_num;
 
@@ -168,7 +169,7 @@ void Device::makeSubstoichiometric(double vacancy_concentration){
     
     std::cout << num_V_add << " oxygen atoms will be converted to vacancies" << std::endl;
     while(num_V_add > 0){
-        random_num = rndm_double(gen);
+        random_num = random_generator.getRandomNumber();
         loc = random_num*N;
         if (sites[loc].element == "O"){
             sites[loc].element = "V";

@@ -4,6 +4,7 @@
 #include <random>
 #include <omp.h>
 #include <iostream>
+#include "random_num.h"
 
 #ifndef DEVICE_H
 #define DEVICE_H
@@ -63,9 +64,6 @@ struct Graph{
 class Device{
 	
 	public:
-	    int N = 0;														// number of sites in this device
-	    int N_atom = 0;													// number of atoms in this device
-	    int N_int = 0;													// number of available interstitial (defect) sites
 	    
         std::vector<Site> sites;										// list of sites in this device
         std::vector<Site*> atoms;										// list of pointers to atoms in the sites array (exlcuding defects)
@@ -80,7 +78,7 @@ class Device{
         
         // constructor from input xyz file(s)
         Device(std::vector<std::string>& xyz_files, std::vector<double> lattice, 
-			   bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg);
+			   bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg, unsigned int rnd_seed);
         
         // get number of sites with this element
         int get_num_of_element(std::string element_);
@@ -104,9 +102,13 @@ class Device{
 	    void writeSnapshot(std::string filename, std::string foldername);
 
     private:
-        
+    
+        int N = 0;														// number of sites in this device
+	    int N_atom = 0;													// number of atoms in this device
+	    int N_int = 0;													// number of available interstitial (defect) sites
 	    std::vector<double> lattice;									// size of device box
 	    bool pbc;														// is device periodic in the lateral directions?
+	    RandomNumberGenerator random_generator;							// random number generator object for this device
 	    
 	    // initialize site_neighbors depending on nn_dist	    
         void constructSiteNeighborList();

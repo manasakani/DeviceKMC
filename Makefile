@@ -14,7 +14,7 @@ TARGET = $(BINDIR)/runKMC
 
 SOURCES = $(wildcard $(SRCDIR)/*.cpp)
 OBJECTS = $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SOURCES))
-DEPS = $(SRCDIR)/parameters.h
+DEPS = $(SRCDIR)/parameters.h $(SRCDIR)/random_num.h
 
 .PHONY: all clean
 
