@@ -17,7 +17,8 @@ std::vector<double> lattice = {93.72586, 26.914773122, 26.6371955996}; // 1x1 de
 
 //add initial vacancy concentration if starting from pristine
 bool pristine = !restart;
-double initial_vacancy_concentration = 0.05;
+double initial_vacancy_concentration = 0.01;
+double freq = 10e13; // [1/s]
 
 //translate cell across the periodic boundary
 bool shift = !restart;
@@ -119,7 +120,6 @@ double layer_4_end_x = 90.0;
 double kB = 8.617333262e-5; // [eV/K]
 double q = 1.60217663e-19; // [C]
 double k = 8.987552e9/epsilon; // [N m^2 / C^2]
-double freq = 10e13; // [1/s]
 double h_bar_sq = 4.3957e-67; // [(Js)^2]
 double h_bar = 1.054571817e-34; // [Js]
 double h_bar_eV = 6.582119569e-16; //[eV]

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <omp.h>
 
 Site::Site(){}
 
@@ -35,6 +36,8 @@ Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice,
     
     // sort and prepare the raw coordinates
     this->lattice = lattice;
+    this->pbc = pbc;
+	this->nn_dist = nn_dist;
     sort_by_x(x, y, z, elements, lattice);
     if (shift) translate_cell(x, y, z, N, lattice, shifts);
     
@@ -42,13 +45,20 @@ Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice,
     sites.resize(N); 
     for (int i = 0; i < N; i++){
 		sites[i].init_site(i, x[i], y[i], z[i], elements[i]);
+		
+		if (sites[i].element == "d"){
+			this->N_int++;
+			sites[i].isdefect = true;
+		} else {
+			this->N_atom++;
+		}
+		
 	}
 	
-	// construct the neighbor list
-	this->pbc = pbc;
-	this->nn_dist = nn_dist;
+	// initialize and construct the neighbor lists
 	site_neighbors.initialize(N);
 	constructSiteNeighborList();
+	updateAtomNeighborList();
 	
 	// initialize the size of the field vectors
 	site_charge.resize(N);
@@ -56,6 +66,7 @@ Device::Device(std::vector<std::string>& xyz_files, std::vector<double> lattice,
 	site_temperature.resize(N, T_bg);
    
     std::cout << "Loaded " << N << " sites into device" << "\n";
+    std::cout << "Consisting of " << N_atom << " atoms and " << N_int << " interstitials " << "\n";
 
 }
 
@@ -76,7 +87,56 @@ void Device::constructSiteNeighborList(){
 }
 
 void Device::updateAtomNeighborList(){
-    // updates the neighbor list of just the atoms (excluding defects)
+    // updates (1) the atoms list and (2) the atom neighbor graph (excluding defects)
+    atoms.clear();
+    atom_neighbors.erase();
+    
+    int atom_count = 0;
+    int threads_num = omp_get_max_threads();
+    
+    int local_iter_num = (int) std::ceil((double) N / threads_num);
+    std::vector<std::vector<Site*>> atoms_local(threads_num);
+    for (auto i = 0; i < threads_num; ++i) {
+        atoms_local[i].reserve(local_iter_num);
+    }
+    
+    // locate the non-defect sites
+    #pragma omp parallel
+    {
+        int thread_id = omp_get_thread_num();
+       
+        #pragma omp for
+        for (auto i = 0; i < N; i++) {
+            if (sites[i].element != "d") {
+                atoms_local[thread_id].push_back(&sites[i]);
+            }
+        }
+    }
+    
+    // populate the atoms array with the non-defect sites
+    for (auto i = 0; i < threads_num; ++i) {
+        if (atoms_local[i].size() > 0) {			
+            atoms.insert(atoms.end(), atoms_local[i].begin(), atoms_local[i].end());
+            atom_count += atoms_local[i].size();
+            atoms_local[i].clear();
+        }
+    }
+
+    // construct subset neighbor graph for atoms (exclude defects):
+    atom_neighbors.initialize(atom_count);
+    double dist;
+    #pragma omp parallel for private(dist)
+    for(auto i = 0; i < N_atom; i++){
+        for(auto j = 0; j < N_atom; j++){
+            dist = site_dist(atoms[i]->pos, atoms[j]->pos, lattice, pbc);
+            if (dist < nn_dist && i != j){
+                atom_neighbors.addEdge(i, j);
+            }
+        }
+    }
+    
+    //atom_neighbors.printAdjList();
+       
 }
 
 //returns number of sites of element
