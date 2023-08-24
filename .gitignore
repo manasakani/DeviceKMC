@@ -10,6 +10,7 @@ obj/
 *.sln
 *.swp
 *.jpg
+*.xyz
 
 # Ignore files
 output.txt
