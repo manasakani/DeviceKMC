@@ -1,0 +1,14 @@
+# Ignore the bin folder
+bin/
+obj/
+
+# Other standard ignores
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+
+# Ignore files
+output.txt
