@@ -62,7 +62,7 @@ int main()
         std::cout << pair.first << ": " << pair.second << std::endl;
     }
 
-    std::map<std::string, int> potentialMap = device.updatePotential(num_atoms_contact, Vd);
+    std::map<std::string, int> potentialMap = device.updatePotential(num_atoms_contact, Vd, lattice, pbc, sigma, k);
     device.updateTemperature();
 
     // Initial snapshot to test:
