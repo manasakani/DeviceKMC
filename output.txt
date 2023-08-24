@@ -104,3 +104,24 @@ Starting Kinetic Monte Carlo
 Starting Kinetic Monte Carlo
 ----------------------------
 Device was constructed
+----------------------------
+Starting Kinetic Monte Carlo
+----------------------------
+----------------------------
+Starting Kinetic Monte Carlo
+----------------------------
+Device was constructed
+----------------------------
+Starting Kinetic Monte Carlo
+----------------------------
+----------------------------
+Starting Kinetic Monte Carlo
+----------------------------
+Device was constructed
+----------------------------
+Starting Kinetic Monte Carlo
+----------------------------
+----------------------------
+Starting Kinetic Monte Carlo
+----------------------------
+Device was constructed

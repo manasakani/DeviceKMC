@@ -5,6 +5,9 @@
 #include <vector>
 #include <string>
 
+#ifndef PARAM_H
+#define PARAM_H
+
 // restart calculation
 bool restart = 0;
 std::string restart_xyz_file = "snapshot_0_big.xyz";
@@ -122,7 +125,9 @@ double q = 1.60217663e-19;         // [C]
 double k = 8.987552e9 / epsilon;   // [N m^2 / C^2]
 double h_bar_sq = 4.3957e-67;      // [(Js)^2]
 double h_bar = 1.054571817e-34;    // [Js]
-double h_bar_eV = 6.582119569e-16; //[eV]
+double h_bar_eV = 6.582119569e-16; // [eV]
 double m_0 = 9.11e-31;             // [kg]
 double eV_to_J = 1.6e-19;          // [C]
-double m_e = m_r * m_0;            //[kg]
+double m_e = m_r * m_0;            // [kg]
+
+#endif

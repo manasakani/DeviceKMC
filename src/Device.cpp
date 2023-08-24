@@ -455,6 +455,26 @@ std::map<std::string, int> Device::updatePotential(int num_atoms_contact, double
         print("Warning: error in linear system solver for background potential!");
     }
 
+// Solving the oxide potential considering only pairwise coulomb interactions.
+// solve poisson's equation with zero BC
+#pragma omp parallel for
+    for (int i = N_left_tot; i < N - N_right_tot; i++)
+    {
+        double V_temp = 0;
+        double r_dist;
+
+        for (int j = 0; j < N; j++)
+        {
+
+            if (i != j && site_charge[j] != 0)
+            {
+                // r_dist = (1e-10) * site_dist(sites[i], sites[j]);
+                // V_temp += v_solve(r_dist, site_charge[j]);
+            }
+        }
+        site_charge[i] += V_temp;
+    }
+
     free(K);
     free(D);
     free(VL);
