@@ -1,7 +1,7 @@
 // KMC Process class
 #include "random_num.h"
 #include "KMCProcess.h"
-//#include "parameters.h"
+#include "structure_input.h"
 #include "Device.h"
 #include "utils.h"
 #include <iostream>
@@ -23,7 +23,7 @@ void Layer::disp_layer(){
 }*/
 
 KMCProcess::KMCProcess(Device* device){
-	//random_generator.setSeed(rnd_seed);
+	random_generator.setSeed(rnd_seed_kmc);
 	
 	std::cout << "making device\n";
 	
