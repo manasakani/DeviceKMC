@@ -97,7 +97,7 @@ public:
     std::map<std::string, int> updateCharge();
 
     // update the potential of each site
-    std::map<std::string, int> updatePotential(int num_atoms_contacts, double Vd);
+    std::map<std::string, int> updatePotential(int num_atoms_contacts, double Vd, std::vector<double> lattice, bool pbc, double sigma, double k);
 
     // update the power of each site
     void updatePower();
@@ -115,7 +115,8 @@ private:
     std::vector<double> lattice;            // size of device box
     bool pbc;                               // is device periodic in the lateral directions?
     RandomNumberGenerator random_generator; // random number generator object for this device
-
+    double kB = 8.617333262e-5;             // [eV/K]
+    double q = 1.60217663e-19;              // [C]
     // initialize site_neighbors depending on nn_dist
     void constructSiteNeighborList();
 

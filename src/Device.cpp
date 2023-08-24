@@ -327,7 +327,7 @@ std::map<std::string, int> Device::updateCharge()
     return result;
 }
 
-std::map<std::string, int> Device::updatePotential(int num_atoms_contact, double Vd)
+std::map<std::string, int> Device::updatePotential(int num_atoms_contact, double Vd, std::vector<double> lattice, bool pbc, double sigma, double k)
 {
     std::map<std::string, int> result;
     int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
@@ -468,11 +468,12 @@ std::map<std::string, int> Device::updatePotential(int num_atoms_contact, double
 
             if (i != j && site_charge[j] != 0)
             {
-                // r_dist = (1e-10) * site_dist(sites[i], sites[j]);
-                // V_temp += v_solve(r_dist, site_charge[j]);
+                r_dist = (1e-10) * site_dist(sites[i].pos, sites[j].pos, lattice, pbc);
+                // solution for the potential r_dist away from a gaussian charge distribution with width sigma
+                V_temp += site_charge[j] * erfc(r_dist / (sigma * sqrt(2))) * k * q / r_dist;
             }
         }
-        site_charge[i] += V_temp;
+        site_potential[i] += V_temp;
     }
 
     free(K);
