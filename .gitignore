@@ -9,6 +9,7 @@ obj/
 *.njsproj
 *.sln
 *.swp
+*.jpg
 
 # Ignore files
 output.txt

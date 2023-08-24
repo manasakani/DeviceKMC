@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <stdlib.h>
 #include <chrono>
+
+#include "KMCProcess.h"
 #include "parameters.h"
 #include "utils.h"
 #include "Device.h"
@@ -71,7 +73,7 @@ int main()
 
     // Initialize KMC simulation
     // instantiate a KMCprocess object by sending a pointer to this device and a dictionary of input settings
-    // KMCProcess sim();
+    KMCProcess sim(&device);
 
     // outer simulation loop over Vd, t:
     //    prepare output folder and update the simulation
