@@ -62,14 +62,16 @@ class Device
 {
 
 public:
-    std::vector<Site> sites;   // list of sites in this device
-    std::vector<Site *> atoms; // list of pointers to atoms in the sites array (exlcuding defects)
-    Graph site_neighbors;      // list of neighbors of each site (including defects)
-    Graph atom_neighbors;      // list of neighbors of each atom (excluding defects)
-    double nn_dist;            // neighbor distance
+    int N = 0;                              // number of sites in this device
+    std::vector<Site> sites;   				// list of sites in this device
+    std::vector<Site *> atoms; 				// list of pointers to atoms in the sites array (exlcuding defects)
+    Graph site_neighbors;      				// list of neighbors of each site (including defects)
+    Graph atom_neighbors;      				// list of neighbors of each atom (excluding defects)
+    double nn_dist;            				// neighbor distance
+    double sigma;							// gaussian width for potential solver
+    double k;								//
 
-    // std::vector<double> site_layer;								// layerID for each site
-    std::vector<double> site_charge;      // charge of each site
+    std::vector<int> site_charge;      // charge of each site
     std::vector<double> site_potential;   // potential of each site
     std::vector<double> site_power;       // power of each site
     std::vector<double> site_temperature; // temperature of each site
@@ -79,7 +81,8 @@ public:
 
     // constructor from input xyz file(s)
     Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
-           bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg, unsigned int rnd_seed);
+           bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon, 
+           double nn_dist, double T_bg, unsigned int rnd_seed);
 
     // get number of sites with this element
     int get_num_of_element(std::string element_);
@@ -118,7 +121,6 @@ public:
     void writeSnapshot(std::string filename, std::string foldername);
 
 private:
-    int N = 0;                              // number of sites in this device
     int N_atom = 0;                         // number of atoms in this device
     int N_int = 0;                          // number of available interstitial (defect) sites
     std::vector<double> lattice;            // size of device box

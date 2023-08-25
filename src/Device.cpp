@@ -41,7 +41,8 @@ void Graph::printAdjList()
 
 // Construct the device
 Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
-               bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg, unsigned int rnd_seed)
+               bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon, 
+               double nn_dist, double T_bg, unsigned int rnd_seed)
 {
 
     // initialize the random number generator
@@ -55,10 +56,14 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
         this->N += read_xyz(xyz_file, elements, x, y, z);
     }
 
-    // sort and prepare the raw coordinates
+	// set parameters
     this->lattice = lattice;
     this->pbc = pbc;
     this->nn_dist = nn_dist;
+    this->sigma = sigma;
+    this->k = k = 8.987552e9 / epsilon;
+    
+    // sort and prepare the raw coordinates
     sort_by_x(x, y, z, elements, lattice);
     if (shift)
         translate_cell(x, y, z, N, lattice, shifts);

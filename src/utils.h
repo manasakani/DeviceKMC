@@ -33,6 +33,8 @@ inline bool location_exists(const std::string &fname)
     return (stat(fname.c_str(), &buffer) == 0);
 }
 
+inline double v_solve(double &r_dist, int &charge, double &sigma, double &k, double &q){return charge * erfc( r_dist/(sigma*sqrt(2)) )*k*q/r_dist;}
+
 // read xyz and populate the xyz coordinate array and lattice array
 int read_xyz(std::string filename, std::vector<std::string> &elements,
              std::vector<double> &x, std::vector<double> &y, std::vector<double> &z);
