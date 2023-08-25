@@ -48,12 +48,11 @@ int main()
     Device device(xyz_files, lattice, shift, shifts, pbc, sigma, epsilon, nn_dist, background_temp, rnd_seed);
     if (pristine)
         device.makeSubstoichiometric(initial_vacancy_concentration);
-    outputBuffer << "Device was constructed\n";
 
     // ****** TESTING FIELD SOLVERS ********
 
     // Voltage
-    double Vd;
+    /*double Vd;
     Vd = V_switch[0]; // Testing change this with the counter !!!
 
     // Initialize the fields
@@ -80,7 +79,7 @@ int main()
 
     // Initial snapshot to test:
     const std::string file_name = "snapshot_init.xyz";
-    device.writeSnapshot(file_name, "./");
+    device.writeSnapshot(file_name, "./");*/
 
     // ****** TESTING FIELD SOLVERS ********
 
@@ -89,7 +88,7 @@ int main()
     std::cout << "initialized KMC simulation\n";
 
     // loop over V_switch and t_switch
-    double t, kmc_time, I_macro, T_kmc;
+    double Vd, t, kmc_time, I_macro, T_kmc;
     int kmc_step_count;
     double *begin = std::begin(V_switch);
     double *end = std::end(V_switch);
@@ -123,25 +122,14 @@ int main()
             // field solvers
             if (solve_potential)
             {
-                std::map<std::string, int> resultMap = device.updateCharge();
-                // device.updatePotential(num_atoms_contact, Vd, lattice, pbc);
+                std::map<std::string, int> chargeMap = device.updateCharge();
+                device.updatePotential(num_atoms_contact, Vd, lattice,
+                           G_coeff, high_G, low_G, metals);
             }
 
-            /*if (solve_current) {
-                if (solve_heating){
-                    I_macro = update_current(sites, neighbors, N, Vd, 1, T_kmc);
-                } else {
-                    I_macro = update_current(sites, neighbors, N, Vd, 0, T_kmc);
-                }
-            } else {
-                T_kmc = background_temp;
-            } */
+            // Solve currents and temperatures
 
             // enforce compliance current
-            /*if (I_macro > Icc){
-                print("Compliance Current Icc reached");
-                break;
-            }*/
 
             // atomic structure perturbation step
             kmc_time += sim.executeKMCStep(&device, freq, lattice, pbc);
@@ -151,7 +139,7 @@ int main()
             if (!(kmc_step_count % log_freq))
             {
                 const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-                device.writeSnapshot(file_name, "./");
+                device.writeSnapshot(file_name, folder_name);
             }
 
             // dump output buffer into file
@@ -164,22 +152,9 @@ int main()
             // print some timing info here
         }
         const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-        device.writeSnapshot(file_name, "./");
+        device.writeSnapshot(file_name, folder_name);
         vt_counter++;
     }
-
-    // outer simulation loop over Vd, t:
-    //    prepare output folder and update the simulation
-    //    inner simulation loop over KMC steps:
-    //        update all the fields
-    // std::map<std::string, int> resultMap = device.updateCharge();
-    // std::map<std::string, int> potentialMap = device.updatePotential(num_atoms_contact, Vd, lattice, pbc, sigma, k);
-    // device.updateTemperature();
-    //        execute a KMC step on the device
-    // sim.executeKMCStep(&device);
-    // 		  logging:
-    //		  if output_buf_step % 10
-    //		  (dump the output buffer into the output file)
 
     // close logger
     outputFile << outputBuffer.str();

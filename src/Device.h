@@ -126,11 +126,13 @@ private:
     std::vector<double> lattice;            // size of device box
     bool pbc;                               // is device periodic in the lateral directions?
     RandomNumberGenerator random_generator; // random number generator object for this device
+    
     double kB = 8.617333262e-5;             // [eV/K]
     double q = 1.60217663e-19;              // [C]
     double h_bar_sq = 4.3957e-67;           // [(Js)^2]
     double m_0 = 9.11e-31;                  // [kg]
     double eV_to_J = 1.6e-19;               // [C]
+    
     // initialize site_neighbors depending on nn_dist
     void constructSiteNeighborList();
 

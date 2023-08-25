@@ -17,7 +17,7 @@ std::vector<double> lattice = {93.72586, 26.914773122, 26.6371955996}; // 1x1 de
 
 // add initial vacancy concentration if starting from pristine
 bool pristine = !restart;
-double initial_vacancy_concentration = 0.01;
+double initial_vacancy_concentration = 0.05;
 double freq = 10e13; // [1/s]
 unsigned int rnd_seed = 1;
 
@@ -62,7 +62,7 @@ double t_switch[] = {1}; // [s]
 double Icc = 3e-3; // 150e-6; // [A]
 
 // frequency of device snapshot generation (per x kmc steps)
-int log_freq = 100;
+int log_freq = 10;
 
 // frequency of printing the steps into the output file
 int output_freq = 1;

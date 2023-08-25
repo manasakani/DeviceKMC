@@ -476,7 +476,7 @@ void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<doubl
         print("Warning: error in linear system solver for background potential!");
     }
 
-#pragma omp parallel for
+/*#pragma omp parallel for
     for (int i = N_left_tot; i < N - N_right_tot; i++)
     {
         double V_temp = 0;
@@ -493,7 +493,7 @@ void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<doubl
             }
         }
         site_potential[i] += V_temp;
-    }
+    }*/
 
     // Solving the oxide potential considering only pairwise coulomb interactions.
     // solve poisson's equation with zero BC

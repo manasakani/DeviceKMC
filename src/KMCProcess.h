@@ -3,6 +3,7 @@
 #define KMC_H
 #include "Device.h"
 #include "random_num.h"
+#include <list>
 
 // struct for a single KMC event
 /*Key for event_type:
@@ -70,6 +71,12 @@ class KMCProcess{
 		double h_bar_eV = 6.582119569e-16; // [eV]
 		double m_0 = 9.11e-31;             // [kg]
 		double eV_to_J = 1.6e-19;          // [C]
+		
+		//returns an event in the event list according to the residence time algorithm
+		Event* pick_and_get_event(std::list<Event>& event_list, int event_list_size, double Psum);
+		
+		//executes an event object on the sites provided
+		void execute_event(Site* site_1, Site* site_2, int &event_type, std::vector<int> site_charge);
 		
 		/*void buildEventList(Device device);
 		void pickEvent(std::vector<Event> event_list);
