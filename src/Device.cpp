@@ -41,7 +41,7 @@ void Graph::printAdjList()
 
 // Construct the device
 Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
-               bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon, 
+               bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon,
                double nn_dist, double T_bg, unsigned int rnd_seed)
 {
 
@@ -56,13 +56,13 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
         this->N += read_xyz(xyz_file, elements, x, y, z);
     }
 
-	// set parameters
+    // set parameters
     this->lattice = lattice;
     this->pbc = pbc;
     this->nn_dist = nn_dist;
     this->sigma = sigma;
     this->k = k = 8.987552e9 / epsilon;
-    
+
     // sort and prepare the raw coordinates
     sort_by_x(x, y, z, elements, lattice);
     if (shift)
@@ -250,7 +250,7 @@ int Device::get_num_in_contacts(int num_atoms_contact, std::string contact_name_
         count = N;
         while (i > N - num_atoms_contact)
         {
-            if (sites[count].element != "d")
+            if (sites[count - 1].element != "d")
             {
                 i--;
             }
@@ -352,7 +352,7 @@ std::map<std::string, int> Device::updateCharge()
 }
 
 // update the potential of each site
-void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<double> lattice, double sigma, double k,
+void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<double> lattice,
                              double G_coeff, double high_G, double low_G, std::vector<std::string> metals)
 {
 
