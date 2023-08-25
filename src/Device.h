@@ -62,16 +62,16 @@ class Device
 {
 
 public:
-    int N = 0;                              // number of sites in this device
-    std::vector<Site> sites;   				// list of sites in this device
-    std::vector<Site *> atoms; 				// list of pointers to atoms in the sites array (exlcuding defects)
-    Graph site_neighbors;      				// list of neighbors of each site (including defects)
-    Graph atom_neighbors;      				// list of neighbors of each atom (excluding defects)
-    double nn_dist;            				// neighbor distance
-    double sigma;							// gaussian width for potential solver
-    double k;								//
+    int N = 0;                 // number of sites in this device
+    std::vector<Site> sites;   // list of sites in this device
+    std::vector<Site *> atoms; // list of pointers to atoms in the sites array (exlcuding defects)
+    Graph site_neighbors;      // list of neighbors of each site (including defects)
+    Graph atom_neighbors;      // list of neighbors of each atom (excluding defects)
+    double nn_dist;            // neighbor distance
+    double sigma;              // gaussian width for potential solver
+    double k;                  //
 
-    std::vector<int> site_charge;      // charge of each site
+    std::vector<int> site_charge;         // charge of each site
     std::vector<double> site_potential;   // potential of each site
     std::vector<double> site_power;       // power of each site
     std::vector<double> site_temperature; // temperature of each site
@@ -81,7 +81,7 @@ public:
 
     // constructor from input xyz file(s)
     Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
-           bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon, 
+           bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon,
            double nn_dist, double T_bg, unsigned int rnd_seed);
 
     // get number of sites with this element
@@ -106,7 +106,7 @@ public:
     std::map<std::string, int> updateCharge();
 
     // update the potential of each site
-    void updatePotential(int num_atoms_contacts, double Vd, std::vector<double> lattice, double sigma, double k,
+    void updatePotential(int num_atoms_contacts, double Vd, std::vector<double> lattice,
                          double G_coeff, double high_G, double low_G, std::vector<std::string> metals);
 
     // update the power of each site
