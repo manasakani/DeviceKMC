@@ -67,6 +67,9 @@ double Icc = 3e-3; // 150e-6; // [A]
 // frequency of device snapshot generation (per x kmc steps)
 int log_freq = 100;
 
+// frequency of printing the steps into the output file
+int output_freq = 1;
+
 // log to output.log file? (default logs to console)
 bool log_to_file = 1;
 

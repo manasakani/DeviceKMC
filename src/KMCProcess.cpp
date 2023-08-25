@@ -5,7 +5,7 @@
 #include "Device.h"
 #include "utils.h"
 #include <iostream>
-
+#include <list>
 
 void Layer::init_layer(std::string type_, double E_gen_0_, double E_rec_1_, double E_diff_2_, double E_diff_3_, double start_x_, double end_x_){
     type = type_;
@@ -29,22 +29,22 @@ KMCProcess::KMCProcess(Device* device){
 		
 	//intialize device layers
 	int layerID;
-	Layer *layers = new Layer[numlayers];
+	this->layers.resize(numlayers);
     layers[0].init_layer(layer_0_type, layer_0_E_gen_0, layer_0_E_rec_1, layer_0_E_diff_2, layer_0_E_diff_3, layer_0_start_x, layer_0_end_x);
     layers[1].init_layer(layer_1_type, layer_1_E_gen_0, layer_1_E_rec_1, layer_1_E_diff_2, layer_1_E_diff_3, layer_1_start_x, layer_1_end_x);
     layers[2].init_layer(layer_2_type, layer_2_E_gen_0, layer_2_E_rec_1, layer_2_E_diff_2, layer_2_E_diff_3, layer_2_start_x, layer_2_end_x);
     layers[3].init_layer(layer_3_type, layer_3_E_gen_0, layer_3_E_rec_1, layer_3_E_diff_2, layer_3_E_diff_3, layer_3_start_x, layer_3_end_x);
     layers[4].init_layer(layer_4_type, layer_4_E_gen_0, layer_4_E_rec_1, layer_4_E_diff_2, layer_4_E_diff_3, layer_4_start_x, layer_4_end_x);
 	
-	//assign layersIDs for all the sites
+	//assign layer IDs for all the sites
 	for(int i = 0; i < device->N; i++){
-        layerID = 100;
+        layerID = 1000;
         for(int j = 0; j < numlayers; j++){
             if (layers[j].start_x <= device->sites[i].pos[0] && device->sites[i].pos[0] <= layers[j].end_x){
                 layerID = j;
             }
         }
-        if (layerID == 100){
+        if (layerID == 1000){
             print("Site #" << i << " is not inside the device!");
             abort();
         }
@@ -53,11 +53,180 @@ KMCProcess::KMCProcess(Device* device){
 	
 }
 
-double executeKMCStep(Device device){
+double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<double> lattice, bool pbc){
 	
 	// build event list
+	std::list<Event> event_list;
+	long double Psum = 0.0;
+    Event* t_temp;
 	
-	// while loop
-	    // select and execute event
-	    // cleanup event list
+#pragma omp parallel
+{
+    //this thread gets its own event list and adds events to it
+    std::list<Event> t_event_list;
+
+    std::string site1_type, site2_type;
+    int charge_abs, charge_state, event_type_;
+    double zero_field_energy, E, EA, r_dist, self_int_V, event_temp, delta_temp;
+    long double P;
+    double T_kmc = device->site_temperature[0]; // CHANGE WITH REAL TEMPERATURE
+
+    #pragma omp for schedule(dynamic) reduction(+:Psum)
+    for(int i = 0; i < device->N; i++){
+		
+        for(int j:device->site_neighbors.l[i]){
+
+            r_dist = (1e-10)*site_dist(device->sites[i].pos, device->sites[j].pos, lattice, pbc);
+            site1_type = device->sites[i].element;
+            site2_type = device->sites[j].element;
+
+            // Generation 
+            if (site1_type == "d" && site2_type == "O"){
+
+                E = 2 * (device->site_potential[i] - device->site_potential[j]);
+                zero_field_energy = layers[site_layer[j]].E_gen_0; 
+                event_type_ = 0;
+
+                EA = zero_field_energy - E;
+                P = exp(-1*EA / (kB*T_kmc)) * freq;
+                t_event_list.emplace_back(i, j, event_type_, P);
+
+                Psum += P;
+
+            }
+
+            //Recombination 
+            else if (site1_type == "Od" && site2_type == "V"){
+                
+                charge_abs = 2;
+                self_int_V = v_solve(r_dist, charge_abs, device->sigma, device->k, q);    
+
+                charge_state = device->site_charge[i] - device->site_charge[j];
+                E = charge_state * (device->site_potential[i] - device->site_potential[j] + (charge_state/2)*self_int_V);
+                zero_field_energy = layers[site_layer[j]].E_rec_1;
+
+                event_type_ = 1;
+
+                EA = zero_field_energy - E;
+                P = exp(-1*EA / (kB*T_kmc)) * freq;
+                t_event_list.emplace_back(i, j, event_type_, P);
+
+                Psum += P;
+
+            } 
+            
+            // Vacancy diffusion 
+            else if (site1_type == "V" && site2_type == "O"){
+				
+                if (device->site_charge[i] != 0){
+		        self_int_V = v_solve(r_dist, device->site_charge[i], device->sigma, device->k, q);
+		        } else {
+	     	       self_int_V = 0;
+		        }
+
+                E = (device->site_charge[i] - device->site_charge[j]) * (device->site_potential[i] - device->site_potential[j] + self_int_V);
+                zero_field_energy = layers[site_layer[i]].E_diff_2;
+				
+                event_type_ = 2;
+
+                EA = zero_field_energy - E;
+                P = exp(-1*EA / (kB*T_kmc)) * freq;
+                t_event_list.emplace_back(i, j, event_type_, P);
+
+                Psum += P;
+
+            }  
+
+            // Ion diffusion 
+            else if (site1_type == "Od" && site2_type == "d"){
+				
+		        charge_abs = 2;
+
+		        if (device->site_charge[i] != 0){
+		        	self_int_V = v_solve(r_dist, charge_abs, device->sigma, device->k, q);
+		        } else {
+	        		self_int_V = 0;
+	        	}
+                E = (device->site_charge[i] - device->site_charge[j]) * (device->site_potential[i] - device->site_potential[j] - self_int_V);
+                zero_field_energy = layers[site_layer[j]].E_diff_3;
+				
+                event_type_ = 3;
+
+                EA = zero_field_energy - E;
+                P = exp(-1*EA / (kB*T_kmc)) * freq;
+                t_event_list.emplace_back(i, j, event_type_, P);
+
+                Psum += P;
+            }
+            
+        }
+    }
+    
+    //link all the thread-local event lists
+    #pragma omp critical
+    {
+    event_list.splice(event_list.end(), t_event_list);
+    }
+
+}
+
+    //print_event_list(event_list, "events.txt", 1e-100);
+    std::cout << "printed event list" << std::endl;
+    int check = event_list.size();
+    print("size of event list: " << check);
+    print("total Psum: " << Psum);
+    
+
+    //Event execution loop:
+    /*double event_time = 0.0;
+    int event_cntr, track_ind, event_ind, site_1_ind, site_2_ind;
+    bool conflict_1, conflict_2, conflict_3, conflict_4;
+    Event* selected_event;
+    Event* temp;
+
+    while (event_time < 1/freq){
+        event_cntr = event_list.size();
+
+        if (event_cntr == 0){
+            print("entire event list completed - this should not happen.");
+            break;
+        }
+ 
+        //select and execute an event:
+        selected_event = pick_and_get_event(event_list, event_cntr, Psum);
+        execute_event(&(sites[selected_event->ind1]), &(sites[selected_event->ind2]), selected_event->event_type);
+
+        //remove all events containing the indices of sites[i] and sites[j] from the event list
+        track_ind = 0;
+        Psum = 0.0;
+        auto temp = event_list.begin();
+        site_1_ind = selected_event->ind1;
+        site_2_ind = selected_event->ind2;
+ 
+        while (temp != event_list.end())
+	    {
+            conflict_1 = (temp->ind1 == site_1_ind);
+            conflict_2 = (temp->ind1 == site_2_ind);
+            conflict_3 = (temp->ind2 == site_1_ind);
+            conflict_4 = (temp->ind2 == site_2_ind);
+	
+            if (conflict_1 || conflict_2 || conflict_3 || conflict_4){
+                temp = event_list.erase(temp);
+            }
+            else{
+                Psum += temp->prob;
+                temp++;
+                track_ind++;
+            }
+	    }
+
+        event_time = -log(rndm_double(gen))/Psum;
+        //if (verbose) print("kmc event time: " << event_time << ". Psum: " << Psum);
+    }
+
+    //free memory from remaining events
+    event_list.clear();
+    return event_time;*/
+    return 1.0;
+    
 }

@@ -10,7 +10,6 @@
 
 unsigned int rnd_seed_kmc = 1;
 
-
 int numlayers = 5;
 
 std::string layer_0_type = "contact";
