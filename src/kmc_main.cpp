@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <stdlib.h>
 #include <chrono>
-
 #include "KMCProcess.h"
 #include "parameters.h"
 #include "utils.h"
@@ -55,17 +54,24 @@ int main()
     double Vd;
     Vd = V_switch[0]; // Testing change this with the counter !!!
 
-    // Initialize the fields - implement these member functions inside Device.cpp!
-    std::map<std::string, int> resultMap = device.updateCharge();
+    // Initialize the fields
+    std::map<std::string, int> chargeMap = device.updateCharge();
+
+    // Potential update
+    device.updatePotential(num_atoms_contact, Vd, lattice, sigma, k,
+                           G_coeff, high_G, low_G, metals);
+
+    // Power update
+    // std::map<std::string, int> powerMap = device.updatePower(num_atoms_first_layer, Vd, high_G, low_G,
+    //   metals, m_e, V0);
 
     // Debug purposes
-    for (const auto &pair : resultMap)
+    for (const auto &pair : chargeMap)
     {
         std::cout << pair.first << ": " << pair.second << std::endl;
     }
 
-    std::map<std::string, int> potentialMap = device.updatePotential(num_atoms_contact, Vd, lattice, pbc, sigma, k);
-    device.updateTemperature();
+    // device.updateTemperature();
 
     // Initial snapshot to test:
     const std::string file_name = "snapshot_init.xyz";
