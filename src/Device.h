@@ -76,6 +76,9 @@ public:
     std::vector<double> site_power;       // power of each site
     std::vector<double> site_temperature; // temperature of each site
 
+    std::vector<double> laplacian;    // laplacian matrix
+    std::vector<double> laplacian_ss; // steaday state laplacian
+
     // constructor from input xyz file(s)
     Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
            bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon, 
@@ -86,6 +89,9 @@ public:
 
     // find the number of site objects located in the contacts
     int get_num_in_contacts(int num_atoms_contact, std::string contact_name_);
+
+    // returns true if neighbor
+    bool is_neighbor(int i, int j);
 
     // returns true if metal site
     bool is_present(std::vector<std::string> metals, std::string element_);
@@ -100,13 +106,16 @@ public:
     std::map<std::string, int> updateCharge();
 
     // update the potential of each site
-    std::map<std::string, int> updatePotential(int num_atoms_contacts, double Vd, std::vector<double> lattice, bool pbc, double sigma, double k);
+    void updatePotential(int num_atoms_contacts, double Vd, std::vector<double> lattice, double sigma, double k,
+                         double G_coeff, double high_G, double low_G, std::vector<std::string> metals);
 
     // update the power of each site
-    void updatePower();
+    std::map<std::string, double> updatePower(int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
+                                              std::vector<std::string> metals, double m_e, double V0);
 
     // update the temperature of each site
-    void updateTemperature();
+    std::map<std::string, double> updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
+                                                          double background_temp, double t_ox, double A, double c_p);
 
     // write an xyz file with [element, x, y, z, potential, temperature] data
     void writeSnapshot(std::string filename, std::string foldername);
@@ -119,6 +128,9 @@ private:
     RandomNumberGenerator random_generator; // random number generator object for this device
     double kB = 8.617333262e-5;             // [eV/K]
     double q = 1.60217663e-19;              // [C]
+    double h_bar_sq = 4.3957e-67;           // [(Js)^2]
+    double m_0 = 9.11e-31;                  // [kg]
+    double eV_to_J = 1.6e-19;               // [C]
     // initialize site_neighbors depending on nn_dist
     void constructSiteNeighborList();
 
