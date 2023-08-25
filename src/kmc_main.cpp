@@ -65,8 +65,11 @@ int main()
     std::map<std::string, double> powerMap = device.updatePower(num_atoms_first_layer, Vd, high_G, low_G,
                                                                 metals, m_e, V0);
 
+    // Map
+    std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(event_time, small_step, dissipation_constant,
+                                                                                  background_temp, t_ox, A, c_p);
     // Debug purposes
-    for (const auto &pair : powerMap)
+    for (const auto &pair : temperatureMap)
     {
         std::cout << pair.first << ": " << pair.second << std::endl;
     }

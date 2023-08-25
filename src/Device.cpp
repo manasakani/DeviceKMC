@@ -733,11 +733,7 @@ std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, dou
     // dissipated power at each atom
     dgemm_(&trans, &trans, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
 
-    // Calculate the total power dissipated in the lattice and at every site:
-    double P_tot = 0.0;
-    double P_tot_nodisp = 0.0;
-
-#pragma omp parallel for reduction(+ : P_tot, P_tot_nodisp)
+#pragma omp parallel for
     for (i = num_source_inj; i < N_atom - num_source_inj; i++)
     {
 
@@ -757,8 +753,7 @@ std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, dou
         {
             alpha = 0.20;
         }
-        P_tot += alpha * P_disp[i];
-        P_tot_nodisp += P_disp[i];
+
         site_power[atoms[i]->ind] = -1 * alpha * P_disp[i];
     }
 
@@ -770,14 +765,43 @@ std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, dou
 
     result["Current in uA"] = I_macro * 1e6;
     result["Conductance in uS"] = Geq * 1e6;
-
     // To do: put alpha in the parameter file
     return result;
 }
 
-void Device::updateTemperature()
+// update the global temperature using the global temperature model
+std::map<std::string, double> Device::updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
+                                                              double background_temp, double t_ox, double A, double c_p)
 {
-    // this function should populate the "site_temperature" attribute of this object
+    // Map
+    std::map<std::string, double> result;
+
+    double P_tot = 0.0;
+    double C_thermal = A * t_ox * c_p * (1e6); // [J/K]
+    double T_global = site_temperature[1];
+
+// Calculate the total power dissipated in the lattice and at every site:
+#pragma omp parallel for reduction(+ : P_tot)
+    for (int i = 0; i < N; i++)
+    {
+        P_tot += site_power[i];
+    }
+
+    int num_steps = int(event_time / small_step);
+    double T_upd = 0;
+
+    std::cout << num_steps;
+    std::cout << C_thermal;
+
+    for (int i = 0; i < num_steps; i++)
+    {
+        T_upd = (-1) * dissipation_constant * 1 / C_thermal * small_step * (T_global - background_temp) + 1 / C_thermal * P_tot * small_step + T_global;
+        T_global = T_upd;
+    }
+
+    result["Total dissipated power in mW"] = P_tot * 1e3;
+    result["Global temperature in K"] = T_global;
+    return result;
 }
 
 void Device::writeSnapshot(std::string filename, std::string foldername)

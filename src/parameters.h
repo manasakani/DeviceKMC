@@ -47,7 +47,7 @@ double V0 = 3.0;  // [eV]
 // for temperature solver
 // double alpha = 0.20; // [1]
 double k_therm = 1.1;         // [W/mK]
-double background_temp = 400; // [K]
+double background_temp = 300; // [K]
 
 // toggle for periodic boundary conditions:
 bool pbc = 0;
@@ -126,3 +126,17 @@ double h_bar_eV = 6.582119569e-16; // [eV]
 double m_0 = 9.11e-31;             // [kg]
 double eV_to_J = 1.6e-19;          // [C]
 double m_e = m_r * m_0;            // [kg]
+
+// Global thermal model
+const double dissipation_constant = 70e-5; // in [J/Ks] Tunable parameter
+const double small_step = 1e-16;
+double event_time = 1e-13;
+
+// Local thermal nodel
+
+// Device constants
+const double t_ox = 52.6838e-10;                                 // thickness oxide in [m]
+const double A = 26.914773122e-10 * 26.6371955996e-10;           // device area [m^2]
+const double c_p = 1.92;                                         // in [J/Kcm^3]
+const double R_thermal = t_ox / (A * k_therm);                   // in [K/W]
+const double tau_thermal = t_ox * t_ox * c_p / (1e-6 * k_therm); // in [s]

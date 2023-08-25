@@ -74,6 +74,9 @@ public:
     std::vector<double> site_power;       // power of each site
     std::vector<double> site_temperature; // temperature of each site
 
+    std::vector<double> laplacian;    // laplacian matrix
+    std::vector<double> laplacian_ss; // steaday state laplacian
+
     // constructor from input xyz file(s)
     Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
            bool shift, std::vector<double> shifts, bool pbc, double nn_dist, double T_bg, unsigned int rnd_seed);
@@ -108,7 +111,8 @@ public:
                                               std::vector<std::string> metals, double m_e, double V0);
 
     // update the temperature of each site
-    void updateTemperature();
+    std::map<std::string, double> updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
+                                                          double background_temp, double t_ox, double A, double c_p);
 
     // write an xyz file with [element, x, y, z, potential, temperature] data
     void writeSnapshot(std::string filename, std::string foldername);
