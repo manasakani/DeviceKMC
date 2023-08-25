@@ -459,10 +459,6 @@ void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<doubl
         else if ((i >= N_left_tot) && (i < (N - N_right_tot)))
         {
             site_potential[i] = -1 * Ksub[i - N_left_tot];
-            if (i == N_left_tot)
-            {
-                std::cout << site_potential[i];
-            }
         }
         else if (i >= (N - N_right_tot))
         {
@@ -506,11 +502,11 @@ void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<doubl
 }
 
 // update the power of each site
-std::map<std::string, int> Device::updatePower(int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
-                                               std::vector<std::string> metals, double m_e, double V0)
+std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
+                                                  std::vector<std::string> metals, double m_e, double V0)
 {
     // Map
-    std::map<std::string, int> result;
+    std::map<std::string, double> result;
 
     // number of injection nodes
     int num_source_inj = num_atoms_first_layer;
@@ -684,7 +680,6 @@ std::map<std::string, int> Device::updatePower(int num_atoms_first_layer, double
     }
 
     double Geq = std::abs(I_macro / Vd);
-
     double *I_neg = (double *)malloc(N_atom * N_atom * sizeof(double));
     double one_d = 1.0;
     double P_disp[N_atom];

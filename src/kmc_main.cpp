@@ -62,11 +62,11 @@ int main()
                            G_coeff, high_G, low_G, metals);
 
     // Power update
-    // std::map<std::string, int> powerMap = device.updatePower(num_atoms_first_layer, Vd, high_G, low_G,
-    //   metals, m_e, V0);
+    std::map<std::string, double> powerMap = device.updatePower(num_atoms_first_layer, Vd, high_G, low_G,
+                                                                metals, m_e, V0);
 
     // Debug purposes
-    for (const auto &pair : chargeMap)
+    for (const auto &pair : powerMap)
     {
         std::cout << pair.first << ": " << pair.second << std::endl;
     }
