@@ -74,12 +74,20 @@ int main()
     // Initialize KMC simulation
     // instantiate a KMCprocess object by sending a pointer to this device and a dictionary of input settings
     KMCProcess sim(&device);
+    std::cout << "initialized KMC simulation\n";
 
     // outer simulation loop over Vd, t:
     //    prepare output folder and update the simulation
     //    inner simulation loop over KMC steps:
     //        update all the fields
+              // std::map<std::string, int> resultMap = device.updateCharge();
+              // std::map<std::string, int> potentialMap = device.updatePotential(num_atoms_contact, Vd, lattice, pbc, sigma, k);
+              // device.updateTemperature();
     //        execute a KMC step on the device
+              // sim.executeKMCStep(&device);
+    // 		  logging:
+    //		  if output_buf_step % 10
+    //		  (dump the output buffer into the output file)
 
     // close logger
     outputFile << outputBuffer.str();

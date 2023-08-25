@@ -62,13 +62,13 @@ class Device
 {
 
 public:
-    std::vector<Site> sites;   // list of sites in this device
-    std::vector<Site *> atoms; // list of pointers to atoms in the sites array (exlcuding defects)
-    Graph site_neighbors;      // list of neighbors of each site (including defects)
-    Graph atom_neighbors;      // list of neighbors of each atom (excluding defects)
-    double nn_dist;            // neighbor distance
+    int N = 0;                              // number of sites in this device
+    std::vector<Site> sites;   				// list of sites in this device
+    std::vector<Site *> atoms; 				// list of pointers to atoms in the sites array (exlcuding defects)
+    Graph site_neighbors;      				// list of neighbors of each site (including defects)
+    Graph atom_neighbors;      				// list of neighbors of each atom (excluding defects)
+    double nn_dist;            				// neighbor distance
 
-    // std::vector<double> site_layer;								// layerID for each site
     std::vector<double> site_charge;      // charge of each site
     std::vector<double> site_potential;   // potential of each site
     std::vector<double> site_power;       // power of each site
@@ -109,7 +109,6 @@ public:
     void writeSnapshot(std::string filename, std::string foldername);
 
 private:
-    int N = 0;                              // number of sites in this device
     int N_atom = 0;                         // number of atoms in this device
     int N_int = 0;                          // number of available interstitial (defect) sites
     std::vector<double> lattice;            // size of device box
