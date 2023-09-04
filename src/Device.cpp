@@ -42,7 +42,7 @@ void Graph::printAdjList()
 // Construct the device
 Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
                bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon,
-               double nn_dist, double T_bg, unsigned int rnd_seed)
+               double nn_dist, double background_temp, unsigned int rnd_seed)
 {
 
     // initialize the random number generator
@@ -62,6 +62,7 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     this->nn_dist = nn_dist;
     this->sigma = sigma;
     this->k = k = 8.987552e9 / epsilon;
+    this->T_bg = background_temp;
 
     // sort and prepare the raw coordinates
     sort_by_x(x, y, z, elements, lattice);
@@ -186,6 +187,189 @@ void Device::updateAtomNeighborList()
     this->N_atom = atom_count;
 }
 
+// Computes the total number of atoms
+int Device::get_num_metals(std::vector<std::string> metals)
+{
+    int count = 0;
+    for (int i = 0; i < N; i++)
+    {
+        std::string element_ = sites[i].element;
+        if (element_ == metals[0] || element_ == metals[1])
+        {
+            count++;
+        }
+    }
+    return count;
+}
+
+// construct laplacian and steady state laplacian
+void Device::constructLaplacian(double k_th_interface, double k_th_metal, double delta,
+                                double delta_t, double tau, std::vector<std::string> metals, double background_temp,
+                                double num_atoms_contact)
+{
+
+    // Get the number of interface atoms
+    int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
+    int N_metals = get_num_metals(metals);
+    int N_right_tot = get_num_in_contacts(N_metals - num_atoms_contact, "right");
+    N_interface = N - N_left_tot - N_right_tot;
+
+    // Initialize the laplacian and inverse of the laplacian
+    laplacian.resize(N_interface * N_interface);
+    laplacian_ss.resize(N_interface * N_interface);
+    index_mapping.resize(N * N);
+
+    // Inverse laplacian
+    int *ipiv_L_T = (int *)malloc(N_interface * sizeof(int));
+    int lwork = N_interface;
+    double *work = (double *)malloc(N_interface * sizeof(double));
+    int N_test = N_interface;
+
+    // Inverse steady state laplacian
+    int *ipiv_L_ss_T = (int *)malloc(N_interface * sizeof(int));
+    int lwork_ss = N_interface;
+    double *work_ss = (double *)malloc(N_interface * sizeof(double));
+
+    double *L = (double *)calloc(N_interface * N_interface, sizeof(double));     // Laplacian
+    double *L_ss = (double *)calloc(N_interface * N_interface, sizeof(double));  // Steady state lapalacian
+    double *L_inv = (double *)calloc(N_interface * N_interface, sizeof(double)); // Inverse of the laplacian
+
+    int info;
+    // Map the index to a new array
+    int new_index = 0;
+
+    // Calculate constants
+    double gamma = 1 / (delta * ((k_th_interface / k_th_metal) + 1)); // [a.u.]
+    double step_time = delta_t * tau;                                 // [a.u.]
+
+    // Map to new index
+    for (int i = 0; i < N; i++)
+    {
+        if (i >= N_left_tot && i < N - N_right_tot)
+        {
+
+            index_mapping[i] = new_index;
+            new_index += 1;
+        }
+        else
+        {
+            index_mapping[i] = -1;
+        }
+    }
+
+// Build laplacian matrix
+#pragma omp parallel for
+    for (int i = 0; i < N; i++)
+    {
+
+        int index_i, index_j;
+        index_i = index_mapping[i];
+
+        if (index_i != -1) // Not in the contacts
+        {
+
+            for (int j : site_neighbors.l[i])
+            {
+
+                index_j = index_mapping[j];
+
+                if (i != j && index_j != -1) // Neighbouring site not in the contacts
+                {
+                    L[N_interface * index_i + index_j] = 1;
+                }
+
+                bool metal_atom2;
+                metal_atom2 = is_present(metals, sites[j].element);
+
+                if (metal_atom2) // Boundary atom iff connected to a metallic site
+                {
+                    sites[i].element = "B";
+                    L[N_interface * index_i + index_i] = -gamma;
+                }
+
+            } // j
+        }
+    } // i
+
+// Construct (I-L*time_step)
+#pragma omp parallel for
+    for (int i = 0; i < N_interface; i++)
+    {
+        for (int j = 0; j < N_interface; j++)
+        {
+            if (i != j)
+            {
+                L[N_interface * i + i] += -L[N_interface * i + j];
+            }
+        }
+    }
+
+// Prepare L_T to solve for the inverse of the unity - laplacian matrix (I-delta_t*L)
+#pragma omp parallel for collapse(2)
+    for (int i = 0; i < N_interface; i++)
+    {
+        for (int j = 0; j < N_interface; j++)
+        {
+            L_inv[i * N_interface + j] = -step_time * L[i * N_interface + j];
+        }
+    }
+
+// Subtract the Laplacian matrix from the unitary matrix
+#pragma omp parallel for
+    for (int i = 0; i < N_interface; i++)
+    {
+        L_inv[N_interface * i + i] += 1;
+    }
+
+// Prepare Lss to solve for the inverse of the laplacian matrix (Lss)
+#pragma omp parallel for collapse(2) num_threads(1)
+    for (int i = 0; i < N_interface; i++)
+    {
+        for (int j = 0; j < N_interface; j++)
+        {
+            L_ss[i * N_interface + j] = L[i * N_interface + j];
+        }
+    }
+
+    // LU factorization of (I-L) (overwrite L_T with the factorization)
+    dgetrf_(&N_interface, &N_interface, L_inv, &N_interface, ipiv_L_T, &info);
+
+    // LU factorization of (L) (overwrite L_T with the factorization)
+    dgetrf_(&N_interface, &N_interface, L_ss, &N_interface, ipiv_L_ss_T, &info);
+
+    // Compute the inverse of the matrix L_T using the LU factorization (overwrite A with the factorization)
+    dgetri_(&N_interface, L_inv, &N_interface, ipiv_L_T, work, &lwork, &info);
+
+    // Compute the inverse of the matrix L_T using the LU factorization (overwrite A with the factorization)
+    dgetri_(&N_interface, L_ss, &N_interface, ipiv_L_ss_T, work_ss, &lwork_ss, &info);
+
+    // Update the inverse of the laplacian and steady state laplacian
+#pragma omp parallel for collapse(2)
+    for (int i = 0; i < N_interface; i++)
+    {
+        for (int j = 0; j < N_interface; j++)
+        {
+            laplacian[i * N_interface + j] = L_inv[i * N_interface + j];
+        }
+    }
+
+#pragma omp parallel for collapse(2)
+    for (int i = 0; i < N_interface; i++)
+    {
+        for (int j = 0; j < N_interface; j++)
+        {
+            laplacian_ss[i * N_interface + j] = L_ss[i * N_interface + j];
+        }
+    }
+
+    free(ipiv_L_T);
+    free(L);
+    free(ipiv_L_ss_T);
+    free(work_ss);
+    free(work);
+    free(L_ss);
+}
+
 // returns number of sites of element
 int Device::get_num_of_element(std::string element_)
 {
@@ -286,7 +470,7 @@ void Device::makeSubstoichiometric(double vacancy_concentration)
 }
 
 // update the charge of each vacancy and ion
-std::map<std::string, int> Device::updateCharge()
+std::map<std::string, int> Device::updateCharge(std::vector<std::string> metals)
 {
     int Vnn;
     int uncharged_V_counter = 0;
@@ -306,11 +490,12 @@ std::map<std::string, int> Device::updateCharge()
             site_charge[i] = 2;
             for (int j : site_neighbors.l[i])
             {
+                bool metal = is_present(metals, sites[j].element);
                 if (sites[j].element == "V")
                 {
                     Vnn++;
                 };
-                if (sites[j].element == "Ti" || sites[j].element == "N")
+                if (sites[j].element == metals[0] || sites[j].element == metals[1])
                 {
                     site_charge[i] = 0;
                     uncharged_V_counter++;
@@ -331,7 +516,7 @@ std::map<std::string, int> Device::updateCharge()
             site_charge[i] = -2;
             for (int j : site_neighbors.l[i])
             {
-                if (sites[j].element == "Ti")
+                if (sites[j].element == metals[0] || sites[j].element == metals[1])
                 {
                     site_charge[i] = 0;
                     uncharged_Od_counter++;
@@ -340,7 +525,7 @@ std::map<std::string, int> Device::updateCharge()
             }
         }
     }
-
+    
     std::map<std::string, int> result;
 
     result["Uncharged vacancies"] = uncharged_V_counter;
@@ -352,8 +537,8 @@ std::map<std::string, int> Device::updateCharge()
 }
 
 // update the potential of each site
-void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<double> lattice,
-                             double G_coeff, double high_G, double low_G, std::vector<std::string> metals)
+void Device::background_potential(int num_atoms_contact, double Vd, std::vector<double> lattice,
+                                  double G_coeff, double high_G, double low_G, std::vector<std::string> metals)
 {
 
     std::map<std::string, int> result;
@@ -372,7 +557,7 @@ void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<doubl
     double *Ksub = (double *)calloc(N_interface, sizeof(double));
     int *ipiv = (int *)calloc(N_interface, sizeof(int));
 
-#pragma omp parallel // num_threads(1)
+#pragma omp parallel
     {
 
 #pragma omp for
@@ -403,10 +588,12 @@ void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<doubl
                 if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
                 {
                     K[N * sites[i].ind + sites[j].ind] = -high_G;
+                    K[N * sites[j].ind + sites[i].ind] = -high_G;
                 }
                 else
                 {
                     K[N * sites[i].ind + sites[j].ind] = -low_G;
+                    K[N * sites[j].ind + sites[i].ind] = -low_G;
                 }
             }
         }
@@ -476,7 +663,24 @@ void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<doubl
         print("Warning: error in linear system solver for background potential!");
     }
 
-/*#pragma omp parallel for
+    // Solving the oxide potential considering only pairwise coulomb interactions.
+    // solve poisson's equation with zero BC
+
+    free(K);
+    free(D);
+    free(VL);
+    free(VR);
+    free(Ksub);
+    free(ipiv);
+}
+
+void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice)
+{
+    int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
+    int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
+    int N_interface = N - N_left_tot - N_right_tot;
+
+#pragma omp parallel for
     for (int i = N_left_tot; i < N - N_right_tot; i++)
     {
         double V_temp = 0;
@@ -493,17 +697,19 @@ void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<doubl
             }
         }
         site_potential[i] += V_temp;
-    }*/
+    }
+}
 
-    // Solving the oxide potential considering only pairwise coulomb interactions.
-    // solve poisson's equation with zero BC
+// update the potential of each site
+void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<double> lattice,
+                             double G_coeff, double high_G, double low_G, std::vector<std::string> metals)
+{
+    // circuit-model-based potential solver
+    background_potential(num_atoms_contact, Vd, lattice,
+                         G_coeff, high_G, low_G, metals);
 
-    free(K);
-    free(D);
-    free(VL);
-    free(VR);
-    free(Ksub);
-    free(ipiv);
+    // gridless Poisson equation solver (using sum of gaussian charge distribution solutions)
+    poisson_gridless(num_atoms_contact, lattice);
 }
 
 // update the power of each site
@@ -783,7 +989,7 @@ std::map<std::string, double> Device::updateTemperatureGlobal(double event_time,
 
     double P_tot = 0.0;
     double C_thermal = A * t_ox * c_p * (1e6); // [J/K]
-    double T_global = site_temperature[1];
+    double T_global = T_bg;
 
 // Calculate the total power dissipated in the lattice and at every site:
 #pragma omp parallel for reduction(+ : P_tot)
@@ -792,11 +998,8 @@ std::map<std::string, double> Device::updateTemperatureGlobal(double event_time,
         P_tot += site_power[i];
     }
 
-    int num_steps = int(event_time / small_step);
+    int num_steps = event_time / small_step;
     double T_upd = 0;
-
-    std::cout << num_steps;
-    std::cout << C_thermal;
 
     for (int i = 0; i < num_steps; i++)
     {
@@ -806,6 +1009,170 @@ std::map<std::string, double> Device::updateTemperatureGlobal(double event_time,
 
     result["Total dissipated power in mW"] = P_tot * 1e3;
     result["Global temperature in K"] = T_global;
+    T_bg = T_global;
+    return result;
+}
+
+// update the local and global temperature
+std::map<std::string, double> Device::updateLocalTemperature(double background_temp, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
+                                                             double k_th_vacancies, double num_atoms_contact, std::vector<std::string> metals)
+{
+
+    // Map
+    std::map<std::string, double> result;
+
+    double T_tot = 0.0;                                  // [K] Background temperature
+    double T_0 = background_temp;                        // [K] Temperature scale
+    double *T_vec = (double *)calloc(N, sizeof(double)); // Normalized temperatures
+
+    // Map the index to a new array
+    int index_i, index_j;
+    double T_transf;
+
+    // Calculate constants
+    double step_time = delta_t * tau;                                                                                                 // [a.u.]                                                               // [a.u.]
+    const double p_transfer_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_interface) * (T_1 - background_temp));     // [a.u.]
+    const double p_transfer_non_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_vacancies) * (T_1 - background_temp)); // [a.u.]
+
+// Transform background temperatures
+#pragma omp parallel for
+    for (int i = 0; i < N; i++)
+    {
+
+        index_i = index_mapping[i];
+
+        if (index_i != -1)
+        {
+
+            T_vec[i] = (site_temperature[i] - T_0) / (T_1 - T_0);
+        }
+    }
+
+// Iterate through all the sites
+#pragma omp parallel for private(T_transf, index_i, index_j)
+    for (int i = 0; i < N; i++)
+    {
+
+        T_transf = 0;
+        index_i = index_mapping[i];
+
+        if (index_i != -1)
+        {
+
+            for (int j = 0; j < N; j++)
+            {
+
+                index_j = index_mapping[j];
+
+                if (index_j != -1)
+                {
+
+                    double factor = laplacian[index_i * N_interface + index_j] * T_vec[j];
+
+                    if (sites[j].element == "V")
+                    {
+
+                        T_transf += factor + laplacian[index_i * N_interface + index_j] * (site_power[j]) * p_transfer_vacancies * step_time;
+                    }
+                    else
+                    {
+
+                        T_transf += factor + laplacian[index_i * N_interface + index_j] * (site_power[j]) * p_transfer_non_vacancies * step_time;
+                    }
+                }
+
+            } // j
+
+            // Update the temperature at the specific site
+            site_temperature[i] = T_transf * (T_1 - T_0) + T_0; // Transform back to normal temperature scale
+        }
+    } // i
+
+    // Update the global temperature
+#pragma omp parallel
+    {
+#pragma omp for reduction(+ : T_tot)
+        for (int i = 0; i < N; i++)
+        {
+            T_tot += site_temperature[i];
+        }
+    }
+
+    T_bg = T_tot / N;
+    result["Global temperature in K"] = T_bg;
+    free(T_vec);
+    return result;
+}
+
+// update the local and global temperature in steady state
+std::map<std::string, double> Device::updateLocalTemperatureSteadyState(double background_temp, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
+                                                                        double k_th_vacancies, double num_atoms_contact, std::vector<std::string> metals)
+{
+    // Map
+    std::map<std::string, double> result;
+
+    double T_tot = 0.0;           // [K] Background temperature
+    double T_0 = background_temp; // [K] Temperature scale
+
+    // Map the index to a new array
+    int index_i, index_j;
+    double T_transf;
+
+    // Calculate constants
+    double step_time = delta_t * tau;                                                                                                 // [a.u.]                                                               // [a.u.]
+    const double p_transfer_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_interface) * (T_1 - background_temp));     // [a.u.]
+    const double p_transfer_non_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_vacancies) * (T_1 - background_temp)); // [a.u.]
+
+    // Iterate through all the sites
+#pragma omp parallel for private(T_transf, index_i, index_j)
+    for (int i = 0; i < N; i++)
+    {
+
+        T_transf = 0;
+        index_i = index_mapping[i];
+
+        if (index_i != -1)
+        {
+
+            for (int j = 0; j < N; j++)
+            {
+
+                index_j = index_mapping[j];
+
+                if (index_j != -1)
+                {
+
+                    if (sites[j].element == "V")
+                    {
+
+                        T_transf += laplacian_ss[index_i * N_interface + index_j] * (site_power[j]) * p_transfer_vacancies;
+                    }
+                    else
+                    {
+
+                        T_transf += laplacian_ss[index_i * N_interface + index_j] * (site_power[j]) * p_transfer_non_vacancies;
+                    }
+                }
+
+            } // j
+
+            // Update the temperature at the specific site
+            site_temperature[i] = -T_transf * (T_1 - T_0) + T_0; // Transform back to normal temperature scale
+        }
+    } // i
+
+// Update the global temperature
+#pragma omp parallel
+    {
+#pragma omp for reduction(+ : T_tot)
+        for (int i = 0; i < N; i++)
+        {
+            T_tot += site_temperature[i];
+        }
+    }
+
+    T_bg = T_tot / N;
+    result["Global temperature in K"] = T_bg;
     return result;
 }
 

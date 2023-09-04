@@ -7,7 +7,8 @@
 #include <iostream>
 #include <list>
 
-void Layer::init_layer(std::string type_, double E_gen_0_, double E_rec_1_, double E_diff_2_, double E_diff_3_, double start_x_, double end_x_){
+void Layer::init_layer(std::string type_, double E_gen_0_, double E_rec_1_, double E_diff_2_, double E_diff_3_, double start_x_, double end_x_)
+{
     type = type_;
     E_gen_0 = E_gen_0_;
     E_rec_1 = E_rec_1_;
@@ -18,40 +19,46 @@ void Layer::init_layer(std::string type_, double E_gen_0_, double E_rec_1_, doub
     init_vac_percentage = 0.0;
 }
 
-void Layer::disp_layer(){
-    print("Layer of type " << type << " from " << start_x << " to " << end_x); 
+void Layer::disp_layer()
+{
+    print("Layer of type " << type << " from " << start_x << " to " << end_x);
 }
 
-KMCProcess::KMCProcess(Device* device){
-	
-	// initialize random number generator
-	random_generator.setSeed(rnd_seed_kmc);
-		
-	//intialize device layers
-	int layerID;
-	this->layers.resize(numlayers);
+KMCProcess::KMCProcess(Device *device)
+{
+
+    // initialize random number generator
+    random_generator.setSeed(rnd_seed_kmc);
+
+    // intialize device layers
+    int layerID;
+    this->layers.resize(numlayers);
     layers[0].init_layer(layer_0_type, layer_0_E_gen_0, layer_0_E_rec_1, layer_0_E_diff_2, layer_0_E_diff_3, layer_0_start_x, layer_0_end_x);
     layers[1].init_layer(layer_1_type, layer_1_E_gen_0, layer_1_E_rec_1, layer_1_E_diff_2, layer_1_E_diff_3, layer_1_start_x, layer_1_end_x);
     layers[2].init_layer(layer_2_type, layer_2_E_gen_0, layer_2_E_rec_1, layer_2_E_diff_2, layer_2_E_diff_3, layer_2_start_x, layer_2_end_x);
     layers[3].init_layer(layer_3_type, layer_3_E_gen_0, layer_3_E_rec_1, layer_3_E_diff_2, layer_3_E_diff_3, layer_3_start_x, layer_3_end_x);
     layers[4].init_layer(layer_4_type, layer_4_E_gen_0, layer_4_E_rec_1, layer_4_E_diff_2, layer_4_E_diff_3, layer_4_start_x, layer_4_end_x);
-	
-	//assign layer IDs for all the sites
-	for(int i = 0; i < device->N; i++){
+
+    // assign layer IDs for all the sites
+    for (int i = 0; i < device->N; i++)
+    {
         layerID = 1000;
-        for(int j = 0; j < numlayers; j++){
-            if (layers[j].start_x <= device->sites[i].pos[0] && device->sites[i].pos[0] <= layers[j].end_x){
+        for (int j = 0; j < numlayers; j++)
+        {
+            if (layers[j].start_x <= device->sites[i].pos[0] && device->sites[i].pos[0] <= layers[j].end_x)
+            {
                 layerID = j;
             }
         }
-        if (layerID == 1000){
+        if (layerID == 1000)
+        {
             print("Site #" << i << " is not inside the device!");
             abort();
         }
-		site_layer.push_back(layerID);
+        site_layer.push_back(layerID);
     }
-	
 }
+
 
 Event* KMCProcess::pick_and_get_event(std::list<Event>& event_list, int event_list_size, double Psum){
     
@@ -71,7 +78,8 @@ Event* KMCProcess::pick_and_get_event(std::list<Event>& event_list, int event_li
     return &(event_list.back());
 }
 
-void KMCProcess::execute_event(Site* site_1, Site* site_2, int &event_type, std::vector<int> site_charge){
+
+void KMCProcess::execute_event(Site* site_1, Site* site_2, int &event_type, int &charge_1, int &charge_2){
     /*Key for event_type:
      * 0 - Vacancy/Ion Pair Generation
      * 1 - Vacancy/Ion Pair Recombination
@@ -84,60 +92,66 @@ void KMCProcess::execute_event(Site* site_1, Site* site_2, int &event_type, std:
         case 0: {
             if (site_1->element != "d" || site_2->element != "O") {print("Wrong event type!");}
             event_name = "vacancy/ion pair generation";
+	
 	        //turn the defect (site_1) into an oxygen ion:
             site_1->element = "Od";
-            site_charge[site_1->ind] = -2;
-            //site_1->charge = -2;
+            charge_1 = -2;
+
             //turn the oxygen (site_2) into a charged vacancy:
             site_2->element = "V";
-            site_charge[site_2->ind] = 2;
-            //site_2->charge = 2;
+            charge_2 = 2;
+
             break; }
         case 1: {
             if (site_1->element != "Od" || site_2->element != "V") {print("Wrong event type!");}
             event_name = "vacancy/ion pair recombination";
+            
             //turn the oxygen (site_1) into a defect
             site_1->element = "d";
-            site_charge[site_1->ind] = 0;
-            //site_1->charge = 0;
+            charge_1 = 0;
+            
             //turn the vacancy (site_2) into an oxygen atom:
             site_2->element = "O";
-            site_charge[site_2->ind] = 0;
-            //site_2->charge = 0;          
+            charge_2 = 0;
+            
             break; }
         case 2: {
             event_name = "vacancy diffusion";
             if (site_1->element != "V" || site_2->element != "O") {print("Wrong event type!");}
-            //turn the vacancy (site_1) into an oxygen
-            int vacancy_charge = site_charge[site_1->ind]; // site_1->charge;
-            int oxygen_charge = site_charge[site_2->ind]; //site_2->charge;
+            
+            int vacancy_charge = charge_1; 
+            int oxygen_charge = charge_2; 
+
+			//turn the vacancy (site_1) into an oxygen
             site_1->element = "O";
-            site_charge[site_1->ind] = oxygen_charge;       
-            //site_1->charge = oxygen_charge;
+            charge_1 = oxygen_charge;       
+            
             //turn the oxygen (site_2) into vacancy
             site_2->element = "V";
-            site_charge[site_2->ind] = vacancy_charge;
-            //site_2->charge = vacancy_charge;
+            charge_2 = vacancy_charge;
+            
             break; }
         case 3: {
             if (site_1->element != "Od" || site_2->element != "d") {print("Wrong event type!");}
             event_name = "ion diffusion";
+            int oxygen_charge = charge_1;
+            
             //turn the oxygen (site_1) into a defect
-            int oxygen_charge = site_charge[site_1->ind]; //site_1->charge;
             site_1->element = "d";
-            site_charge[site_1->ind] = 0;
-            //site_1->charge = 0;
+            charge_1 = 0;
+            
             //turn the defect (site_2) into an oxygen
             site_2->element = "Od";
-            site_charge[site_2->ind] = oxygen_charge;
-            //site_2->charge = oxygen_charge;
+            charge_2 = oxygen_charge;
+            
             break; }
         default:
             print("error: unidentified event key found");
 
     }
-    //if (verbose) print("executed an " << event_name << " event between " << site_1->type << "-" << site_1->ind << " and " << site_2->type << "-" << site_2->ind << " with potentials " << site_1->Vpot << " and " << site_2->Vpot);
+    //print("executed an " << event_name << " event between " << site_1->element << "-" << site_1->ind << " and " << site_2->element << "-" << site_2->ind << " with charges " << charge_1 << " and " << charge_2;
 }
+
 
 double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<double> lattice, bool pbc){
 	
@@ -155,7 +169,7 @@ double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<doubl
     int charge_abs, charge_state, event_type_;
     double zero_field_energy, E, EA, r_dist, self_int_V, event_temp, delta_temp;
     long double P;
-    double T_kmc = device->site_temperature[0]; // CHANGE WITH REAL TEMPERATURE
+    double T_kmc = 300; // CHANGE WITH REAL TEMPERATURE
 
     #pragma omp for schedule(dynamic) reduction(+:Psum)
     for(int i = 0; i < device->N; i++){
@@ -275,10 +289,23 @@ double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<doubl
             print("entire event list completed - this should not happen.");
             break;
         }
- 
+        
+		
         //select and execute an event:
         selected_event = pick_and_get_event(event_list, event_cntr, Psum);
-        execute_event(&(device->sites[selected_event->ind1]), &(device->sites[selected_event->ind2]), selected_event->event_type, device->site_charge);
+        
+        /*print("-------");
+		print("before event, ind1 was: " << device->sites[selected_event->ind1].element << " with charge " << device->site_charge[selected_event->ind1]);
+		print("before event, ind2 was: " << device->sites[selected_event->ind2].element << " with charge " << device->site_charge[selected_event->ind2]);*/
+		
+        execute_event(&(device->sites[selected_event->ind1]), 
+					  &(device->sites[selected_event->ind2]), 
+					  selected_event->event_type, 
+					  device->site_charge[selected_event->ind1], 
+					  device->site_charge[selected_event->ind2]); 
+        
+        /*print("after event, ind1 was: " << device->sites[selected_event->ind1].element << " with charge " << device->site_charge[selected_event->ind1]);
+		print("after event, ind2 was: " << device->sites[selected_event->ind2].element << " with charge " << device->site_charge[selected_event->ind2]);*/
 
         //remove all events containing the indices of sites[i] and sites[j] from the event list
         track_ind = 0;
@@ -311,6 +338,5 @@ double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<doubl
     //free memory from remaining events
     event_list.clear();
     return event_time;
-    return 1.0;
     
 }

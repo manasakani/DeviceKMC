@@ -7,7 +7,7 @@
 
 // restart calculation
 bool restart = 0;
-std::string restart_xyz_file = "snapshot_0_big.xyz";
+std::string restart_xyz_file = "snapshot_0.xyz";
 
 // if not restart, draws from the atom coordinates file
 std::string atom_xyz_file = "structure_files/atoms.xyz";
@@ -50,10 +50,10 @@ double k_therm = 1.1;         // [W/mK]
 double background_temp = 300; // [K]
 
 // toggle for periodic boundary conditions:
-bool pbc = 0;
+bool pbc = 1;
 
 // applied bias to right contact:
-double V_switch[] = {12.00}; // [V]
+double V_switch[] = {13.00}; // [V]
 
 // timescale for switching:
 double t_switch[] = {1}; // [s]
@@ -65,7 +65,7 @@ double Icc = 3e-3; // 150e-6; // [A]
 int log_freq = 10;
 
 // frequency of printing the steps into the output file
-int output_freq = 1;
+int output_freq = 10;
 
 // log to output.log file? (default logs to console)
 bool log_to_file = 1;
@@ -89,16 +89,28 @@ double m_0 = 9.11e-31;             // [kg]
 double eV_to_J = 1.6e-19;          // [C]
 double m_e = m_r * m_0;            // [kg]
 
+// Device constants
+const double t_ox = 52.6838e-10;                       // thickness oxide in [m]
+const double A = 26.914773122e-10 * 26.6371955996e-10; // device area [m^2]
+const double c_p = 1.92;                               // in [J/Kcm^3]
+double k_th_metal = 29;                                // [W/mK]
+double k_th_non_vacancy = 0.5;                         // [W/mK]
+double k_th_vacancies = 5;                             // [W/mK]
+
+// Power update
+std::vector<double> alpha = {0.1, 0.2}; // power dissipation constant [vacancy site, non-vacancy site]
+
 // Global thermal model
 const double dissipation_constant = 70e-5; // in [J/Ks] Tunable parameter
 const double small_step = 1e-16;
 double event_time = 1e-13;
 
-// Local thermal nodel
+// Local thermal model
+const double delta_t = 1e-14;                // step time [s] (rejection free event time == delta_t)
+const double delta = 0.1;                    // [a.u.]
+const double power_adjustment_term = 0.0001; // [a.u.]
+const double L_char = 3.5e-10;               // characteristic length [m]
 
-// Device constants
-const double t_ox = 52.6838e-10;                                 // thickness oxide in [m]
-const double A = 26.914773122e-10 * 26.6371955996e-10;           // device area [m^2]
-const double c_p = 1.92;                                         // in [J/Kcm^3]
-const double R_thermal = t_ox / (A * k_therm);                   // in [K/W]
-const double tau_thermal = t_ox * t_ox * c_p / (1e-6 * k_therm); // in [s]
+// Fixed parameters
+const double k_th_interface = k_th_non_vacancy + (k_th_vacancies - k_th_non_vacancy) * initial_vacancy_concentration; // [W/mK]
+const double tau = k_th_interface / (L_char * L_char * c_p * 1e6);                                                    // Thermal rate constant [1/s]

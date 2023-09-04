@@ -72,11 +72,9 @@ class KMCProcess{
 		double m_0 = 9.11e-31;             // [kg]
 		double eV_to_J = 1.6e-19;          // [C]
 		
-		//returns an event in the event list according to the residence time algorithm
 		Event* pick_and_get_event(std::list<Event>& event_list, int event_list_size, double Psum);
 		
-		//executes an event object on the sites provided
-		void execute_event(Site* site_1, Site* site_2, int &event_type, std::vector<int> site_charge);
+		void execute_event(Site* site_1, Site* site_2, int &event_type, int &charge_1, int &charge_2);
 		
 		/*void buildEventList(Device device);
 		void pickEvent(std::vector<Event> event_list);
