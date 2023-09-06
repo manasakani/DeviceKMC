@@ -169,7 +169,7 @@ double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<doubl
     int charge_abs, charge_state, event_type_;
     double zero_field_energy, E, EA, r_dist, self_int_V, event_temp, delta_temp;
     long double P;
-    double T_kmc = 300; // CHANGE WITH REAL TEMPERATURE
+    double T_kmc = device->T_bg; // CHANGE WITH REAL TEMPERATURE
 
     #pragma omp for schedule(dynamic) reduction(+:Psum)
     for(int i = 0; i < device->N; i++){

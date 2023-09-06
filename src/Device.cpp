@@ -125,7 +125,7 @@ void Device::constructSiteNeighborList()
 void Device::updateAtomNeighborList()
 {
     // updates (1) the atoms list and (2) the atom neighbor graph (excluding defects)
-
+	
     // reset the atoms array and neighbor list
     atoms.clear();
     if (!atom_neighbors.l.empty())
@@ -134,7 +134,9 @@ void Device::updateAtomNeighborList()
     }
     int atom_count = 0;
 
-    int threads_num = omp_get_max_threads();
+// !! check for race conditions or mem leak!!
+
+    /*int threads_num = omp_get_max_threads();
     int local_iter_num = (int)std::ceil((double)N / threads_num);
     std::vector<std::vector<Site *>> atoms_local(threads_num);
     for (auto i = 0; i < threads_num; ++i)
@@ -143,7 +145,7 @@ void Device::updateAtomNeighborList()
     }
 
 // locate the non-defect sites
-#pragma omp parallel
+#pragma omp parallel num_threads(1) // DEBUG
     {
         int thread_id = omp_get_thread_num();
 
@@ -171,7 +173,7 @@ void Device::updateAtomNeighborList()
     // construct subset neighbor graph for atoms (exclude defects):
     atom_neighbors.initialize(atom_count);
     double dist;
-#pragma omp parallel for private(dist)
+#pragma omp parallel for private(dist) num_threads(1) // DEBUG
     for (auto i = 0; i < N_atom; i++)
     {
         for (auto j = 0; j < N_atom; j++)
@@ -182,9 +184,36 @@ void Device::updateAtomNeighborList()
                 atom_neighbors.addEdge(i, j);
             }
         }
+    }*/
+    
+// !! check for race conditions or mem leak!!
+
+// !! unoptimized !!
+
+    //the elements of the atoms array are pointers to the atoms in the site array
+    for(auto i = 0; i < N; i++){
+	if (sites[i].element != "d"){
+    	    atoms.push_back(&sites[i]);
+            atom_count++;
+        }
     }
 
+    // construct subset neighbor graph for atoms (exclude defects):
+    double dist;
+    atom_neighbors.initialize(atom_count);
+    for(auto i = 0; i < atom_count; i++){
+        for(auto j = 0; j < atom_count; j++){
+            dist = site_dist(atoms[i]->pos, atoms[j]->pos, lattice, pbc);
+            if (dist < nn_dist && i != j){
+                atom_neighbors.addEdge(i, j);
+            }
+        }
+    }
+    
+// !! unoptimized !!
+
     this->N_atom = atom_count;
+    
 }
 
 // Computes the total number of atoms
@@ -718,6 +747,9 @@ std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, dou
 {
     // Map
     std::map<std::string, double> result;
+    
+    // Re-identify the atomic sites (differentiate from the vacancy sites)
+    updateAtomNeighborList();
 
     // number of injection nodes
     int num_source_inj = num_atoms_first_layer;
@@ -765,7 +797,6 @@ std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, dou
                 metal2 = is_present(metals, atoms[j]->element);
 
                 // conductive vacancies
-
                 cvacancy1 = atoms[i]->element == "V" && site_charge[atoms[i]->ind] == 0;
                 cvacancy2 = atoms[j]->element == "V" && site_charge[atoms[i]->ind] == 0;
 
@@ -972,6 +1003,7 @@ std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, dou
     free(M);
     free(X);
     free(I_pos);
+    free(I_neg);
     free(ipiv_T);
 
     result["Current in uA"] = I_macro * 1e6;

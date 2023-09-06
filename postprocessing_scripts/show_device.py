@@ -3,6 +3,7 @@ import os
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import to_rgb, to_rgba
 
 # parses data from xyz file
 def read_xyz(filename):
@@ -47,20 +48,21 @@ def make_image(names, positions, potential, temperature, structure_folder, imnam
     colors = []
     for ind, element in enumerate(names):
         if element == 'V' or ind == 0:
-            colors.append(-1)
+            r, g, b = to_rgb('red')
+            colors.append((r, g, b, 0.8))
         elif element == 'Od' or ind == len(names)-1:
-            colors.append(+1)
+            r, g, b = to_rgb('blue')
+            colors.append((r, g, b, 0.8))
         else:
-            colors.append(0.0)
+            r, g, b = to_rgb('gray')
+            colors.append((r, g, b, 0.1))
 
-    colors = [color+1 for color in colors]
     reversed = False
     #fig = plt.figure()
     fig = plt.figure(figsize=(5, 6), tight_layout=True)
 
     ax = fig.add_subplot(3, 1, 1)
-    #ax.scatter(x, y, c=colors, s=2, alpha=0.5, cmap='viridis_r')
-    ax.scatter(x, y, c=colors, s=2, alpha=0.5, cmap='coolwarm')
+    ax.scatter(x, y, c=colors, s=2)
     ax.grid(False)
     ax.get_xaxis().set_ticks([])
 
