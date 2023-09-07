@@ -1,6 +1,5 @@
 bin/
 obj/
-Results_*/
 tests_old/
 
 # Other standard ignores
@@ -11,7 +10,6 @@ tests_old/
 *.sln
 *.swp
 *.jpg
-*.xyz
 
 # Ignore files
 output.txt
