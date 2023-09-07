@@ -53,9 +53,12 @@ def make_image(names, positions, potential, temperature, structure_folder, imnam
         elif element == 'Od' or ind == len(names)-1:
             r, g, b = to_rgb('blue')
             colors.append((r, g, b, 0.8))
-        else:
+        elif element in ['Ti', 'N', 'Hf', 'O']:
             r, g, b = to_rgb('gray')
             colors.append((r, g, b, 0.1))
+        else:
+            r, g, b = to_rgb('gray')
+            colors.append((r, g, b, 0.0))
 
     reversed = False
     #fig = plt.figure()

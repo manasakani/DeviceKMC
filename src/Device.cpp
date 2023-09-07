@@ -236,6 +236,7 @@ void Device::constructLaplacian(double k_th_interface, double k_th_metal, double
                                 double delta_t, double tau, std::vector<std::string> metals, double background_temp,
                                 double num_atoms_contact)
 {
+	print("constructing Laplacian");
 
     // Get the number of interface atoms
     int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
@@ -312,7 +313,7 @@ void Device::constructLaplacian(double k_th_interface, double k_th_metal, double
 
                 if (metal_atom2) // Boundary atom iff connected to a metallic site
                 {
-                    sites[i].element = "B";
+                    //sites[i].element = "B";
                     L[N_interface * index_i + index_i] = -gamma;
                 }
 

@@ -6,7 +6,7 @@
 #include <string>
 
 // restart calculation
-bool restart = 1;
+bool restart = 0;
 std::string restart_xyz_file = "snapshot_init.xyz";
 
 // if not restart, draws from the atom coordinates file
@@ -31,8 +31,8 @@ double nn_dist = 3.5; // [Angstrom]
 // field solvers
 bool solve_potential = 1;
 bool solve_current = 1;
-bool solve_heating_global = 1;
-bool solve_heating_local = 0;
+bool solve_heating_global = 0;
+bool solve_heating_local = 1;
 
 // for potential solver:
 double G_coeff = 1;

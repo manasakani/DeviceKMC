@@ -74,7 +74,7 @@ int main()
     outputBuffer.str(std::string());
 
     // loop over V_switch and t_switch
-    double Vd, t, kmc_time, I_macro, T_kmc;
+    double Vd, t, kmc_time, step_time, I_macro, T_kmc;
     double *begin = std::begin(V_switch);
     double *end = std::end(V_switch);
     int vt_counter = 0;
@@ -127,7 +127,8 @@ int main()
             diff_pot = t_pot - t0;
             
             // KMC update step
-            kmc_time += sim.executeKMCStep(&device, freq, lattice, pbc);
+            step_time = sim.executeKMCStep(&device, freq, lattice, pbc);
+            kmc_time += step_time;
             auto t_perturb = std::chrono::steady_clock::now();
             diff_perturb = t_perturb - t_pot;
             
@@ -143,9 +144,10 @@ int main()
 																								  background_temp, t_ox, A, c_p);
 					resultMap.insert(temperatureMap.begin(), temperatureMap.end());
 					  
-				} else if (solve_heating_local){     
-					// to be added next
-				    return 1;
+				} else if (solve_heating_local){   // use this to modify the rates   
+					std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(background_temp, step_time, tau, power_adjustment_term, k_th_interface,
+																									  k_th_vacancies, num_atoms_contact, metals);
+					resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
 				}
 	        }
 	         
