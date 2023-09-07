@@ -236,7 +236,7 @@ void Device::constructLaplacian(double k_th_interface, double k_th_metal, double
                                 double delta_t, double tau, std::vector<std::string> metals, double background_temp,
                                 double num_atoms_contact)
 {
-	print("constructing Laplacian");
+	print("constructing graph Laplacian");
 
     // Get the number of interface atoms
     int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");

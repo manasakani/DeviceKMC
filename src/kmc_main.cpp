@@ -5,14 +5,17 @@
 #include <stdlib.h>
 #include <chrono>
 #include "KMCProcess.h"
-#include "parameters.h"
 #include "utils.h"
 #include "Device.h"
+#include "input_parser.h"
 #include <map>
 
 // main function for KMC simulation
-int main()
+int main(int argc, char** argv)
 {
+	
+	// parse inputs
+	KMCParameters p(argv[1]);
 
     // set up logging
     std::ostringstream outputBuffer;
@@ -24,69 +27,58 @@ int main()
 
     // Initialize device
     std::vector<std::string> xyz_files;
-    if (restart)
+    if (p.restart)
     {
-        const bool file_exists = location_exists(restart_xyz_file);
+        const bool file_exists = location_exists(p.restart_xyz_file);
         if (!file_exists)
         {
-            outputBuffer << "ERROR: Restart file " << restart_xyz_file << " not found!\n";
+            outputBuffer << "ERROR: Restart file " << p.restart_xyz_file << " not found!\n";
             outputFile << outputBuffer.str();
             return 0;
         }
         else
         {
-            xyz_files.push_back(restart_xyz_file);
+            xyz_files.push_back(p.restart_xyz_file);
         }
     }
     else
     {
-        xyz_files.push_back(atom_xyz_file);
-        xyz_files.push_back(interstitial_xyz_file);
+        xyz_files.push_back(p.atom_xyz_file);
+        xyz_files.push_back(p.interstitial_xyz_file);
     }
 
-    Device device(xyz_files, lattice, shift, shifts, pbc, sigma, epsilon, nn_dist, background_temp, rnd_seed);
+    Device device(xyz_files, p.lattice, p.shift, p.shifts, p.pbc, p.sigma, p.epsilon, p.nn_dist, p.background_temp, p.rnd_seed);
     
-    if (solve_heating_local){     
-		device.constructLaplacian(k_th_interface, k_th_metal, delta,
-                                  delta_t, tau, metals, background_temp,
-                                  num_atoms_contact);                 
+    if (p.solve_heating_local){     
+		device.constructLaplacian(p.k_th_interface, p.k_th_metal, p.delta,
+                                  p.delta_t, p.tau, p.metals, p.background_temp,
+                                  p.num_atoms_contact);                 
 	}
 	
-    if (pristine)
-        device.makeSubstoichiometric(initial_vacancy_concentration);
-    outputBuffer << "Device was constructed\n";
+    if (p.pristine)
+        device.makeSubstoichiometric(p.initial_vacancy_concentration);
 
     // ****** TESTING FIELD SOLVERS ********
-
-    /*std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(background_temp, delta_t, tau, power_adjustment_term, k_th_interface,
-
-    std::map<std::string, double> localTemperatureSSMap = device.updateLocalTemperatureSteadyState(background_temp, delta_t, tau, power_adjustment_term, k_th_interface,
-                                                                                                       k_th_vacancies, num_atoms_contact, metals);
-
-    const std::string file_name = "snapshot_init.xyz";
-    device.writeSnapshot(file_name, "./");*/
+    /*std::map<std::string, double> localTemperatureSSMap = device.updateLocalTemperatureSteadyState(background_temp, delta_t, tau, power_adjustment_term, k_th_interface,
+                                                                                                       k_th_vacancies, num_atoms_contact, metals);*/
 
     // ****** TESTING FIELD SOLVERS ********
 
     // Initialize KMC simulation
     KMCProcess sim(&device);
-    outputBuffer << "Initialized KMC simulation\n";
     outputBuffer.str(std::string());
 
     // loop over V_switch and t_switch
     double Vd, t, kmc_time, step_time, I_macro, T_kmc;
-    double *begin = std::begin(V_switch);
-    double *end = std::end(V_switch);
-    int vt_counter = 0;
     int kmc_step_count;
     std::map<std::string, int> resultMap;
     std::string file_name;
     std::chrono::duration<double> diff, diff_pot, diff_temp, diff_perturb;
     
-    for (double *p = begin; p != end; ++p)
+    for (size_t vt_counter; vt_counter < p.V_switch.size(); vt_counter++)
     {
-        Vd = V_switch[vt_counter];
-        t = t_switch[vt_counter];
+        Vd = p.V_switch[vt_counter];
+        t = p.t_switch[vt_counter];
         outputBuffer << "--------------------------------\n";
         outputBuffer << "Applied Voltage = " << Vd << " V\n";
         outputBuffer << "--------------------------------\n";
@@ -102,6 +94,7 @@ int main()
         kmc_time = 0.0;
         kmc_step_count = 0;
         
+        // initial device snapshot
         file_name = "snapshot_init.xyz";
         device.writeSnapshot(file_name, folder_name);
         
@@ -115,38 +108,39 @@ int main()
                         
             // Charge and Potential
             auto t0 = std::chrono::steady_clock::now();
-            if (solve_potential)
+            if (p.solve_potential)
             {
-                std::map<std::string, int> chargeMap = device.updateCharge(metals);
+                std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
                 
-                device.updatePotential(num_atoms_contact, Vd, lattice,
-									   G_coeff, high_G, low_G, metals);
+                device.updatePotential(p.num_atoms_contact, Vd, p.lattice,
+									   p.G_coeff, p.high_G, p.low_G, p.metals);
             }
             auto t_pot = std::chrono::steady_clock::now();
             diff_pot = t_pot - t0;
             
             // KMC update step
-            step_time = sim.executeKMCStep(&device, freq, lattice, pbc);
+            step_time = sim.executeKMCStep(&device, p.freq, p.lattice, p.pbc);
             kmc_time += step_time;
             auto t_perturb = std::chrono::steady_clock::now();
             diff_perturb = t_perturb - t_pot;
             
             // Power and Temperature
-            if (solve_current) {
+            if (p.solve_current) {
 				
-				std::map<std::string, double> powerMap = device.updatePower(num_atoms_first_layer, Vd, high_G, low_G,
-                                                                metals, m_e, V0);
+				std::map<std::string, double> powerMap = device.updatePower(p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
+																			p.metals, p.m_e, p.V0);
                 resultMap.insert(powerMap.begin(), powerMap.end());
                 
-				if (solve_heating_global){     
-				    std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(event_time, small_step, dissipation_constant,
-																								  background_temp, t_ox, A, c_p);
+				if (p.solve_heating_global){     
+				    std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(p.event_time, p.small_step, p.dissipation_constant,
+																								  p.background_temp, p.t_ox, p.A, p.c_p);
 					resultMap.insert(temperatureMap.begin(), temperatureMap.end());
 					  
-				} else if (solve_heating_local){   // use this to modify the rates   
-					std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(background_temp, step_time, tau, power_adjustment_term, k_th_interface,
-																									  k_th_vacancies, num_atoms_contact, metals);
+				} 
+				if (p.solve_heating_local){   // use this to modify the rates   
+					std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
+																									  p.k_th_vacancies, p.num_atoms_contact, p.metals);
 					resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
 				}
 	        }
@@ -165,7 +159,7 @@ int main()
 			}
 
             // dump print buffer into the output file
-            if (!(kmc_step_count % output_freq))
+            if (!(kmc_step_count % p.output_freq))
             {
                 outputFile << outputBuffer.str();
                 outputBuffer.str(std::string());
@@ -174,7 +168,7 @@ int main()
             kmc_step_count++;
             
             // generate xyz snapshot
-            if (!(kmc_step_count % log_freq))
+            if (!(kmc_step_count % p.log_freq))
             {
                 std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
                 device.writeSnapshot(file_name, folder_name);
