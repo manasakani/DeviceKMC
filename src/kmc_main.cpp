@@ -4,11 +4,12 @@
 #include <cstddef>
 #include <stdlib.h>
 #include <chrono>
+#include <map>
+
 #include "KMCProcess.h"
 #include "utils.h"
 #include "Device.h"
 #include "input_parser.h"
-#include <map>
 
 // main function for KMC simulation
 int main(int argc, char** argv)
@@ -24,6 +25,7 @@ int main(int argc, char** argv)
     outputBuffer << "Starting Kinetic Monte Carlo\n";
     outputBuffer << "----------------------------\n";
     outputFile << outputBuffer.str();
+    outputBuffer.str(std::string());
 
     // Initialize device
     std::vector<std::string> xyz_files;
@@ -34,10 +36,14 @@ int main(int argc, char** argv)
         {
             outputBuffer << "ERROR: Restart file " << p.restart_xyz_file << " not found!\n";
             outputFile << outputBuffer.str();
+            outputBuffer.str(std::string());
             return 0;
         }
         else
         {
+			outputBuffer << "Restarting from " << p.restart_xyz_file << "\n";
+			outputFile << outputBuffer.str();
+			outputBuffer.str(std::string());
             xyz_files.push_back(p.restart_xyz_file);
         }
     }

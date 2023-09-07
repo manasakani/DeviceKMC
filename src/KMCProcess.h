@@ -77,8 +77,6 @@ class KMCProcess{
 		void execute_event(Site* site_1, Site* site_2, int &event_type, int &charge_1, int &charge_2);
 		
 		/*void buildEventList(Device device);
-		void pickEvent(std::vector<Event> event_list);
-		executeEvent(Event selected_event);
 		stepRejection();
 		stepRejectionFree();*/
 	

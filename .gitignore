@@ -1,7 +1,7 @@
 bin/
 obj/
 Results_*/
-tests/
+tests_old/
 
 # Other standard ignores
 .vscode/

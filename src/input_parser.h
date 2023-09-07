@@ -364,14 +364,14 @@ bool KMCParameters::read_bool(std::string line){
 	
 	std::string lowerInput = line;
     
-    if ((lowerInput.find("true") || lowerInput.find("True") || lowerInput.find("1")) != std::string::npos) {
+    if (lowerInput.find("1") != std::string::npos) {
         return true;
-    } else if ((lowerInput.find("false") || lowerInput.find("False") || lowerInput.find("0")) != std::string::npos) {
+    } else if (lowerInput.find("0") != std::string::npos) {
         return false;
     } else {
         throw std::invalid_argument("Invalid input to read_bool: " + line);
     }
-	
+    	
 }
 
 

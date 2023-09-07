@@ -3,24 +3,24 @@
 //******************************
 
 rnd_seed = 1							// random number for KMCProcess
-restart = 0							// restart calculation
+restart = 1							// restart calculation
 restart_xyz_file = snapshot_init.xyz				// restart filename
 
-atom_xyz_file = structure_files/atoms.xyz			// if not restart, draws from the atom coordinates file
-interstitial_xyz_file = structure_files/interstitials.xyz
+//atom_xyz_file = structure_files/atoms.xyz			// if not restart, draws from the atom coordinates file
+//interstitial_xyz_file = structure_files/interstitials.xyz
 lattice = 93.72586 26.914773122 26.6371955996 			// 1x1 device
 
-pristine = 1							// add initial vacancy concentration if starting from pristine
+pristine = 0							// add initial vacancy concentration if starting from pristine
 initial_vacancy_concentration = 0.05
 attempt_frequency = 10e13 					// [1/s]
 
-shift = 1							// translate cell across the periodic boundary
+shift = 0							// translate cell across the periodic boundary
 shifts = 0.0 0.5 0.5
 
 nn_dist = 3.5 							// [Angstrom] neighbor distance
 
 solve_potential = 1						// field solvers
-solve_current = 1
+solve_current = 0
 solve_heating_global = 0
 solve_heating_local = 0
 								// for potential solver:
@@ -37,13 +37,13 @@ background_temp = 300 						// [K] contact temperature
 
 pbc = 1								// toggle for periodic boundary conditions
 
-V_switch = 13.00 						// [V] applied bias to right contact
+V_switch = 1.5 							// [V] applied bias to right contact
 
-t_switch = 1 							// [s] timescale for switching
+t_switch = 1e-10 						// [s] timescale for switching
 
 Icc = 3e-3 							// [A] enforced compliance current
 
-log_freq = 5							// frequency of device snapshot generation (per x kmc steps)
+log_freq = 50							// frequency of device snapshot generation (per x kmc steps)
 
 output_freq = 10						// frequency of printing the steps into the output file
 
