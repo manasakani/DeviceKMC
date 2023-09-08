@@ -21,7 +21,7 @@ nn_dist = 3.5 							// [Angstrom] neighbor distance
 
 solve_potential = 1						// field solvers
 solve_current = 1
-solve_heating_global = 0
+solve_heating_global = 1
 solve_heating_local = 0
 								// for potential solver:
 sigma = 3.5e-10 						// [m] gaussian broadening
@@ -78,10 +78,9 @@ alpha = 0.1, 0.2 						// power dissipation constant [vacancy site, non-vacancy 
 // Global thermal model
 dissipation_constant = 70e-5 					// in [J/Ks] Tunable parameter
 small_step = 1e-16
-event_time = 1e-13
 
 // Local thermal model
-delta_t = 1e-14                					// step time [s] (rejection free event time == delta_t)
+event_time = 1e-13               				// step time [s] (rejection free event time == delta_t)
 delta = 0.1                    					// [a.u.]
 power_adjustment_term = 0.0001 					// [a.u.]
 L_char = 3.5e-10               					// characteristic length [m]
