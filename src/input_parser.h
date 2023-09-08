@@ -22,7 +22,7 @@ public:
     int log_freq;
     int output_freq;
     bool log_to_file;
-    bool _erbose;
+    bool verbose;
     
     // device atomic structure
     std::string atom_xyz_file;
