@@ -9,10 +9,7 @@
 #SBATCH --output=run.out
 #SBATCH --error=run.err
 
-export OMP_NUM_THREADS=1
-export CRAY_CUDA_MPS=1
+export OMP_NUM_THREADS=4
 module load daint-gpu
-#module swap PrgEnv-cray PrgEnv-gnu/6.0.10
-module load intel-oneapi/2022.1.0
 
-srun -n $SLURM_NTASKS ./bin/runKMC parameters.txt
+cd ./tests/1-potential/ ; srun -n $SLURM_NTASKS ../../bin/runKMC parameters.txt
