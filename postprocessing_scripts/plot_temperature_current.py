@@ -80,7 +80,7 @@ def main():
             if 'Current' in line.split():
                 curr = float(line.split()[-1])
                 current.append(curr)
-            if 'Temperature' in line.split():
+            if 'temperature' in line.split():
                 temp = float(line.split()[-1])
                 temperature.append(temp)
 
