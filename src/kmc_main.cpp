@@ -139,15 +139,25 @@ int main(int argc, char** argv)
                 resultMap.insert(powerMap.begin(), powerMap.end());
                 
 				if (p.solve_heating_global){     
-				    std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(p.event_time, p.small_step, p.dissipation_constant,
+				    std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(step_time, p.small_step, p.dissipation_constant,
 																								  p.background_temp, p.t_ox, p.A, p.c_p);
 					resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-					  
 				} 
 				if (p.solve_heating_local){   // use this to modify the rates   
-					std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
+                    if (step_time > 1e3*p.delta_t) { // use steady state solution
+                        std::map<std::string, double> localTemperatureMap = device.updateLocalTemperatureSteadyState(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
 																									  p.k_th_vacancies, p.num_atoms_contact, p.metals);
-					resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
+					    resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
+                        
+                    } else {
+                        for (int i = 0; i<int(step_time/p.delta_t); ++i){
+                        std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
+																									  p.k_th_vacancies, p.num_atoms_contact, p.metals);
+
+                        resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
+                        }
+                      
+                    } 	
 				}
 	        }
 	         

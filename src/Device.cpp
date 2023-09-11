@@ -1014,6 +1014,8 @@ std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, dou
 }
 
 // update the global temperature using the global temperature model
+// @param: step_time: time of the kmc time step
+//         small_step: descretization time step
 std::map<std::string, double> Device::updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
                                                               double background_temp, double t_ox, double A, double c_p)
 {
@@ -1042,12 +1044,13 @@ std::map<std::string, double> Device::updateTemperatureGlobal(double event_time,
 
     result["Total dissipated power in mW"] = P_tot * 1e3;
     result["Global temperature in K"] = T_global;
+    std::cout << T_global;
     T_bg = T_global;
     return result;
 }
 
 // update the local and global temperature
-std::map<std::string, double> Device::updateLocalTemperature(double background_temp, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
+std::map<std::string, double> Device::updateLocalTemperature(double background_temp, double t, double tau, double power_adjustment_term, double k_th_interface,
                                                              double k_th_vacancies, double num_atoms_contact, std::vector<std::string> metals)
 {
 
@@ -1063,7 +1066,7 @@ std::map<std::string, double> Device::updateLocalTemperature(double background_t
     double T_transf;
 
     // Calculate constants
-    double step_time = delta_t * tau;                                                                                                 // [a.u.]                                                               // [a.u.]
+    double step_time = t * tau;                                                                                                 // [a.u.]                                                               // [a.u.]
     const double p_transfer_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_interface) * (T_1 - background_temp));     // [a.u.]
     const double p_transfer_non_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_vacancies) * (T_1 - background_temp)); // [a.u.]
 

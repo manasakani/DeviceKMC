@@ -496,8 +496,7 @@ void KMCParameters::set_expression_parameters(){
     k = 8.987552e9 / epsilon;   																				  	// [N m^2 / C^2]
     k_th_interface = k_th_non_vacancy + (k_th_vacancies - k_th_non_vacancy) * initial_vacancy_concentration; 		// [W/mK]
     tau = k_th_interface / (L_char * L_char * c_p * 1e6);                                                   	 	// Thermal rate constant [1/s]
-    m_e = m_r * m_0;            																				  	// [kg]
-    
+    m_e = m_r * m_0;            																				  	// [kg] 
 }
 
 void KMCParameters::print_to_file(){}

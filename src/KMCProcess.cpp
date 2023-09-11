@@ -167,7 +167,7 @@ double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<doubl
 
     std::string site1_type, site2_type;
     int charge_abs, charge_state, event_type_;
-    double zero_field_energy, E, EA, r_dist, self_int_V, event_temp, delta_temp;
+    double zero_field_energy, E, EA, r_dist, self_int_V, event_temp, delta_temp, Ekin;
     long double P;
     double T_kmc = device->T_bg; // CHANGE WITH REAL TEMPERATURE
 
@@ -186,8 +186,8 @@ double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<doubl
                 E = 2 * (device->site_potential[i] - device->site_potential[j]);
                 zero_field_energy = layers[site_layer[j]].E_gen_0; 
                 event_type_ = 0;
-
-                EA = zero_field_energy - E;
+                Ekin = kB*(device->site_temperature[i] - device->site_temperature[j]);
+                EA = zero_field_energy - E - Ekin;
                 P = exp(-1*EA / (kB*T_kmc)) * freq;
                 t_event_list.emplace_back(i, j, event_type_, P);
 
@@ -206,8 +206,8 @@ double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<doubl
                 zero_field_energy = layers[site_layer[j]].E_rec_1;
 
                 event_type_ = 1;
-
-                EA = zero_field_energy - E;
+                Ekin = kB*(device->site_temperature[i] - device->site_temperature[j]);
+                EA = zero_field_energy - E - Ekin;
                 P = exp(-1*EA / (kB*T_kmc)) * freq;
                 t_event_list.emplace_back(i, j, event_type_, P);
 
@@ -228,8 +228,8 @@ double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<doubl
                 zero_field_energy = layers[site_layer[i]].E_diff_2;
 				
                 event_type_ = 2;
-
-                EA = zero_field_energy - E;
+                Ekin = kB*(device->site_temperature[i] - device->site_temperature[j]);
+                EA = zero_field_energy - E - Ekin;
                 P = exp(-1*EA / (kB*T_kmc)) * freq;
                 t_event_list.emplace_back(i, j, event_type_, P);
 
@@ -252,7 +252,8 @@ double KMCProcess::executeKMCStep(Device* device, double freq, std::vector<doubl
 				
                 event_type_ = 3;
 
-                EA = zero_field_energy - E;
+                Ekin = kB*(device->site_temperature[i] - device->site_temperature[j]);
+                EA = zero_field_energy - E - Ekin;
                 P = exp(-1*EA / (kB*T_kmc)) * freq;
                 t_event_list.emplace_back(i, j, event_type_, P);
 
