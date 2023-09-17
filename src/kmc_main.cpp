@@ -11,6 +11,10 @@
 #include "Device.h"
 #include "input_parser.h"
 
+#ifdef USE_CUDA
+#include "cuda_wrapper.h"
+#endif
+
 // main function for KMC simulation
 int main(int argc, char **argv)
 {
@@ -26,6 +30,16 @@ int main(int argc, char **argv)
     outputBuffer << "----------------------------\n";
     outputFile << outputBuffer.str();
     outputBuffer.str(std::string());
+
+    // check for accelerators (not yet incorporated into the code)
+    std::cout << "checking for an accelerator...\n";
+    #ifdef USE_CUDA
+    char gpu_string[1000];
+    get_gpu_info(gpu_string, 0);
+    printf("Found a GPU device: %s\n", gpu_string);
+    #else
+    std::cout << "No accelerators found.\n";
+    #endif
 
     // Initialize device
     std::vector<std::string> xyz_files;
