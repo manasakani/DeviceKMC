@@ -65,12 +65,6 @@ int main(int argc, char **argv)
     if (p.pristine)
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
 
-    // ****** TESTING FIELD SOLVERS ********
-    /*std::map<std::string, double> localTemperatureSSMap = device.updateLocalTemperatureSteadyState(background_temp, delta_t, tau, power_adjustment_term, k_th_interface,
-                                                                                                       k_th_vacancies, num_atoms_contact, metals);*/
-
-    // ****** TESTING FIELD SOLVERS ********
-
     // Initialize KMC simulation
     KMCProcess sim(&device);
     outputBuffer.str(std::string());
@@ -78,7 +72,7 @@ int main(int argc, char **argv)
     // loop over V_switch and t_switch
     double Vd, t, kmc_time, step_time, I_macro, T_kmc;
     int kmc_step_count;
-    std::map<std::string, int> resultMap;
+    std::map<std::string, double> resultMap;
     std::string file_name;
     std::chrono::duration<double> diff, diff_pot, diff_temp, diff_perturb;
 
@@ -180,13 +174,13 @@ int main(int argc, char **argv)
             {
                 outputBuffer << pair.first << ": " << pair.second << std::endl;
             }
+	    resultMap.clear();
 
             // dump print buffer into the output file
             if (!(kmc_step_count % p.output_freq))
             {
                 outputFile << outputBuffer.str();
                 outputBuffer.str(std::string());
-                resultMap.clear();
             }
             kmc_step_count++;
 

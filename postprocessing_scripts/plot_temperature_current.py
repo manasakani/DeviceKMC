@@ -18,7 +18,7 @@ def plot_It(temperature, times, V):
         temperature.pop();
 
     fig = plt.figure(figsize=(3, 4), tight_layout=True)
-    #print(times)
+    print(times, temperature)
     plt.plot(times, temperature, marker='.', markersize=4)
     #plt.yscale('log')
     plt.xscale('log')

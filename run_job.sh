@@ -1,5 +1,5 @@
 #!/bin/bash --login 
-#SBATCH --account=
+#SBATCH --account=s1119
 #SBATCH --ntasks=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
@@ -13,3 +13,5 @@ export OMP_NUM_THREADS=4
 module load daint-gpu
 
 cd ./tests/1-potential/ ; srun -n $SLURM_NTASKS ../../bin/runKMC parameters.txt
+cd ../2-globaltemp/ ; srun -n $SLURM_NTASKS ../../bin/runKMC parameters.txt
+cd ../3-localtemp/ ; srun -n $SLURM_NTASKS ../../bin/runKMC parameters.txt

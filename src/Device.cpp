@@ -1048,7 +1048,6 @@ std::map<std::string, double> Device::updateTemperatureGlobal(double event_time,
 
     result["Total dissipated power in mW"] = P_tot * 1e3;
     result["Global temperature in K"] = T_global;
-    std::cout << T_global;
     T_bg = T_global;
     return result;
 }
