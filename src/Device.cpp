@@ -125,7 +125,7 @@ void Device::constructSiteNeighborList()
 void Device::updateAtomNeighborList()
 {
     // updates (1) the atoms list and (2) the atom neighbor graph (excluding defects)
-	
+
     // reset the atoms array and neighbor list
     atoms.clear();
     if (!atom_neighbors.l.empty())
@@ -134,7 +134,7 @@ void Device::updateAtomNeighborList()
     }
     int atom_count = 0;
 
-// !! check for race conditions or mem leak!!
+    // !! check for race conditions or mem leak!!
 
     /*int threads_num = omp_get_max_threads();
     int local_iter_num = (int)std::ceil((double)N / threads_num);
@@ -185,15 +185,17 @@ void Device::updateAtomNeighborList()
             }
         }
     }*/
-    
-// !! check for race conditions or mem leak!!
 
-// !! unoptimized !!
+    // !! check for race conditions or mem leak!!
 
-    //the elements of the atoms array are pointers to the atoms in the site array
-    for(auto i = 0; i < N; i++){
-	if (sites[i].element != "d"){
-    	    atoms.push_back(&sites[i]);
+    // !! unoptimized !!
+
+    // the elements of the atoms array are pointers to the atoms in the site array
+    for (auto i = 0; i < N; i++)
+    {
+        if (sites[i].element != "d")
+        {
+            atoms.push_back(&sites[i]);
             atom_count++;
         }
     }
@@ -201,19 +203,21 @@ void Device::updateAtomNeighborList()
     // construct subset neighbor graph for atoms (exclude defects):
     double dist;
     atom_neighbors.initialize(atom_count);
-    for(auto i = 0; i < atom_count; i++){
-        for(auto j = 0; j < atom_count; j++){
+    for (auto i = 0; i < atom_count; i++)
+    {
+        for (auto j = 0; j < atom_count; j++)
+        {
             dist = site_dist(atoms[i]->pos, atoms[j]->pos, lattice, pbc);
-            if (dist < nn_dist && i != j){
+            if (dist < nn_dist && i != j)
+            {
                 atom_neighbors.addEdge(i, j);
             }
         }
     }
-    
-// !! unoptimized !!
+
+    // !! unoptimized !!
 
     this->N_atom = atom_count;
-    
 }
 
 // Computes the total number of atoms
@@ -236,7 +240,7 @@ void Device::constructLaplacian(double k_th_interface, double k_th_metal, double
                                 double delta_t, double tau, std::vector<std::string> metals, double background_temp,
                                 double num_atoms_contact)
 {
-	print("constructing graph Laplacian");
+    print("constructing graph Laplacian");
 
     // Get the number of interface atoms
     int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
@@ -313,7 +317,7 @@ void Device::constructLaplacian(double k_th_interface, double k_th_metal, double
 
                 if (metal_atom2) // Boundary atom iff connected to a metallic site
                 {
-                    //sites[i].element = "B";
+                    // sites[i].element = "B";
                     L[N_interface * index_i + index_i] = -gamma;
                 }
 
@@ -555,7 +559,7 @@ std::map<std::string, int> Device::updateCharge(std::vector<std::string> metals)
             }
         }
     }
-    
+
     std::map<std::string, int> result;
 
     result["Uncharged vacancies"] = uncharged_V_counter;
@@ -748,7 +752,7 @@ std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, dou
 {
     // Map
     std::map<std::string, double> result;
-    
+
     // Re-identify the atomic sites (differentiate from the vacancy sites)
     updateAtomNeighborList();
 
@@ -1014,6 +1018,8 @@ std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, dou
 }
 
 // update the global temperature using the global temperature model
+// @param: step_time: time of the kmc time step
+//         small_step: descretization time step
 std::map<std::string, double> Device::updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
                                                               double background_temp, double t_ox, double A, double c_p)
 {
@@ -1047,7 +1053,7 @@ std::map<std::string, double> Device::updateTemperatureGlobal(double event_time,
 }
 
 // update the local and global temperature
-std::map<std::string, double> Device::updateLocalTemperature(double background_temp, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
+std::map<std::string, double> Device::updateLocalTemperature(double background_temp, double t, double tau, double power_adjustment_term, double k_th_interface,
                                                              double k_th_vacancies, double num_atoms_contact, std::vector<std::string> metals)
 {
 
@@ -1063,7 +1069,7 @@ std::map<std::string, double> Device::updateLocalTemperature(double background_t
     double T_transf;
 
     // Calculate constants
-    double step_time = delta_t * tau;                                                                                                 // [a.u.]                                                               // [a.u.]
+    double step_time = t * tau;                                                                                                 // [a.u.]                                                               // [a.u.]
     const double p_transfer_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_interface) * (T_1 - background_temp));     // [a.u.]
     const double p_transfer_non_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_vacancies) * (T_1 - background_temp)); // [a.u.]
 
