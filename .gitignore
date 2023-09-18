@@ -13,3 +13,4 @@ tests_old/
 
 # Ignore files
 output.txt
+Makefile
