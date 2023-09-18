@@ -19,6 +19,8 @@
 int main(int argc, char **argv)
 {
 
+// Set threads to zero
+omp_set_num_threads(1);
     // parse inputs
     KMCParameters p(argv[1]);
 
@@ -84,13 +86,15 @@ int main(int argc, char **argv)
     outputBuffer.str(std::string());
 
     // loop over V_switch and t_switch
-    double Vd, t, kmc_time, step_time, I_macro, T_kmc;
+    double Vd, t, kmc_time, step_time, T_kmc, V_vcm;
+    double I_macro = 0; 
+    double R_series = 0;
     int kmc_step_count;
     std::map<std::string, double> resultMap;
     std::string file_name;
     std::chrono::duration<double> diff, diff_pot, diff_temp, diff_perturb;
 
-    for (size_t vt_counter; vt_counter < p.V_switch.size(); vt_counter++)
+    for (size_t vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
     {
         Vd = p.V_switch[vt_counter];
         t = p.t_switch[vt_counter];
@@ -121,6 +125,9 @@ int main(int argc, char **argv)
 
             // *** Update fields and execute events on structure ***
 
+            // Update device voltage
+            V_vcm = Vd - I_macro*R_series;
+
             // Charge and Potential
             auto t0 = std::chrono::steady_clock::now();
             if (p.solve_potential)
@@ -128,7 +135,7 @@ int main(int argc, char **argv)
                 std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
 
-                device.updatePotential(p.num_atoms_contact, Vd, p.lattice,
+                device.updatePotential(p.num_atoms_contact, V_vcm, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);
             }
             auto t_pot = std::chrono::steady_clock::now();
@@ -145,9 +152,11 @@ int main(int argc, char **argv)
             if (p.solve_current)
             {
 
-                std::map<std::string, double> powerMap = device.updatePower(p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
+                std::map<std::string, double> powerMap = device.updatePower(p.num_atoms_first_layer, V_vcm, p.high_G, p.low_G,
                                                                             p.metals, p.m_e, p.V0);
                 resultMap.insert(powerMap.begin(), powerMap.end());
+
+                I_macro = (1e-6)*powerMap["Current in uA"];
 
                 if (p.solve_heating_global)
                 {
@@ -188,6 +197,7 @@ int main(int argc, char **argv)
             {
                 outputBuffer << pair.first << ": " << pair.second << std::endl;
             }
+
 	    resultMap.clear();
 
             // dump print buffer into the output file

@@ -1,0 +1,86 @@
+//******************************
+//  Simulation Parameters
+//******************************
+
+rnd_seed = 1							// random number for KMCProcess
+restart = 0							// restart calculation
+restart_xyz_file = structure_files_Pt_NiO_Pt/snapshot_init.xyz				// restart filename
+
+//atom_xyz_file = structure_files_Pt_NiO_Pt/structure.xyz			// if not restart, draws from the atom coordinates file
+//interstitial_xyz_file = structure_files/interstitials.xyz
+lattice = 101.2146 29.30436 29.30436 			// 1x1 device
+
+pristine = 0							// add initial vacancy concentration if starting from pristine
+initial_vacancy_concentration = 0.05
+attempt_frequency = 10e13 					// [1/s]
+
+shift = 0							// translate cell across the periodic boundary
+shifts = 0.0 0.5 0.5
+
+nn_dist = 3.5 							// [Angstrom] neighbor distance
+
+solve_potential = 1						// field solvers
+solve_current = 1
+solve_heating_global = 1
+solve_heating_local = 0
+								// for potential solver:
+sigma = 5e-10 						// [m] gaussian broadening
+epsilon = 23.0  						// [1] relative permittivity
+								
+								// for current solver (tunneling parameters)
+m_r = 0.8 							// [1] relative effective mass
+V0 = 3.0  							// [eV] defect state energy
+
+								// for temperature solver
+k_therm = 1.1         						// [W/mK] thermal conductivity
+background_temp = 300 						// [K] contact temperature
+
+pbc = 1								// toggle for periodic boundary conditions
+
+V_switch = 15 							// [V] applied bias to right contact
+
+t_switch = 1e-11 						// [s] timescale for switching
+
+Icc = 3e-3 							// [A] enforced compliance current
+
+log_freq = 50							// frequency of device snapshot generation (per x kmc steps)
+
+output_freq = 10						// frequency of printing the steps into the output file
+
+verbose = 0							// print all the events that are selected in the output file
+
+num_atoms_first_layer = 97
+num_atoms_contact = 980
+metals = Pt
+
+// Physical Constants
+double kB = 8.617333262e-5;        				// [eV/K]
+double q = 1.60217663e-19;         				// [C]
+double k = 8.987552e9 / epsilon;   				// [N m^2 / C^2]
+double h_bar_sq = 4.3957e-67;      				// [(Js)^2]
+double h_bar = 1.054571817e-34;    				// [Js]
+double h_bar_eV = 6.582119569e-16; 				// [eV]
+double m_0 = 9.11e-31;             				// [kg]
+double eV_to_J = 1.6e-19;          				// [C]
+//double m_e = m_r * m_0;            				// [kg]
+
+// Device constants
+t_ox = 60.4838e-10                       			// [m] thickness oxide
+A = 29.30436e-10 * 29.30436e-10 			// [m^2] device area 
+c_p = 300;                               			// [J/Kcm^3]
+k_th_metal = 29                                			// [W/mK]
+k_th_non_vacancy = 0.5                         			// [W/mK]
+k_th_vacancies = 5                             			// [W/mK]
+
+// Power update
+alpha = 0.1, 0.2 						// power dissipation constant [vacancy site, non-vacancy site]
+
+// Global thermal model
+dissipation_constant = 70e-5 					// in [J/Ks] Tunable parameter
+small_step = 1e-16
+
+// Local thermal model
+delta_t = 1e-11                					// step time [s] (rejection free event time == delta_t)
+delta = 1                    					// [a.u.]
+power_adjustment_term = 0.001 					// [a.u.]
+L_char = 3.5e-10               					// characteristic length [m]
