@@ -13,6 +13,9 @@
 #include <math.h>
 #include <omp.h>
 
+#include <cuda_runtime.h>
+#include <cublas_v2.h>
+
 #ifndef UTILS_H
 #define UTILS_H
 
@@ -52,5 +55,12 @@ void center_coords(std::vector<double> &x, std::vector<double> &y, std::vector<d
 
 // translates the periodic boundaries of the cell
 void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, int N, std::vector<double> lattice, std::vector<double> shifts);
+
+// CUDA/cuBLAS
+void CheckCublasError(cublasStatus_t const& status);
+cublasHandle_t CreateCublasHandle(int device);
+
+// GEMM
+void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int *k, double *alpha, double *A, int *lda, double *B, int *ldb, double *beta, double *C, int *ldc);
 
 #endif

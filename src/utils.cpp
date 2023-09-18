@@ -3,6 +3,8 @@
 //*****************
 
 #include "utils.h"
+// #include <cuda_runtime.h>
+// #include <cublas_v2.h>
 
 int read_xyz(std::string filename, std::vector<std::string> &elements,
              std::vector<double> &x, std::vector<double> &y, std::vector<double> &z)
@@ -141,4 +143,114 @@ void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<
     }
 
     center_coords(x, y, z, N, dims);
+}
+
+void CheckCublasError(cublasStatus_t const& status) {
+  if (status != CUBLAS_STATUS_SUCCESS) {
+    throw std::runtime_error("cuBLAS failed with error code: " +
+                             std::to_string(status));
+  }
+}
+
+cublasHandle_t CreateCublasHandle(int device) {
+  if (device >= 0) {
+    if (cudaSetDevice(device) != cudaSuccess) {
+      throw std::runtime_error("Failed to set CUDA device.");
+    }
+  }
+  cublasHandle_t handle;
+  CheckCublasError(cublasCreate(&handle));
+  return handle;
+}
+
+void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int *k, double *alpha, double *A, int *lda, double *B, int *ldb, double *beta, double *C, int *ldc) {
+
+    // printf("Executing GEMM ...\n");
+// {
+//         double * gpu_A;
+//         DACE_GPU_CHECK(cudaMalloc((void**)&gpu_A, (M * N) * sizeof(double)));
+//         double * gpu_x;
+//         DACE_GPU_CHECK(cudaMalloc((void**)&gpu_x, (N * N) * sizeof(double)));
+//         double * gpu___return;
+//         DACE_GPU_CHECK(cudaMalloc((void**)&gpu___return, M * sizeof(double)));
+
+//         DACE_GPU_CHECK(cudaMemcpyAsync(gpu_A, A, (M * N) * sizeof(double), cudaMemcpyHostToDevice, __state->gpu_context->streams[0]));
+//         DACE_GPU_CHECK(cudaMemcpyAsync(gpu_x, x, (N * N) * sizeof(double), cudaMemcpyHostToDevice, __state->gpu_context->streams[1]));
+
+//         DACE_GPU_CHECK(cudaEventRecord(__state->gpu_context->events[0], __state->gpu_context->streams[1]));
+//         DACE_GPU_CHECK(cudaStreamWaitEvent(__state->gpu_context->streams[0], __state->gpu_context->events[0], 0));
+
+//         {
+//             double * _A = &gpu_A[0];
+//             double * _x = &gpu_x[1];
+//             double* _y = gpu___return;
+
+//             ///////////////////
+//             int __dace_current_stream_id = 0;
+//             cudaStream_t __dace_current_stream = __state->gpu_context->streams[__dace_current_stream_id];
+//             const int __dace_cuda_device = 0;
+//             cublasHandle_t &__dace_cublas_handle = __state->cublas_handle.Get(__dace_cuda_device);
+//             cublasSetStream(__dace_cublas_handle, __dace_current_stream);
+
+//             cublasDgemv(__dace_cublas_handle, CUBLAS_OP_T, N, M, __state->cublas_handle.Constants(__dace_cuda_device).DoublePone(), _A, N,
+//             _x, N, __state->cublas_handle.Constants(__dace_cuda_device).DoubleZero(), _y, 1);
+
+//             ///////////////////
+
+//         }
+//         DACE_GPU_CHECK(cudaMemcpyAsync(__return, gpu___return, M * sizeof(double), cudaMemcpyDeviceToHost, __state->gpu_context->streams[0]));
+//         DACE_GPU_CHECK(cudaStreamSynchronize(__state->gpu_context->streams[0]));
+
+//         DACE_GPU_CHECK(cudaFree(gpu_A));
+//         DACE_GPU_CHECK(cudaFree(gpu_x));
+//         DACE_GPU_CHECK(cudaFree(gpu___return));
+
+//     }
+
+#ifdef USE_CUDA
+
+    printf("Executing GEMM on GPU ...\n");
+
+    double *gpu_A, *gpu_B, *gpu_C, *gpu_alpha, *gpu_beta;
+    cudaMalloc((void**)&gpu_A, ((*m) * (*k)) * sizeof(double));
+    cudaMalloc((void**)&gpu_B, ((*k) * (*n)) * sizeof(double));
+    cudaMalloc((void**)&gpu_C, ((*m) * (*n)) * sizeof(double));
+    cudaMalloc((void**)&gpu_alpha, sizeof(double));
+    cudaMalloc((void**)&gpu_beta, sizeof(double));
+
+    cudaMemcpy(gpu_A, A, ((*m) * (*k)) * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_B, B, ((*k) * (*n)) * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_C, C, ((*m) * (*n)) * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_alpha, alpha, sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_beta, beta, sizeof(double), cudaMemcpyHostToDevice);
+
+    // auto handle = CreateCublasHandle(0);
+    // cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+
+    printf("M, N, K, alpha, beta = %d, %d, %d, %lf, %lf\n", *m, *n, *k, *alpha, *beta);
+    printf("lda, ldb, ldc = %d, %d, %d\n", *lda, *ldb, *ldc);
+
+    // CheckCublasError(cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, gpu_alpha, A, *lda, B, *ldb, gpu_beta, C, *ldc));
+    CheckCublasError(cublasDgemv(handle, CUBLAS_OP_N, *m, *k, gpu_alpha, A, *lda, B, 1, gpu_beta, C, 1));
+    // cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, gpu_alpha, A, *k, B, *n, gpu_beta, C, *n);
+    cudaDeviceSynchronize();
+
+    printf("Done\n");
+
+    // CheckCublasError(cublasDestroy(handle));
+
+    cudaMemcpy(C, gpu_C, ((*m) * (*n)) * sizeof(double), cudaMemcpyDeviceToHost);
+
+    cudaFree(gpu_A);
+    cudaFree(gpu_B);
+    cudaFree(gpu_C);
+    cudaFree(gpu_alpha);
+    cudaFree(gpu_beta);
+
+#elif
+
+    printf("Executing GEMM on CPU ...\n");
+    dgemm_(transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+#endif
+
 }

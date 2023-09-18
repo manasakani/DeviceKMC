@@ -747,7 +747,7 @@ void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<doubl
 }
 
 // update the power of each site
-std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
+std::map<std::string, double> Device::updatePower(cublasHandle_t handle, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
                                                   std::vector<std::string> metals, double m_e, double V0)
 {
     // Map
@@ -978,7 +978,7 @@ std::map<std::string, double> Device::updatePower(int num_atoms_first_layer, dou
     }
 
     // dissipated power at each atom
-    dgemm_(&trans, &trans, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
+    gemm(handle, &trans, &trans, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
 
 #pragma omp parallel for
     for (i = num_source_inj; i < N_atom - num_source_inj; i++)

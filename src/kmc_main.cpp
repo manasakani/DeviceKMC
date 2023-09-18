@@ -41,6 +41,9 @@ int main(int argc, char **argv)
     std::cout << "No accelerators found.\n";
     #endif
 
+    cublasHandle_t handle = CreateCublasHandle(0);
+    cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+
     // Initialize device
     std::vector<std::string> xyz_files;
     if (p.restart)
@@ -145,7 +148,7 @@ int main(int argc, char **argv)
             if (p.solve_current)
             {
 
-                std::map<std::string, double> powerMap = device.updatePower(p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
+                std::map<std::string, double> powerMap = device.updatePower(handle, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                                                                             p.metals, p.m_e, p.V0);
                 resultMap.insert(powerMap.begin(), powerMap.end());
 
@@ -219,6 +222,8 @@ int main(int argc, char **argv)
         device.writeSnapshot(file_name, folder_name);
         vt_counter++;
     }
+
+    CheckCublasError(cublasDestroy(handle));
 
     // close logger
     outputFile << outputBuffer.str();

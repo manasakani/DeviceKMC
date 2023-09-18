@@ -5,6 +5,7 @@
 #include <omp.h>
 #include "random_num.h"
 #include <map>
+#include "utils.h"
 
 #ifndef DEVICE_H
 #define DEVICE_H
@@ -124,7 +125,7 @@ public:
                          double G_coeff, double high_G, double low_G, std::vector<std::string> metals);
 
     // update the power of each site
-    std::map<std::string, double> updatePower(int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
+    std::map<std::string, double> updatePower(cublasHandle_t handle, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
                                               std::vector<std::string> metals, double m_e, double V0);
 
     // update the temperature of each site
