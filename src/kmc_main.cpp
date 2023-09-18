@@ -19,8 +19,9 @@
 int main(int argc, char **argv)
 {
 
-// Set threads to zero
-omp_set_num_threads(1);
+// Set threads to 16
+omp_set_num_threads(16);
+
     // parse inputs
     KMCParameters p(argv[1]);
 
