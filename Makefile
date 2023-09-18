@@ -1,9 +1,9 @@
-CXXFLAGS =-O0 -g -std=c++11 -m64 -I"${CUDA_ROOT}/include" -I"${MKLROOT}/include"  -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl
+CXXFLAGS = -O3 -std=c++11 -m64 -I"${CUDA_ROOT}/include" -I"${MKLROOT}/include"  -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl
 LDFLAGS = -L ${CUDA_ROOT}/lib64 -lcuda -lcudart -lcublas
 
 # If compiling with GPU
 NVCC = nvcc
-NVCCFLAGS = -O0 -g -G
+NVCCFLAGS = -O3
 CXXFLAGS += -DUSE_CUDA
 
 SRCDIR = src
