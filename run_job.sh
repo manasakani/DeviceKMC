@@ -4,7 +4,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1
 #SBATCH --constraint=gpu
-#SBATCH --time=00:10:00
+#SBATCH --time=00:15:00
 #SBATCH --job-name=test
 #SBATCH --output=run.out
 #SBATCH --error=run.err
@@ -18,6 +18,6 @@ module load cudatoolkit/21.3_11.2
 module swap gcc gcc/9.3.0
 
 #cd ./tests/1-potential/ ; srun -n $SLURM_NTASKS ../../bin/runKMC parameters.txt
-#cd ./tests/2-globaltemp/ ; srun -n $SLURM_NTASKS ../../bin/runKMC parameters.txt
+cd ./tests/2-globaltemp/ ; srun -n $SLURM_NTASKS ../../bin/runKMC parameters.txt
 #cd ./tests/3-localtemp/ ; srun -n $SLURM_NTASKS ../../bin/runKMC parameters.txt
-cd ./tests/prod_2xstructure/ ; srun -n $SLURM_NTASKS ../../bin/runKMC parameters.txt
+#cd ./tests/prod_2xstructure/ ; srun -n $SLURM_NTASKS ../../bin/runKMC parameters.txt

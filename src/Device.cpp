@@ -380,22 +380,22 @@ void Device::constructLaplacian(cusolverDnHandle_t handle, double k_th_interface
 
     print("constructing graph Laplacian on the GPU");
     gesv(handle, &N_interface, &N_interface, L_inv, &N_interface, ipiv_L_T, B_L, &N_interface, &info);
-    gesv(handle, &N_interface, &N_interface, L_ss, &N_interface, ipiv_L_T, B_L_ss, &N_interface, &info);
+    gesv(handle, &N_interface, &N_interface, L_ss, &N_interface, ipiv_L_ss_T, B_L_ss, &N_interface, &info);
 
 #else
     // LU factorization of (I-L) (overwrite L_T with the factorization)
-    getrf_(&N_interface, &N_interface, L_inv, &N_interface, ipiv_L_T, &info);
+    dgetrf_(&N_interface, &N_interface, L_inv, &N_interface, ipiv_L_T, &info);
 
     // LU factorization of (L) (overwrite L_T with the factorization)
-    getrf(handle, &N_interface, L_ss, &N_interface, ipiv_L_T, &info);
+    dgetrf_(&N_interface, &N_interface, L_ss, &N_interface, ipiv_L_ss_T, &info);
 
     // Compute the inverse of the matrix L_T using the LU factorization (overwrite A with the factorization)
     dgetri_(&N_interface, L_inv, &N_interface, ipiv_L_T, work, &lwork, &info);
 
     // Compute the inverse of the matrix L_T using the LU factorization (overwrite A with the factorization)
     dgetri_(&N_interface, L_ss, &N_interface, ipiv_L_ss_T, work_ss, &lwork_ss, &info);
-    print("Running on the CPU")
-        print(*info);
+    print("Running on the CPU");
+
 #endif
 
     // Update the inverse of the laplacian and steady state laplacian
@@ -921,34 +921,20 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 #pragma omp parallel private(I_cal, i, j)
     {
 
-// bond-resolved currents
-#pragma omp for
-        for (i = 0; i < N_atom; i++)
-        {
-            for (j = i + 1; j < N_atom; j++)
-            {
-                I_cal = X[N_full * (i + 2) + (j + 2)] * (M[j + 2] - M[i + 2]);
-
-                if (I_cal > 0 && Vd > 0)
-                {
-                    I_pos[i * N_atom + j] = I_cal;
-                }
-                else if (I_cal < 0 && Vd < 0)
-                {
-                    I_pos[i * N_atom + j] = I_cal;
-                }
-                else
-                {
-                    I_pos[j * N_atom + i] = -I_cal;
-                }
-            }
-        }
-
-// macroscopic current
+        // macroscopic current
+        double I_pos_current = 0;
 #pragma omp for reduction(+ : I_macro)
         for (i = 2; i < N_atom; i++)
         {
-            I_macro += I_pos[N_atom + i];
+            I_pos_current = X[N_full * (3) + (i + 2)] * (M[i + 2] - M[3]);
+            if (I_pos_current > 0 && Vd > 0)
+            {
+                I_macro += I_pos_current;
+            }
+            else if (I_pos_current < 0 && Vd < 0)
+            {
+                I_macro += I_pos_current;
+            }
         }
     }
 

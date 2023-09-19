@@ -87,6 +87,8 @@ int main(int argc, char **argv)
     diff_laplacian = t_lap1 - t_lap0;
     outputBuffer << "**Calculation time inverse laplacian:**\n";
     outputBuffer << "Laplacian update: " << diff_laplacian.count() << "\n";
+    outputFile << outputBuffer.str();
+    outputBuffer.str(std::string());
 
     if (p.pristine)
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
