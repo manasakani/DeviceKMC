@@ -21,6 +21,8 @@ def compare_results(test_folder):
             compare_path = os.path.join(compare_folder, result_folder)
 
             if os.path.isdir(result_path) and os.path.isdir(compare_path):
+                print(result_path)
+                print(compare_path)
                 comparison = filecmp.dircmp(result_path, compare_path)
 
                 if not comparison.diff_files:

@@ -77,7 +77,7 @@ int main(int argc, char **argv)
 
     if (p.solve_heating_local)
     {
-        device.constructLaplacian(p.k_th_interface, p.k_th_metal, p.delta,
+        device.constructLaplacian(handle_cusolver, p.k_th_interface, p.k_th_metal, p.delta,
                                   p.delta_t, p.tau, p.metals, p.background_temp,
                                   p.num_atoms_contact);
     }

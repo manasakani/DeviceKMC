@@ -252,7 +252,6 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
     cudaFree(gpu_beta);
 
 #elif
-
     printf("Executing GEMM on CPU ...\n");
     dgemm_(transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
 #endif
@@ -310,11 +309,11 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
     //cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
     //printf("info for cusolverDnDgetrf: %i \n", info);
     cudaDeviceSynchronize();
+
     CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, *N, *nrhs, gpu_A, *lda, gpu_ipiv, gpu_B, *ldb, gpu_info));
     //cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
     //printf("info for cusolverDnDgetrs: %i \n", info);
     cudaDeviceSynchronize();
-
     // Result is in B
     cudaMemcpy(B, gpu_B, ((*N) * (*nrhs)) * sizeof(double), cudaMemcpyDeviceToHost);
 
@@ -332,3 +331,4 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
 #endif
 
 }
+

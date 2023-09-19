@@ -103,7 +103,7 @@ public:
     void makeSubstoichiometric(double vacancy_concentration);
 
     // construct inverse of the laplacian and the steady state laplacian
-    void constructLaplacian(double k_th_interface, double k_th_metal, double delta,
+    void constructLaplacian(cusolverDnHandle_t handle, double k_th_interface, double k_th_metal, double delta,
                             double delta_t, double tau, std::vector<std::string> metals, double background_temp,
                             double num_atoms_contact);
 

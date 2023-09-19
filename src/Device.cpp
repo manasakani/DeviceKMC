@@ -236,7 +236,7 @@ int Device::get_num_metals(std::vector<std::string> metals)
 }
 
 // construct laplacian and steady state laplacian
-void Device::constructLaplacian(double k_th_interface, double k_th_metal, double delta,
+void Device::constructLaplacian(cusolverDnHandle_t handle, double k_th_interface, double k_th_metal, double delta,
                                 double delta_t, double tau, std::vector<std::string> metals, double background_temp,
                                 double num_atoms_contact)
 {
@@ -267,6 +267,17 @@ void Device::constructLaplacian(double k_th_interface, double k_th_metal, double
     double *L = (double *)calloc(N_interface * N_interface, sizeof(double));     // Laplacian
     double *L_ss = (double *)calloc(N_interface * N_interface, sizeof(double));  // Steady state lapalacian
     double *L_inv = (double *)calloc(N_interface * N_interface, sizeof(double)); // Inverse of the laplacian
+
+    // Initialize B for to calculate the inverse
+    double *B_L = (double *)calloc(N_interface * N_interface, sizeof(double));
+    // Initialize B for to calculate the inverse
+    double *B_L_ss = (double *)calloc(N_interface * N_interface, sizeof(double));
+
+    for (int i = 0; i < N_interface; i++)
+    {
+        B_L[i * N_interface + i] = 1.0;    // setting the diagonal elements to 1 to make it an identity matrix
+        B_L_ss[i * N_interface + i] = 1.0; // setting the diagonal elements to 1 to make it an identity matrix
+    }
 
     int info;
     // Map the index to a new array
@@ -365,17 +376,27 @@ void Device::constructLaplacian(double k_th_interface, double k_th_metal, double
         }
     }
 
+#ifdef USE_CUDA
+
+    print("constructing graph Laplacian on the GPU");
+    gesv(handle, &N_interface, &N_interface, L_inv, &N_interface, ipiv_L_T, B_L, &N_interface, &info);
+    gesv(handle, &N_interface, &N_interface, L_ss, &N_interface, ipiv_L_T, B_L_ss, &N_interface, &info);
+
+#else
     // LU factorization of (I-L) (overwrite L_T with the factorization)
-    dgetrf_(&N_interface, &N_interface, L_inv, &N_interface, ipiv_L_T, &info);
+    getrf_(&N_interface, &N_interface, L_inv, &N_interface, ipiv_L_T, &info);
 
     // LU factorization of (L) (overwrite L_T with the factorization)
-    dgetrf_(&N_interface, &N_interface, L_ss, &N_interface, ipiv_L_ss_T, &info);
+    getrf(handle, &N_interface, L_ss, &N_interface, ipiv_L_T, &info);
 
     // Compute the inverse of the matrix L_T using the LU factorization (overwrite A with the factorization)
     dgetri_(&N_interface, L_inv, &N_interface, ipiv_L_T, work, &lwork, &info);
 
     // Compute the inverse of the matrix L_T using the LU factorization (overwrite A with the factorization)
     dgetri_(&N_interface, L_ss, &N_interface, ipiv_L_ss_T, work_ss, &lwork_ss, &info);
+    print("Running on the CPU")
+        print(*info);
+#endif
 
     // Update the inverse of the laplacian and steady state laplacian
 #pragma omp parallel for collapse(2)
@@ -383,7 +404,7 @@ void Device::constructLaplacian(double k_th_interface, double k_th_metal, double
     {
         for (int j = 0; j < N_interface; j++)
         {
-            laplacian[i * N_interface + j] = L_inv[i * N_interface + j];
+            laplacian[i * N_interface + j] = B_L[i * N_interface + j];
         }
     }
 
@@ -392,7 +413,7 @@ void Device::constructLaplacian(double k_th_interface, double k_th_metal, double
     {
         for (int j = 0; j < N_interface; j++)
         {
-            laplacian_ss[i * N_interface + j] = L_ss[i * N_interface + j];
+            laplacian_ss[i * N_interface + j] = B_L_ss[i * N_interface + j];
         }
     }
 
@@ -402,6 +423,8 @@ void Device::constructLaplacian(double k_th_interface, double k_th_metal, double
     free(work_ss);
     free(work);
     free(L_ss);
+    free(B_L);
+    free(B_L_ss);
 }
 
 // returns number of sites of element
@@ -670,7 +693,7 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
     } // thread meetup
 
     // do Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub
-    //dgesv_(&N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
+    // dgesv_(&N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
     gesv(handle, &N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
 
     // the negative internal voltages are now contained in Ksub
@@ -1072,7 +1095,7 @@ std::map<std::string, double> Device::updateLocalTemperature(double background_t
     double T_transf;
 
     // Calculate constants
-    double step_time = t * tau;                                                                                                 // [a.u.]                                                               // [a.u.]
+    double step_time = t * tau;                                                                                                       // [a.u.]                                                               // [a.u.]
     const double p_transfer_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_interface) * (T_1 - background_temp));     // [a.u.]
     const double p_transfer_non_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_vacancies) * (T_1 - background_temp)); // [a.u.]
 

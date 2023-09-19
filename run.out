@@ -1,0 +1,47 @@
+checking for an accelerator...
+Found a GPU device: Tesla P100-PCIE-16GB
+Loaded 9030 sites into device
+Consisting of 5268 atoms and 3762 interstitials 
+Executing linear system solver on GPU ...
+Warning: error in linear system solver for background potential!
+Executing linear system solver on GPU ...
+Executing GEMM on GPU ...
+Done
+Executing linear system solver on GPU ...
+Warning: error in linear system solver for background potential!
+Executing linear system solver on GPU ...
+Executing GEMM on GPU ...
+Done
+Executing linear system solver on GPU ...
+Warning: error in linear system solver for background potential!
+Executing linear system solver on GPU ...
+Executing GEMM on GPU ...
+Done
+Executing linear system solver on GPU ...
+Warning: error in linear system solver for background potential!
+Executing linear system solver on GPU ...
+Executing GEMM on GPU ...
+Done
+
+
+Batch Job Summary Report (version 21.01.1) for Job "test" (48998891) on daint
+
+Job information (1/3)
+-----------------------------------------------------------------------------------------------------
+             Submit            Eligible               Start                 End    Elapsed Time limit
+------------------- ------------------- ------------------- ------------------- ---------- ----------
+2023-09-19T11:52:26 2023-09-19T11:52:26 2023-09-19T11:56:18 2023-09-19T11:57:32   00:01:14   00:10:00
+-----------------------------------------------------------------------------------------------------
+
+Job information (2/3)
+-------------------------------------------------------------
+    Username      Account    Partition   NNodes        Energy
+------------ ------------ ------------ -------- -------------
+       hck05          hck       normal        1      3.903 kJ
+
+Job information (3/3) - GPU utilization data
+----------------------------------------------------
+   Node name       Usage      Max mem Execution time
+------------ ----------- ------------ --------------
+    nid02056         4 %     1201 MiB       00:00:32
+
