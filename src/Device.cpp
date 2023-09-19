@@ -571,7 +571,7 @@ std::map<std::string, int> Device::updateCharge(std::vector<std::string> metals)
 }
 
 // update the potential of each site
-void Device::background_potential(int num_atoms_contact, double Vd, std::vector<double> lattice,
+void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
                                   double G_coeff, double high_G, double low_G, std::vector<std::string> metals)
 {
 
@@ -670,7 +670,8 @@ void Device::background_potential(int num_atoms_contact, double Vd, std::vector<
     } // thread meetup
 
     // do Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub
-    dgesv_(&N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
+    //dgesv_(&N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
+    gesv(handle, &N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
 
     // the negative internal voltages are now contained in Ksub
 
@@ -735,11 +736,11 @@ void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice
 }
 
 // update the potential of each site
-void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<double> lattice,
+void Device::updatePotential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
                              double G_coeff, double high_G, double low_G, std::vector<std::string> metals)
 {
     // circuit-model-based potential solver
-    background_potential(num_atoms_contact, Vd, lattice,
+    background_potential(handle, num_atoms_contact, Vd, lattice,
                          G_coeff, high_G, low_G, metals);
 
     // gridless Poisson equation solver (using sum of gaussian charge distribution solutions)
@@ -747,7 +748,7 @@ void Device::updatePotential(int num_atoms_contact, double Vd, std::vector<doubl
 }
 
 // update the power of each site
-std::map<std::string, double> Device::updatePower(cublasHandle_t handle, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
+std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
                                                   std::vector<std::string> metals, double m_e, double V0)
 {
     // Map
@@ -889,7 +890,9 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, int num
         }
     }
 
-    dgesv_(&Nsub, &one, D_T, &Nsub, ipiv_T, M, &Nsub, &info);
+    // D_T(NsubxNsub) * x = M(Nsubx1) --> (solve for x)
+    // switch to cuSolver
+    gesv(handle_cusolver, &Nsub, &one, D_T, &Nsub, ipiv_T, M, &Nsub, &info);
     // M now contains the virtual potentials
 
 #pragma omp parallel private(I_cal, i, j)

@@ -1,9 +1,10 @@
-CXXFLAGS = -O3 -std=c++11 -m64 -I"${CUDA_ROOT}/include" -I"${MKLROOT}/include"  -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl
-LDFLAGS = -L ${CUDA_ROOT}/lib64 -lcuda -lcudart -lcublas
+CXX = CC
+CXXFLAGS =-O3 -std=c++11 -m64  -I"${MKLROOT}/include"  -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl
+LDFLAGS = -lcuda -lcudart -lcublas -lcusolver
 
 # If compiling with GPU
 NVCC = nvcc
-NVCCFLAGS = -O3
+NVCCFLAGS = -O3 -arch=sm_60
 CXXFLAGS += -DUSE_CUDA
 
 SRCDIR = src
@@ -26,7 +27,7 @@ $(shell mkdir -p $(BINDIR))
 all: $(TARGET)
 
 $(TARGET): $(CU_OBJ_FILES) $(CPP_OBJ_FILES)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) -L/opt/nvidia/hpc_sdk/Linux_x86_64/21.3/cuda/lib64 -o $@ $^ $(LDFLAGS)
 	
 $(OBJDIR)/%.o: $(SRCDIR)/%.cpp $(DEPS) $(SRCDIR)/cuda_wrapper.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<

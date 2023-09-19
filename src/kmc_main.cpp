@@ -41,8 +41,11 @@ int main(int argc, char **argv)
     std::cout << "No accelerators found.\n";
     #endif
 
+    #ifdef USE_CUDA
     cublasHandle_t handle = CreateCublasHandle(0);
     cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+    cusolverDnHandle_t handle_cusolver = CreateCusolverDnHandle(0);
+    #endif
 
     // Initialize device
     std::vector<std::string> xyz_files;
@@ -131,7 +134,7 @@ int main(int argc, char **argv)
                 std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
 
-                device.updatePotential(p.num_atoms_contact, Vd, p.lattice,
+                device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);
             }
             auto t_pot = std::chrono::steady_clock::now();
@@ -148,7 +151,7 @@ int main(int argc, char **argv)
             if (p.solve_current)
             {
 
-                std::map<std::string, double> powerMap = device.updatePower(handle, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
+                std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                                                                             p.metals, p.m_e, p.V0);
                 resultMap.insert(powerMap.begin(), powerMap.end());
 

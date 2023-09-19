@@ -145,6 +145,10 @@ void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<
     center_coords(x, y, z, N, dims);
 }
 
+// *****************************************************************
+// *** CuBLAS calls ***
+// *****************************************************************
+
 void CheckCublasError(cublasStatus_t const& status) {
   if (status != CUBLAS_STATUS_SUCCESS) {
     throw std::runtime_error("cuBLAS failed with error code: " +
@@ -227,8 +231,8 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
     // auto handle = CreateCublasHandle(0);
     // cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
 
-    printf("M, N, K, alpha, beta = %d, %d, %d, %lf, %lf\n", *m, *n, *k, *alpha, *beta);
-    printf("lda, ldb, ldc = %d, %d, %d\n", *lda, *ldb, *ldc);
+    //printf("M, N, K, alpha, beta = %d, %d, %d, %lf, %lf\n", *m, *n, *k, *alpha, *beta);
+    //printf("lda, ldb, ldc = %d, %d, %d\n", *lda, *ldb, *ldc);
 
     // CheckCublasError(cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, gpu_alpha, A, *lda, B, *ldb, gpu_beta, C, *ldc));
     CheckCublasError(cublasDgemv(handle, CUBLAS_OP_N, *m, *k, gpu_alpha, gpu_A, *lda, gpu_B, 1, gpu_beta, gpu_C, 1));
@@ -251,6 +255,80 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
 
     printf("Executing GEMM on CPU ...\n");
     dgemm_(transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+#endif
+
+}
+
+// *****************************************************************
+// *** CuSolver calls ***
+// *****************************************************************
+
+cusolverDnHandle_t CreateCusolverDnHandle(int device) {
+  if (cudaSetDevice(device) != cudaSuccess) {
+    throw std::runtime_error("Failed to set CUDA device.");
+  }
+  cusolverDnHandle_t handle;
+  CheckCusolverDnError(cusolverDnCreate(&handle));
+  return handle;
+}
+
+static void CheckCusolverDnError(cusolverStatus_t const& status) {
+  if (status != CUSOLVER_STATUS_SUCCESS) {
+    throw std::runtime_error("cuSOLVER failed with error code: " +
+                             std::to_string(status));
+  }
+}
+
+void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info) {
+
+#ifdef USE_CUDA
+    // https://github.com/NVIDIA/CUDALibrarySamples/blob/master/cuSOLVER/getrf/cusolver_getrf_example.cu
+    printf("Executing linear system solver on GPU ...\n");
+
+    int lwork = 0;                /* size of workspace */
+    double *gpu_work = nullptr;   /* device workspace for getrf */
+    int *gpu_info = nullptr;      /* error info */
+    double *gpu_A, *gpu_B;
+    int *gpu_ipiv;
+
+    cudaMalloc((void**)&gpu_A, ((*N) * (*N)) * sizeof(double));
+    cudaMalloc((void**)&gpu_B, ((*N) * (*nrhs)) * sizeof(double));
+    cudaMalloc((void**)&gpu_ipiv, (*N) * sizeof(int));
+    cudaMalloc((void **)(&gpu_info), sizeof(int));
+    //cudaMalloc(reinterpret_cast<void **>(&gpu_info), sizeof(int));
+
+    cudaMemcpy(gpu_A, A, ((*N) * (*N)) * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_B, B, ((*N) * (*nrhs)) * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_ipiv, ipiv, (*N) * sizeof(int), cudaMemcpyHostToDevice);
+
+    CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle, *N, *N, gpu_A, *lda, &lwork));
+    cudaMalloc((void **)(&gpu_work), sizeof(double) * lwork);
+    //cudaMalloc(reinterpret_cast<void **>(&gpu_work), sizeof(double) * lwork);
+
+    // Solve Ax=B through LU factorization
+    CheckCusolverDnError(cusolverDnDgetrf(handle, *N, *N, gpu_A, *lda, gpu_work, gpu_ipiv, gpu_info));
+    //cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
+    //printf("info for cusolverDnDgetrf: %i \n", info);
+    cudaDeviceSynchronize();
+    CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, *N, *nrhs, gpu_A, *lda, gpu_ipiv, gpu_B, *ldb, gpu_info));
+    //cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
+    //printf("info for cusolverDnDgetrs: %i \n", info);
+    cudaDeviceSynchronize();
+
+    // Result is in B
+    cudaMemcpy(B, gpu_B, ((*N) * (*nrhs)) * sizeof(double), cudaMemcpyDeviceToHost);
+
+    cudaFree(gpu_A);
+    cudaFree(gpu_B);
+    cudaFree(gpu_ipiv);
+    cudaFree(gpu_work);
+    cudaFree(gpu_info);
+
+#else
+
+    dgesv_(N, nrhs, A, lda, ipiv, B, ldb, info);
+    print(*info);
+
 #endif
 
 }

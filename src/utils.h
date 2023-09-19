@@ -15,6 +15,7 @@
 
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
+#include <cusolverDn.h>
 
 #ifndef UTILS_H
 #define UTILS_H
@@ -58,9 +59,14 @@ void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<
 
 // CUDA/cuBLAS
 void CheckCublasError(cublasStatus_t const& status);
+static void CheckCusolverDnError(cusolverStatus_t const& status);
 cublasHandle_t CreateCublasHandle(int device);
+cusolverDnHandle_t CreateCusolverDnHandle(int device);
 
 // GEMM
 void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int *k, double *alpha, double *A, int *lda, double *B, int *ldb, double *beta, double *C, int *ldc);
+
+//GESV
+void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info);
 
 #endif
