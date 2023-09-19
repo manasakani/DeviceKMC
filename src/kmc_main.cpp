@@ -33,19 +33,19 @@ int main(int argc, char **argv)
 
     // check for accelerators (not yet incorporated into the code)
     std::cout << "checking for an accelerator...\n";
-    #ifdef USE_CUDA
+#ifdef USE_CUDA
     char gpu_string[1000];
     get_gpu_info(gpu_string, 0);
     printf("Found a GPU device: %s\n", gpu_string);
-    #else
+#else
     std::cout << "No accelerators found.\n";
-    #endif
+#endif
 
-    #ifdef USE_CUDA
+#ifdef USE_CUDA
     cublasHandle_t handle = CreateCublasHandle(0);
     cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
     cusolverDnHandle_t handle_cusolver = CreateCusolverDnHandle(0);
-    #endif
+#endif
 
     // Initialize device
     std::vector<std::string> xyz_files;
@@ -75,12 +75,18 @@ int main(int argc, char **argv)
 
     Device device(xyz_files, p.lattice, p.shift, p.shifts, p.pbc, p.sigma, p.epsilon, p.nn_dist, p.background_temp, p.rnd_seed);
 
+    std::chrono::duration<double> diff_laplacian;
+    auto t_lap0 = std::chrono::steady_clock::now();
     if (p.solve_heating_local)
     {
         device.constructLaplacian(handle_cusolver, p.k_th_interface, p.k_th_metal, p.delta,
                                   p.delta_t, p.tau, p.metals, p.background_temp,
                                   p.num_atoms_contact);
     }
+    auto t_lap1 = std::chrono::steady_clock::now();
+    diff_laplacian = t_lap1 - t_lap0;
+    outputBuffer << "**Calculation time inverse laplacian:**\n";
+    outputBuffer << "Laplacian update: " << diff_laplacian.count() << "\n";
 
     if (p.pristine)
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
@@ -194,7 +200,7 @@ int main(int argc, char **argv)
             {
                 outputBuffer << pair.first << ": " << pair.second << std::endl;
             }
-	    resultMap.clear();
+            resultMap.clear();
 
             // dump print buffer into the output file
             if (!(kmc_step_count % p.output_freq))
