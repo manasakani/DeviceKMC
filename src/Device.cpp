@@ -383,7 +383,7 @@ void Device::constructLaplacian(cusolverDnHandle_t handle, double k_th_interface
     gesv(handle, &N_interface, &N_interface, L_ss, &N_interface, ipiv_L_ss_T, B_L_ss, &N_interface, &info);
 
 #else
-    // LU factorization of (I-L) (overwrite L_T with the factorization)
+    //  LU factorization of (I-L) (overwrite L_T with the factorization)
     dgetrf_(&N_interface, &N_interface, L_inv, &N_interface, ipiv_L_T, &info);
 
     // LU factorization of (L) (overwrite L_T with the factorization)
@@ -392,8 +392,28 @@ void Device::constructLaplacian(cusolverDnHandle_t handle, double k_th_interface
     // Compute the inverse of the matrix L_T using the LU factorization (overwrite A with the factorization)
     dgetri_(&N_interface, L_inv, &N_interface, ipiv_L_T, work, &lwork, &info);
 
+    // Prepare Lss to solve for the inverse of the laplacian matrix (Lss)
+#pragma omp parallel for collapse(2) num_threads(1)
+    for (int i = 0; i < N_interface; i++)
+    {
+        for (int j = 0; j < N_interface; j++)
+        {
+            B_L[i * N_interface + j] = L_inv[i * N_interface + j];
+        }
+    }
+
     // Compute the inverse of the matrix L_T using the LU factorization (overwrite A with the factorization)
     dgetri_(&N_interface, L_ss, &N_interface, ipiv_L_ss_T, work_ss, &lwork_ss, &info);
+
+    // Prepare Lss to solve for the inverse of the laplacian matrix (Lss)
+#pragma omp parallel for collapse(2) num_threads(1)
+    for (int i = 0; i < N_interface; i++)
+    {
+        for (int j = 0; j < N_interface; j++)
+        {
+            B_L_ss[i * N_interface + j] = L_ss[i * N_interface + j];
+        }
+    }
     print("Running on the CPU");
 
 #endif
@@ -827,11 +847,11 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 
                 // conductive vacancies
                 cvacancy1 = atoms[i]->element == "V" && site_charge[atoms[i]->ind] == 0;
-                cvacancy2 = atoms[j]->element == "V" && site_charge[atoms[i]->ind] == 0;
+                cvacancy2 = atoms[j]->element == "V" && site_charge[atoms[j]->ind] == 0;
 
                 // charged vacancies
                 vacancy1 = atoms[i]->element == "V" && site_charge[atoms[i]->ind] != 0;
-                vacancy2 = atoms[j]->element == "V" && site_charge[atoms[i]->ind] != 0;
+                vacancy2 = atoms[j]->element == "V" && site_charge[atoms[j]->ind] != 0;
 
                 neighbor = is_neighbor(i, j);
 
