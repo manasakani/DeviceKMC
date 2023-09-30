@@ -61,35 +61,15 @@ KMCProcess::KMCProcess(Device *device, double _freq)
     }
 }
 
-// template <typename T, size_t N>
-// void inclusive_prefix_sum(const T input[N], T output[N]) {
-//     if (N == 0) return;
-
-//     output[0] = input[0];
-//     for (size_t i = 1; i < N; ++i) {
-//         output[i] = output[i - 1] + input[i];
-//     }
-// }
-
-void inclusive_prefix_sum(double* input, double* output, size_t N) {
-    if (N == 0) return;
-
-    output[0] = input[0];
-    for (size_t i = 1; i < N; ++i) {
-        output[i] = output[i - 1] + input[i];
-    }
-}
-
 double KMCProcess::executeKMCStep(Device &device)
 {
-    std::cout << "starting KMC step\n";
+    // ** Build event list **
 
-    // build event list
     int num_sites = device.N;
     int num_neigh = device.max_num_neighbors;
 
     EVENTTYPE *event_type = new EVENTTYPE[num_sites * num_neigh];
-    double    *event_prob = new double[num_sites * num_neigh];
+    double    *event_prob = new    double[num_sites * num_neigh];
 
     // iterates through all possible site-neighbor pairs
     #pragma omp parallel for
@@ -98,14 +78,43 @@ double KMCProcess::executeKMCStep(Device &device)
         EVENTTYPE event_type_ = NULL_EVENT;
         double P = 0;
 
+        // site-neighbor pair indicies for this element of neigh_idx
         auto i = idx / num_neigh;
         auto j = device.neigh_idx[idx]; 
 
-        // j is -1 if no more neighbors exist at this position of neigh_idx
+        // j is -1 if there is no neighbor at this position
         if (j >= 0 && j < num_sites) { 
 
             double r_dist = (1e-10) * site_dist(device.site_x[i], device.site_y[i], device.site_z[i], 
                                                 device.site_x[j], device.site_y[j], device.site_z[j], device.lattice, device.pbc);
+
+            // Generation
+            if (device.site_element[i] == DEFECT && device.site_element[j] == O)
+            {
+
+                double E = 2 * (device.site_potential[i] - device.site_potential[j]);
+                double zero_field_energy = layers[site_layer[j]].E_gen_0;
+                event_type_ = VACANCY_GENERATION;
+                double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
+                double EA = zero_field_energy - E - Ekin;
+                P = exp(-1 * EA / (kB * device.T_bg)) * freq;
+            }
+
+            // Recombination
+            else if (device.site_element[i] == OXYGEN_DEFECT && device.site_element[j] == VACANCY)
+            {
+                int charge_abs = 2;
+                double self_int_V = v_solve(r_dist, charge_abs, device.sigma, device.k, q);
+
+                int charge_state = device.site_charge[i] - device.site_charge[j];
+                double E = charge_state * (device.site_potential[i] - device.site_potential[j] + (charge_state / 2) * self_int_V);
+                double zero_field_energy = layers[site_layer[j]].E_rec_1;
+
+                event_type_ = VACANCY_RECOMBINATION;
+                double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
+                double EA = zero_field_energy - E - Ekin;
+                P = exp(-1 * EA / (kB * device.T_bg)) * freq;
+            }
 
             // Vacancy diffusion
             if (device.site_element[i] == VACANCY && device.site_element[j] == O)
@@ -124,61 +133,116 @@ double KMCProcess::executeKMCStep(Device &device)
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
             }
+
+            else if (device.site_element[i] == OXYGEN_DEFECT && device.site_element[j] == DEFECT)
+            {
+                int charge_abs = 2;
+                double self_int_V = 0.0;
+                if (device.site_charge[i] != 0)
+                {
+                    self_int_V = v_solve(r_dist, charge_abs, device.sigma, device.k, q);
+                }
+                double E = (device.site_charge[i] - device.site_charge[j]) * (device.site_potential[i] - device.site_potential[j] - self_int_V);
+                double zero_field_energy = layers[site_layer[j]].E_diff_3;
+
+                event_type_ = ION_DIFFUSION;
+
+                double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
+                double EA = zero_field_energy - E - Ekin;
+                P = exp(-1 * EA / (kB * device.T_bg)) * freq;
+            }
         }
         event_type[idx] = event_type_;
         event_prob[idx] = P;
     }
 
-    std::cout << "Starting the event execution loop ..." << std::endl;
-    double *event_prob_cum = new double[num_sites * num_neigh];
+    // ** Event execution **
 
+    double *event_prob_cum = new double[num_sites * num_neigh];
     double event_time = 0.0;
     while (event_time < 1 / freq) {
+
         // NOTE: We can optimize this by only updating the required values
-        //std::inclusive_scan(event_prob, event_prob + num_sites * num_neigh, event_prob_cum);
-        inclusive_prefix_sum(event_prob, event_prob_cum, num_sites * num_neigh);
+        // get the cumulative sum of the probabilities
+        inclusive_prefix_sum<double>(event_prob, event_prob_cum, num_sites * num_neigh);
 
+        // Select an event
         double Psum = event_prob_cum[num_sites * num_neigh - 1];
-        double number = this->random_generator.getRandomNumber() * Psum;
-
-        std::cout << "Searching for " << number << " in [" << event_prob_cum[0] << ", " << Psum << "]" << std::endl;
+        double number = random_generator.getRandomNumber() * Psum;
         int event_idx = std::upper_bound(event_prob_cum, event_prob_cum + num_sites * num_neigh, number) - event_prob_cum;
         double sel_event_prob = event_prob_cum[event_idx];
-
-        std::cout << "Selected event index: " << event_idx << " with type "
-                  << event_type[event_idx] << " and probability " << event_prob[event_idx]
-                  << " (" << sel_event_prob << ")" << std::endl;
+        //std::cout << "Searching for " << number << " in [" << event_prob_cum[0] << ", " << Psum << "]" << std::endl;
 
         EVENTTYPE sel_event_type = event_type[event_idx];
+
+        // find the site-neighbor pair corresponding to this event
         auto i = event_idx / num_neigh;
         auto j = device.neigh_idx[event_idx];
-        ELEMENT site_1 = device.site_element[i];
-        ELEMENT site_2 = device.site_element[j];
 
-        int charge_1 = device.site_charge[i];
-        int charge_2 = device.site_charge[j];
+        //std::cout << "Selected event index: " << event_idx << " with type "
+        //          << event_type[event_idx] << " and probability " << event_prob[event_idx]
+        //          << " (" << sel_event_prob << ")" << " to happen between " << device.site_element[i]
+        //          << " and " << device.site_element[j] << std::endl;
 
+        // Event execution
         switch (sel_event_type)
         {
-        case VACANCY_DIFFUSION:
+        case VACANCY_GENERATION:
         {
-            print(site_1);
-            print(site_2);
-            if (site_1 != VACANCY || site_2 != O)
+            if (device.site_element[i] != DEFECT || device.site_element[j] != O)
             {
                 print("Wrong event type!");
             }
 
-            int vacancy_charge = charge_1;
-            int oxygen_charge = charge_2;
+            // turn the defect (site_1) into an oxygen ion:
+            device.site_element[i] = OXYGEN_DEFECT;
+            device.site_charge[i] = -2;
 
-            // turn the vacancy (site_1) into an oxygen
-            site_1 = O;
-            charge_1 = oxygen_charge;
+            // turn the oxygen (site_2) into a charged vacancy:
+            device.site_element[j] = VACANCY;
+            device.site_charge[j] = 2;
 
-            // turn the oxygen (site_2) into vacancy
-            site_2 = VACANCY;
-            charge_2 = vacancy_charge;
+            break;
+        }
+        case VACANCY_RECOMBINATION:
+        {
+            if (device.site_element[i] != OXYGEN_DEFECT || device.site_element[j] != VACANCY)
+            {
+                print("Wrong event type!");
+            }
+
+            // turn the oxygen (site_1) into a defect
+            device.site_element[i] = DEFECT;
+            device.site_charge[i] = 0;
+
+            // turn the vacancy (site_2) into an oxygen atom:
+            device.site_element[j] = O;
+            device.site_charge[j] = 0;
+
+            break;
+        }
+        case VACANCY_DIFFUSION:
+        {
+            if (device.site_element[i] != VACANCY || device.site_element[j] != O)
+            {
+                print("Wrong event type!");
+
+            }
+
+            swap_values<ELEMENT>(&device.site_element[i], &device.site_element[j]);
+            swap_values<int>(&device.site_charge[i], &device.site_charge[j]);
+
+            break;
+        }
+        case ION_DIFFUSION:
+        {
+            if (device.site_element[i] != OXYGEN_DEFECT || device.site_element[j] != DEFECT)
+            {
+                print("Wrong event type!");
+            }
+
+            swap_values<ELEMENT>(&device.site_element[i], &device.site_element[j]);
+            swap_values<int>(&device.site_charge[i], &device.site_charge[j]);
 
             break;
         }
@@ -186,23 +250,17 @@ double KMCProcess::executeKMCStep(Device &device)
             print("error: unidentified event key found");
         }
 
-        // update the attributes of these sites
-        device.site_element[i] = site_1;
-        device.site_element[j] = site_2;
-        device.site_charge[i] = charge_1;
-        device.site_charge[j] = charge_2;
+        // Deactivate conflicting events
+        int i_, j_;
+        #pragma omp parallel for private(i_, j_)
+        for (auto idx = 0; idx < num_sites * num_neigh; ++idx){
+            i_ = idx / num_neigh;
+            j_ = device.neigh_idx[idx];
 
-        // std::cout << "Executed event!" << std::endl;
-        // std::cout << device.sites[i].element << " " << device.sites[j].element << std::endl;
-        // std::cout << device.site_charge[i] << " " << device.site_charge[j] << std::endl;
-
-        for (auto neigh_idx = i * num_neigh; neigh_idx < (i + 1) * num_neigh; ++neigh_idx) {
-            event_type[neigh_idx] = NULL_EVENT;
-            event_prob[neigh_idx] = 0.0;
-        }
-        for (auto neigh_idx = j * num_neigh; neigh_idx < (j + 1) * num_neigh; ++neigh_idx) {
-            event_type[neigh_idx] = NULL_EVENT;
-            event_prob[neigh_idx] = 0.0;
+            if (i == i_ || j == j_){
+                event_type[idx] = NULL_EVENT;
+                event_prob[idx] = 0.0;
+            }
         }
 
         event_time = -log(random_generator.getRandomNumber()) / sel_event_prob;
@@ -211,9 +269,6 @@ double KMCProcess::executeKMCStep(Device &device)
     delete[] event_type;
     delete[] event_prob;
     delete[] event_prob_cum;
-
-    //std::cout << "Event time: " << event_time << std::endl;
-    //return event_time;
-    return 1.0;
-
+    std::cout << "Event time: " << event_time << std::endl;
+    return event_time;
 }

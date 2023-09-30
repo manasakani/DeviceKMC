@@ -1,4 +1,5 @@
 #include "Device.h"
+//#include <chrono>
 
 void Graph::printAdjList()
 {
@@ -90,6 +91,7 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
 void Device::constructSiteNeighborList()
 {
     
+    //auto t0 = std::chrono::steady_clock::now();
     #pragma omp parallel
     {
     int local_max_nn = 0;
@@ -122,6 +124,9 @@ void Device::constructSiteNeighborList()
     }
 
     }
+    //auto t_f = std::chrono::steady_clock::now();
+    //std::chrono::duration<double> diff_f = t_f - t0;
+    //std::cout << "Time to build neighbor list: " << diff_f.count() << "\n";
 
     site_neighbors.is_constructed = 1;
     std::cout << "Maximum number of neighbors in device is: " << this->max_num_neighbors << "\n";

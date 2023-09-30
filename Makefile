@@ -1,10 +1,17 @@
-#IIS CPU / attelas GPU
+# Intel Compiler without some C++17 features like inclusive_scan
 CXX = /usr/sepp/bin/icc-2020-af 
-#CXX = gcc
 MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
 OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
 CUDA_ROOT = /usr/local/cuda
 CXXFLAGS = -O3 -std=c++17 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
+
+# GNU C++ compiler (with C++17)
+# CXX = /usr/sepp/bin/gcc-9.2.0
+# MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
+# OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
+# CUDA_ROOT = /usr/local/cuda
+# # CXXFLAGS = -O3 -std=c++17 -m64 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_intel_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -liomp5 -lpthread -lm -ldl
+# CXXFLAGS = -O3 -std=c++17 -m64  -I"${MKLROOT}/include"  -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -liomp5 -lpthread -lm -ldl
 
 #Piz Daint
 #CXX = gcc

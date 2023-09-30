@@ -1,4 +1,4 @@
-// KMC Process class
+// KMC Process
 #ifndef KMC_H
 #define KMC_H
 #include "Device.h"
@@ -9,12 +9,7 @@
 #include <string>
 #include <vector>
 
-// struct for a single KMC event
-/*Key for event_type:
-0 - Vacancy/Ion Pair Generation
-1 - Vacancy/Ion Pair Recombination
-2 - Vacancy Diffusion
-3 - Ion Diffusion*/
+// KMC events
 enum EVENTTYPE
 {
     VACANCY_GENERATION,
@@ -24,30 +19,6 @@ enum EVENTTYPE
     NULL_EVENT
 };
 
-struct Event{
-	int ind1, ind2; //index in site list of site1 and site2 participating in this event
-    EVENTTYPE event_type; // type of event (see key above)    
-    double prob; //probability of event
-    Event* next;
-
-    Event()
-    {
-        ind1 = 0;
-        ind2 = 0;
-        event_type = NULL_EVENT;
-        prob = 0.0;
-        next = NULL;
-    }
-
-    Event(int ind1_, int ind2_, EVENTTYPE event_type_, double prob_)
-    {
-        this->ind1 = ind1_;
-        this->ind2 = ind2_;
-        this->event_type = event_type_;
-        this->prob = prob_;   
-        this->next = NULL;
-    }
-};
 
 //Creates a device 'layer', with activation energies and types
 struct Layer{
@@ -85,14 +56,6 @@ class KMCProcess{
 		double h_bar_eV = 6.582119569e-16; // [eV]
 		double m_0 = 9.11e-31;             // [kg]
 		double eV_to_J = 1.6e-19;          // [C]
-		
-		//Event* pick_and_get_event(std::list<Event>& event_list, int event_list_size, double Psum);
-		
-		//void execute_event(Site* site_1, Site* site_2, int &event_type, int &charge_1, int &charge_2);
-		
-		/*void buildEventList(Device device);
-		stepRejection();
-		stepRejectionFree();*/
 	
 };
 #endif 

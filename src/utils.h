@@ -60,6 +60,25 @@ inline bool location_exists(const std::string &fname)
     return (stat(fname.c_str(), &buffer) == 0);
 }
 
+// swap two elements in an array
+template <typename T>
+void swap_values(T* a, T* b){
+    T temp_a = *a;
+    *a = *b;
+    *b = temp_a;
+}
+
+// cumulative sum of array elements
+template <typename T>
+void inclusive_prefix_sum(T* input, T* output, size_t N) {
+    if (N == 0) return;
+
+    output[0] = input[0];
+    for (size_t i = 1; i < N; ++i) {
+        output[i] = output[i - 1] + input[i];
+    }
+}
+
 // potential solution for gaussian charge distribution
 inline double v_solve(double &r_dist, int &charge, double &sigma, double &k, double &q) { return charge * erfc(r_dist / (sigma * sqrt(2))) * k * q / r_dist; }
 

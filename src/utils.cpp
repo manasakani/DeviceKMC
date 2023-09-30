@@ -123,17 +123,6 @@ double site_dist(std::vector<double> pos1, std::vector<double> pos2, std::vector
 
     if (pbc == 1)
     {
-        /*double dist_frac[3] = {(pos1[0] / lattice[0]) - (pos2[0] / lattice[0]),
-                               (pos1[1] / lattice[1]) - (pos2[1] / lattice[1]),
-                               (pos1[2] / lattice[2]) - (pos2[2] / lattice[2])};
-
-        dist_frac[1] -= int(dist_frac[1] + 0.5);
-        dist_frac[2] -= int(dist_frac[2] + 0.5);
-
-        dist_xyz[1] = dist_frac[1] * lattice[1];
-        dist_xyz[2] = dist_frac[2] * lattice[2];
-
-        dist = sqrt(pow(pos2[0] - pos1[0], 2) + pow(dist_xyz[1], 2) + pow(dist_xyz[2], 2));*/
         
         // Find shortest distance between pos1 and the periodic images of pos2 in YZ
         double dist_x = pos1[0] - pos2[0];
@@ -371,7 +360,10 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
 
     CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, *N, *nrhs, gpu_A, *lda, gpu_ipiv, gpu_B, *ldb, gpu_info));
     cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
-    printf("info for cusolverDnDgetrs: %i \n", info);
+
+    if (!info){
+        printf("WARNING: info for cusolverDnDgetrs: %i \n", info);
+    }
     cudaDeviceSynchronize();
 
     // Result is in B
