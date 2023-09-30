@@ -60,6 +60,8 @@ public:
     double sigma;               // gaussian width for potential solver
     double k;                   //
     double T_bg;                // global background temperature
+    bool pbc;                   // is device periodic in the lateral directions?
+    std::vector<double> lattice;// size of device box
 
     // Site attributes:
     std::vector<double> site_x;
@@ -150,8 +152,6 @@ private:
     int N_atom = 0; // number of atoms in this device
     int N_int = 0;  // number of available interstitial (defect) sites
     int N_interface = 0;
-    std::vector<double> lattice;            // size of device box
-    bool pbc;                               // is device periodic in the lateral directions?
     RandomNumberGenerator random_generator; // random number generator object for this device
     double kB = 8.617333262e-5;             // [eV/K]
     double q = 1.60217663e-19;              // [C]

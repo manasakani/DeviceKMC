@@ -23,7 +23,6 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     random_generator.setSeed(rnd_seed);
 
     // parse xyz file(s)
-    std::cout << "Reading the input xyz files...\n";
     for (auto xyz_file : xyz_files)
     {
         this->N += read_xyz(xyz_file, site_element, site_x, site_y, site_z);

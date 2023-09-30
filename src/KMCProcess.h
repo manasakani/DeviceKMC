@@ -67,14 +67,15 @@ class KMCProcess{
 	public:
 	    std::vector<Layer> layers;
 		//std::string method;												//simulation type: rejection or rejection free?
-		KMCProcess(Device* device); 
+		KMCProcess(Device* device, double freq_); 
 
 		// executes one step on the device and returns the time taken for it
-		double executeKMCStep(Device &device, double freq, std::vector<double> lattice, bool pbc);
+		double executeKMCStep(Device &device);
 		
 	private:
 		RandomNumberGenerator random_generator;							// random number generator object for this KMC process
 		std::vector<double> site_layer;									// layerID for each site
+        double freq;                                                    // attempt frequency of this set of events
 		
 		// Physical Constants
 		double kB = 8.617333262e-5;        // [eV/K]

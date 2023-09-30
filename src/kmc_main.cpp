@@ -87,7 +87,7 @@ int main(int argc, char **argv)
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
 
     // Initialize KMC simulation
-    KMCProcess sim(&device);
+    KMCProcess sim(&device, p.freq);
     outputBuffer.str(std::string());
 
     // loop over V_switch and t_switch
@@ -143,7 +143,7 @@ int main(int argc, char **argv)
             diff_pot = t_pot - t0;
 
             // KMC update step 
-            step_time = sim.executeKMCStep(device, p.freq, p.lattice, p.pbc);
+            step_time = sim.executeKMCStep(device);
             double temperature_time = kmc_time;
             kmc_time += step_time;
             auto t_perturb = std::chrono::steady_clock::now();
