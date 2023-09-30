@@ -45,7 +45,7 @@ KMCProcess::KMCProcess(Device *device)
         layerID = 1000;
         for (int j = 0; j < numlayers; j++)
         {
-            if (layers[j].start_x <= device->sites[i].pos[0] && device->sites[i].pos[0] <= layers[j].end_x)
+            if (layers[j].start_x <= device->site_x[i] && device->site_x[i] <= layers[j].end_x)
             {
                 layerID = j;
             }
@@ -59,7 +59,7 @@ KMCProcess::KMCProcess(Device *device)
     }
 }
 
-Event *KMCProcess::pick_and_get_event(std::list<Event> &event_list, int event_list_size, double Psum)
+/*Event *KMCProcess::pick_and_get_event(std::list<Event> &event_list, int event_list_size, double Psum)
 {
 
     int i;
@@ -78,16 +78,16 @@ Event *KMCProcess::pick_and_get_event(std::list<Event> &event_list, int event_li
     }
 
     return &(event_list.back());
-}
+}*/
 
-void KMCProcess::execute_event(Site *site_1, Site *site_2, int &event_type, int &charge_1, int &charge_2)
+/*void KMCProcess::execute_event(Site *site_1, Site *site_2, int &event_type, int &charge_1, int &charge_2)
 {
-    /*Key for event_type:
-     * 0 - Vacancy/Ion Pair Generation
-     * 1 - Vacancy/Ion Pair Recombination
-     * 2 - Vacancy Diffusion
-     * 3 - Ion Diffusion
-     */
+     //Key for event_type:
+     // 0 - Vacancy/Ion Pair Generation
+     // 1 - Vacancy/Ion Pair Recombination
+     // 2 - Vacancy Diffusion
+     // 3 - Ion Diffusion
+ 
     std::string event_name;
 
     switch (event_type)
@@ -172,202 +172,150 @@ void KMCProcess::execute_event(Site *site_1, Site *site_2, int &event_type, int 
         print("error: unidentified event key found");
     }
     // print("executed an " << event_name << " event between " << site_1->element << "-" << site_1->ind << " and " << site_2->element << "-" << site_2->ind << " with charges " << charge_1 << " and " << charge_2;
-}
+}*/
 
-double KMCProcess::executeKMCStep(Device *device, double freq, std::vector<double> lattice, bool pbc)
+// void KMCProcess::change_element(device, i, site_1){
+//     device.site_element[i] = site_1;
+// }
+
+double KMCProcess::executeKMCStep(Device &device, double freq, std::vector<double> lattice, bool pbc)
 {
 
     // build event list
-    std::list<Event> event_list;
-    long double Psum = 0.0;
-    Event *t_temp;
+    int num_sites = device.N;
+    int num_neigh = device.max_num_neighbors;
 
-#pragma omp parallel
-    {
-        // this thread gets its own event list and adds events to it
-        std::list<Event> t_event_list;
+    EVENTTYPE *event_type = new EVENTTYPE[num_sites * num_neigh];
+    double    *event_prob = new double[num_sites * num_neigh];
 
-        std::string site1_type, site2_type;
-        int charge_abs, charge_state, event_type_;
-        double zero_field_energy, E, EA, r_dist, self_int_V, event_temp, delta_temp, Ekin;
-        long double P;
-        double T_kmc = device->T_bg; // CHANGE WITH REAL TEMPERATURE
+    // iterates through all possible site-neighbor pairs
+    #pragma omp parallel for
+    for (auto idx = 0; idx < num_sites * num_neigh; ++idx) {
 
-#pragma omp for schedule(dynamic) reduction(+ : Psum)
-        for (int i = 0; i < device->N; i++)
-        {
+        EVENTTYPE event_type_ = NULL_EVENT;
+        double P = 0;
 
-            for (int j : device->site_neighbors.l[i])
+        auto i = idx / num_neigh;
+        auto j = device.neigh_idx[idx]; 
+
+        // j is -1 if no more neighbors exist at this position of neigh_idx
+        if (j >= 0 && j < num_sites) { 
+
+            double r_dist = (1e-10) * site_dist(device.site_x[i], device.site_y[i], device.site_z[i], 
+                                                device.site_x[j], device.site_y[j], device.site_z[j], lattice, pbc);
+
+            // Vacancy diffusion
+            if (device.site_element[i] == VACANCY && device.site_element[j] == O)
             {
 
-                r_dist = (1e-10) * site_dist(device->sites[i].pos, device->sites[j].pos, lattice, pbc);
-                site1_type = device->sites[i].element;
-                site2_type = device->sites[j].element;
-
-                // Generation
-                if (site1_type == "d" && site2_type == "O")
+                double self_int_V = 0.0;
+                if (device.site_charge[i] != 0)
                 {
-
-                    E = 2 * (device->site_potential[i] - device->site_potential[j]);
-                    zero_field_energy = layers[site_layer[j]].E_gen_0;
-                    event_type_ = 0;
-                    Ekin = kB * (device->site_temperature[i] - device->site_temperature[j]);
-                    EA = zero_field_energy - E - Ekin;
-                    P = exp(-1 * EA / (kB * T_kmc)) * freq;
-                    t_event_list.emplace_back(i, j, event_type_, P);
-
-                    Psum += P;
+                    double self_int_V = v_solve(r_dist, device.site_charge[i], device.sigma, device.k, q);
                 }
 
-                // Recombination
-                else if (site1_type == "Od" && site2_type == "V")
-                {
-
-                    charge_abs = 2;
-                    self_int_V = v_solve(r_dist, charge_abs, device->sigma, device->k, q);
-
-                    charge_state = device->site_charge[i] - device->site_charge[j];
-                    E = charge_state * (device->site_potential[i] - device->site_potential[j] + (charge_state / 2) * self_int_V);
-                    zero_field_energy = layers[site_layer[j]].E_rec_1;
-
-                    event_type_ = 1;
-                    Ekin = kB * (device->site_temperature[i] - device->site_temperature[j]);
-                    EA = zero_field_energy - E - Ekin;
-                    P = exp(-1 * EA / (kB * T_kmc)) * freq;
-                    t_event_list.emplace_back(i, j, event_type_, P);
-
-                    Psum += P;
-                }
-
-                // Vacancy diffusion
-                else if (site1_type == "V" && site2_type == "O")
-                {
-
-                    if (device->site_charge[i] != 0)
-                    {
-                        self_int_V = v_solve(r_dist, device->site_charge[i], device->sigma, device->k, q);
-                    }
-                    else
-                    {
-                        self_int_V = 0;
-                    }
-
-                    E = (device->site_charge[i] - device->site_charge[j]) * (device->site_potential[i] - device->site_potential[j] + self_int_V);
-                    zero_field_energy = layers[site_layer[i]].E_diff_2;
-
-                    event_type_ = 2;
-                    Ekin = kB * (device->site_temperature[i] - device->site_temperature[j]);
-                    EA = zero_field_energy - E - Ekin;
-                    P = exp(-1 * EA / (kB * T_kmc)) * freq;
-                    t_event_list.emplace_back(i, j, event_type_, P);
-
-                    Psum += P;
-                }
-
-                // Ion diffusion
-                else if (site1_type == "Od" && site2_type == "d")
-                {
-
-                    charge_abs = 2;
-
-                    if (device->site_charge[i] != 0)
-                    {
-                        self_int_V = v_solve(r_dist, charge_abs, device->sigma, device->k, q);
-                    }
-                    else
-                    {
-                        self_int_V = 0;
-                    }
-                    E = (device->site_charge[i] - device->site_charge[j]) * (device->site_potential[i] - device->site_potential[j] - self_int_V);
-                    zero_field_energy = layers[site_layer[j]].E_diff_3;
-
-                    event_type_ = 3;
-
-                    Ekin = kB * (device->site_temperature[i] - device->site_temperature[j]);
-                    EA = zero_field_energy - E - Ekin;
-                    P = exp(-1 * EA / (kB * T_kmc)) * freq;
-                    t_event_list.emplace_back(i, j, event_type_, P);
-
-                    Psum += P;
-                }
+                event_type_ = VACANCY_DIFFUSION;
+                double E = (device.site_charge[i] - device.site_charge[j]) * (device.site_potential[i] - device.site_potential[j] + self_int_V);
+                double zero_field_energy = E_diff_2[i];
+                double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
+                double EA = zero_field_energy - E - Ekin;
+                P = exp(-1 * EA / (kB * T_kmc)) * freq;
             }
         }
-
-// link all the thread-local event lists
-#pragma omp critical
-        {
-            event_list.splice(event_list.end(), t_event_list);
-        }
+        event_type[idx] = event_type_;
+        event_prob[idx] = P;
     }
 
-    // print_event_list(event_list, "events.txt", 1e-100);
-    // print("size of event list: " << event_list.size());
-    // print("total Psum: " << Psum);
+    std::cout << "Starting the event execution loop ..." << std::endl;
+    double *event_prob_cum = new double[num_sites * num_neigh];
 
-    // Event execution loop:
     double event_time = 0.0;
-    int event_cntr, track_ind, event_ind, site_1_ind, site_2_ind;
-    bool conflict_1, conflict_2, conflict_3, conflict_4;
-    Event *selected_event;
-    Event *temp;
+    while (event_time < 1 / freq) {
+        // NOTE: We can optimize this by only updating the required values
+        std::inclusive_scan(event_prob, event_prob + num_sites * num_neigh, event_prob_cum);
 
-    while (event_time < 1 / freq)
-    {
-        event_cntr = event_list.size();
+        double Psum = event_prob_cum[num_sites * num_neigh - 1];
+        double number = this->random_generator.getRandomNumber() * Psum;
 
-        if (event_cntr == 0)
+        // std::cout << "Searching for " << number << " in [" << event_prob_cum[0] << ", " << Psum << "]" << std::endl;
+        int event_idx = std::upper_bound(event_prob_cum, event_prob_cum + num_sites * num_neigh, number) - event_prob_cum;
+        double sel_event_prob = event_prob_cum[event_idx];
+
+        // std::cout << "Selected event index: " << event_idx << " with type "
+        //           << event_type[event_idx] << " and probability " << event_prob[event_idx]
+        //           << " (" << sel_event_prob << ")" << std::endl;
+
+        // std::string event_name;
+
+        EVENTTYPE sel_event_type = event_type[event_idx];
+        auto i = event_idx / num_neigh;
+        auto j = device.neigh_idx[event_idx];
+        // Site *site_1 = &(device.sites[i]);
+        // Site *site_2 = &(device.sites[j]);
+        ELEMENT site_1 = device.site_element[i];
+        ELEMENT site_2 = device.site_element[j];
+
+        int charge_1 = device.site_charge[i];
+        int charge_2 = device.site_charge[j];
+
+        switch (sel_event_type)
         {
-            print("entire event list completed - this should not happen.");
+        case VACANCY_DIFFUSION:
+        {
+            // event_name = "vacancy diffusion";
+            // if (site_1->element != "V" || site_2->element != "O")
+            if (site_1 != VACANCY || site_2 != O)
+            {
+                print("Wrong event type!");
+            }
+
+            int vacancy_charge = charge_1;
+            int oxygen_charge = charge_2;
+
+            // turn the vacancy (site_1) into an oxygen
+            site_1 = O;
+            charge_1 = oxygen_charge;
+
+            // turn the oxygen (site_2) into vacancy
+            site_2 = VACANCY;
+            charge_2 = vacancy_charge;
+
             break;
         }
-
-        // select and execute an event:
-        selected_event = pick_and_get_event(event_list, event_cntr, Psum);
-
-        /*print("-------");
-        print("before event, ind1 was: " << device->sites[selected_event->ind1].element << " with charge " << device->site_charge[selected_event->ind1]);
-        print("before event, ind2 was: " << device->sites[selected_event->ind2].element << " with charge " << device->site_charge[selected_event->ind2]);*/
-
-        execute_event(&(device->sites[selected_event->ind1]),
-                      &(device->sites[selected_event->ind2]),
-                      selected_event->event_type,
-                      device->site_charge[selected_event->ind1],
-                      device->site_charge[selected_event->ind2]);
-
-        /*print("after event, ind1 was: " << device->sites[selected_event->ind1].element << " with charge " << device->site_charge[selected_event->ind1]);
-        print("after event, ind2 was: " << device->sites[selected_event->ind2].element << " with charge " << device->site_charge[selected_event->ind2]);*/
-
-        // remove all events containing the indices of sites[i] and sites[j] from the event list
-        track_ind = 0;
-        Psum = 0.0;
-        auto temp = event_list.begin();
-        site_1_ind = selected_event->ind1;
-        site_2_ind = selected_event->ind2;
-
-        while (temp != event_list.end())
-        {
-            conflict_1 = (temp->ind1 == site_1_ind);
-            conflict_2 = (temp->ind1 == site_2_ind);
-            conflict_3 = (temp->ind2 == site_1_ind);
-            conflict_4 = (temp->ind2 == site_2_ind);
-
-            if (conflict_1 || conflict_2 || conflict_3 || conflict_4)
-            {
-                temp = event_list.erase(temp);
-            }
-            else
-            {
-                Psum += temp->prob;
-                temp++;
-                track_ind++;
-            }
+        default:
+            print("error: unidentified event key found");
         }
 
-        event_time = -log(random_generator.getRandomNumber()) / Psum;
-        // print("kmc event time: " << event_time << ". Psum: " << Psum);
+        // update the attributes of these sites
+        device.site_element[i] = site_1;
+        device.site_element[j] = site_2;
+        device.site_charge[i] = charge_1;
+        device.site_charge[j] = charge_2;
+
+        // std::cout << "Executed event!" << std::endl;
+        // std::cout << device.sites[i].element << " " << device.sites[j].element << std::endl;
+        // std::cout << device.site_charge[i] << " " << device.site_charge[j] << std::endl;
+
+        for (auto neigh_idx = i * num_neigh; neigh_idx < (i + 1) * num_neigh; ++neigh_idx) {
+            event_type[neigh_idx] = NULL_EVENT;
+            event_prob[neigh_idx] = 0.0;
+        }
+        for (auto neigh_idx = j * num_neigh; neigh_idx < (j + 1) * num_neigh; ++neigh_idx) {
+            event_type[neigh_idx] = NULL_EVENT;
+            event_prob[neigh_idx] = 0.0;
+        }
+
+        // std::cout << "Updated event type and probability arrays!" << std::endl;
+
+        event_time = -log(random_generator.getRandomNumber()) / sel_event_prob;
+        // std::cout << "Event time: " << event_time << std::endl;
     }
 
-    // free memory from remaining events
-    event_list.clear();
+    delete[] event_type;
+    delete[] event_prob;
+    delete[] event_prob_cum;
+
+    std::cout << "Event time: " << event_time << std::endl;
     return event_time;
+
 }

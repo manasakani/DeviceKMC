@@ -10,10 +10,7 @@
 #include "utils.h"
 #include "Device.h"
 #include "input_parser.h"
-
-#ifdef USE_CUDA
 #include "cuda_wrapper.h"
-#endif
 
 // main function for KMC simulation
 int main(int argc, char **argv)
@@ -29,23 +26,19 @@ int main(int argc, char **argv)
     outputBuffer << "Starting Kinetic Monte Carlo\n";
     outputBuffer << "----------------------------\n";
     outputFile << outputBuffer.str();
-    outputBuffer.str(std::string());
 
-    // check for accelerators (not yet incorporated into the code)
+    // check for accelerators
     std::cout << "checking for an accelerator...\n";
-#ifdef USE_CUDA
     char gpu_string[1000];
     get_gpu_info(gpu_string, 0);
-    printf("Found a GPU device: %s\n", gpu_string);
-#else
-    std::cout << "No accelerators found.\n";
-#endif
-
 #ifdef USE_CUDA
+    printf("Will use this GPU: %s\n", gpu_string);
+#else
+    std::cout << "Simulation will not use the GPU.\n";
+#endif
     cublasHandle_t handle = CreateCublasHandle(0);
     cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
     cusolverDnHandle_t handle_cusolver = CreateCusolverDnHandle(0);
-#endif
 
     // Initialize device
     std::vector<std::string> xyz_files;
@@ -73,7 +66,8 @@ int main(int argc, char **argv)
         xyz_files.push_back(p.interstitial_xyz_file);
     }
 
-    Device device(xyz_files, p.lattice, p.shift, p.shifts, p.pbc, p.sigma, p.epsilon, p.nn_dist, p.background_temp, p.rnd_seed);
+    std::cout << "Constructing device...\n";
+    Device device(xyz_files, p.lattice, p.metals, p.shift, p.shifts, p.pbc, p.sigma, p.epsilon, p.nn_dist, p.background_temp, p.rnd_seed);
 
     std::chrono::duration<double> diff_laplacian;
     auto t_lap0 = std::chrono::steady_clock::now();
@@ -85,10 +79,9 @@ int main(int argc, char **argv)
     }
     auto t_lap1 = std::chrono::steady_clock::now();
     diff_laplacian = t_lap1 - t_lap0;
-    outputBuffer << "**Calculation time inverse laplacian:**\n";
+    outputBuffer << "**Calculation time for the laplacian:**\n";
     outputBuffer << "Laplacian update: " << diff_laplacian.count() << "\n";
     outputFile << outputBuffer.str();
-    outputBuffer.str(std::string());
 
     if (p.pristine)
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
@@ -103,8 +96,9 @@ int main(int argc, char **argv)
     std::map<std::string, double> resultMap;
     std::string file_name;
     std::chrono::duration<double> diff, diff_pot, diff_temp, diff_perturb;
+    outputBuffer.str(std::string());
 
-    for (size_t vt_counter; vt_counter < p.V_switch.size(); vt_counter++)
+    for (size_t vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
     {
         Vd = p.V_switch[vt_counter];
         t = p.t_switch[vt_counter];
@@ -148,8 +142,8 @@ int main(int argc, char **argv)
             auto t_pot = std::chrono::steady_clock::now();
             diff_pot = t_pot - t0;
 
-            // KMC update step
-            step_time = sim.executeKMCStep(&device, p.freq, p.lattice, p.pbc);
+            // KMC update step 
+            step_time = sim.executeKMCStep(device, p.freq, p.lattice, p.pbc);
             double temperature_time = kmc_time;
             kmc_time += step_time;
             auto t_perturb = std::chrono::steady_clock::now();

@@ -5,6 +5,8 @@
 #include <string>
 #include <iostream>
 #include <fstream>
+#include "utils.h"
+
 
 class KMCParameters
 {
@@ -37,7 +39,7 @@ public:
     bool pbc;
     int num_atoms_first_layer;
     int num_atoms_contact;
-    std::vector<std::string> metals;
+    std::vector<ELEMENT> metals;
     
     // Device constants
 	double t_ox;                       	// thickness oxide in [m]
@@ -226,7 +228,12 @@ KMCParameters::KMCParameters(std::string param_file){
 		}
 		
 		if (line.find("metals ") != std::string::npos) {
-			metals = read_vec_string(line);
+			std::vector<std::string>
+			 metalsChar = read_vec_string(line);
+            for (auto e: metalsChar){
+
+				metals.push_back(update_element(e));
+			}
 		}
 		
 		// field solvers

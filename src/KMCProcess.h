@@ -3,7 +3,11 @@
 #define KMC_H
 #include "Device.h"
 #include "random_num.h"
+#include <algorithm>
 #include <list>
+#include <numeric>
+#include <string>
+#include <vector>
 
 // struct for a single KMC event
 /*Key for event_type:
@@ -11,9 +15,18 @@
 1 - Vacancy/Ion Pair Recombination
 2 - Vacancy Diffusion
 3 - Ion Diffusion*/
+enum EVENTTYPE
+{
+    VACANCY_GENERATION,
+    VACANCY_RECOMBINATION,
+    VACANCY_DIFFUSION,
+    ION_DIFFUSION,
+    NULL_EVENT
+};
+
 struct Event{
 	int ind1, ind2; //index in site list of site1 and site2 participating in this event
-    int event_type; // type of event (see key above)    
+    EVENTTYPE event_type; // type of event (see key above)    
     double prob; //probability of event
     Event* next;
 
@@ -21,12 +34,12 @@ struct Event{
     {
         ind1 = 0;
         ind2 = 0;
-        event_type = 0;
+        event_type = NULL_EVENT;
         prob = 0.0;
         next = NULL;
     }
 
-    Event(int ind1_, int ind2_, int event_type_, double prob_)
+    Event(int ind1_, int ind2_, EVENTTYPE event_type_, double prob_)
     {
         this->ind1 = ind1_;
         this->ind2 = ind2_;
@@ -54,10 +67,10 @@ class KMCProcess{
 	public:
 	    std::vector<Layer> layers;
 		//std::string method;												//simulation type: rejection or rejection free?
-		KMCProcess(Device* device);
-		
+		KMCProcess(Device* device); 
+
 		// executes one step on the device and returns the time taken for it
-		double executeKMCStep(Device* device, double freq, std::vector<double> lattice, bool pbc);
+		double executeKMCStep(Device &device, double freq, std::vector<double> lattice, bool pbc);
 		
 	private:
 		RandomNumberGenerator random_generator;							// random number generator object for this KMC process
@@ -72,9 +85,9 @@ class KMCProcess{
 		double m_0 = 9.11e-31;             // [kg]
 		double eV_to_J = 1.6e-19;          // [C]
 		
-		Event* pick_and_get_event(std::list<Event>& event_list, int event_list_size, double Psum);
+		//Event* pick_and_get_event(std::list<Event>& event_list, int event_list_size, double Psum);
 		
-		void execute_event(Site* site_1, Site* site_2, int &event_type, int &charge_1, int &charge_2);
+		//void execute_event(Site* site_1, Site* site_2, int &event_type, int &charge_1, int &charge_2);
 		
 		/*void buildEventList(Device device);
 		stepRejection();

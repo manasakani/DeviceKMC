@@ -32,6 +32,27 @@ extern "C"
     extern void dgetrf_(int *, int *, double *, int *, int *, int *);
 }
 
+// Elements of the periodic table, converted from the input file
+enum ELEMENT
+{
+    DEFECT,         // d - lattice interstitial site
+    OXYGEN_DEFECT,  // Od - Oxygen defect/interstitial
+    VACANCY,        // V - Lattice vacancy
+    O, 
+    Hf,
+    Ni,
+    Ti, 
+    Pt,
+    N,
+};
+
+
+// convert string to element type
+ELEMENT update_element(std::string element_);
+
+// convert element type to string
+std::string return_element(ELEMENT element_);
+
 // check if file/folder exists here
 inline bool location_exists(const std::string &fname)
 {
@@ -39,17 +60,21 @@ inline bool location_exists(const std::string &fname)
     return (stat(fname.c_str(), &buffer) == 0);
 }
 
+// potential solution for gaussian charge distribution
 inline double v_solve(double &r_dist, int &charge, double &sigma, double &k, double &q) { return charge * erfc(r_dist / (sigma * sqrt(2))) * k * q / r_dist; }
 
 // read xyz and populate the xyz coordinate array and lattice array
-int read_xyz(std::string filename, std::vector<std::string> &elements,
+int read_xyz(std::string filename, std::vector<ELEMENT> &elements,
              std::vector<double> &x, std::vector<double> &y, std::vector<double> &z);
 
-// returns the 3D distance between two Site objects. Note that only y-z periodicity exists!
-double site_dist(std::vector<double> pos1, std::vector<double> pos2, std::vector<double> lattice, bool pbc);
+// returns the 3D distance which can include pbc. Note that only y-z periodicity exists!
+double site_dist(std::vector<double> pos1, 
+                 std::vector<double> pos2, std::vector<double> lattice, bool pbc);
+double site_dist(double pos1x, double pos1y, double pos1z, 
+                 double pos2x, double pos2y, double pos2z, std::vector<double> lattice, bool pbc);
 
 // sort coordinates by x-axis value
-void sort_by_x(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, std::vector<std::string> &elements, std::vector<double> lattice);
+void sort_by_x(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, std::vector<ELEMENT> &elements, std::vector<double> lattice);
 
 // shifts the first atom position to 0 in the selected dims. Expects the coordinates to be sorted!
 void center_coords(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, int N, bool dim[]);
@@ -62,11 +87,12 @@ void CheckCublasError(cublasStatus_t const& status);
 static void CheckCusolverDnError(cusolverStatus_t const& status);
 cublasHandle_t CreateCublasHandle(int device);
 cusolverDnHandle_t CreateCusolverDnHandle(int device);
+static void CheckCusolverDnError(cusolverStatus_t const& status);
 
 // GEMM
 void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int *k, double *alpha, double *A, int *lda, double *B, int *ldb, double *beta, double *C, int *ldc);
 
-//GESV
+// GESV (by LU decomposition)
 void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info);
 
 #endif

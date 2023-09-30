@@ -1,30 +1,4 @@
 #include "Device.h"
-#include "utils.h"
-#include "random_num.h"
-#include <stdlib.h>
-#include <iostream>
-#include <string>
-#include <vector>
-#include <cstring>
-#include <omp.h>
-#include <map>
-
-Site::Site() {}
-
-void Site::init_site(int ind_, double x_, double y_, double z_, std::string element_)
-{
-    ind = ind_;
-    pos.push_back(x_);
-    pos.push_back(y_);
-    pos.push_back(z_);
-    element = element_;
-}
-
-void Site::disp_site()
-{
-    print("atom #" << ind << " with type " << element << ": "
-                   << " at position " << pos[0] << " " << pos[1] << " " << pos[2] << " ");
-}
 
 void Graph::printAdjList()
 {
@@ -40,7 +14,7 @@ void Graph::printAdjList()
 }
 
 // Construct the device
-Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
+Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice, std::vector<ELEMENT> metals,
                bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon,
                double nn_dist, double background_temp, unsigned int rnd_seed)
 {
@@ -49,11 +23,10 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     random_generator.setSeed(rnd_seed);
 
     // parse xyz file(s)
-    std::vector<double> x, y, z;
-    std::vector<std::string> elements;
+    std::cout << "Reading the input xyz files...\n";
     for (auto xyz_file : xyz_files)
     {
-        this->N += read_xyz(xyz_file, elements, x, y, z);
+        this->N += read_xyz(xyz_file, site_element, site_x, site_y, site_z);
     }
 
     // set parameters
@@ -65,31 +38,45 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     this->T_bg = background_temp;
 
     // sort and prepare the raw coordinates
-    sort_by_x(x, y, z, elements, lattice);
+    sort_by_x(site_x, site_y, site_z, site_element, lattice);
     if (shift)
-        translate_cell(x, y, z, N, lattice, shifts);
+        translate_cell(site_x, site_y, site_z, N, lattice, shifts);
 
-    // load the xyz info into the sites
-    sites.resize(N);
-    for (int i = 0; i < N; i++)
-    {
-        sites[i].init_site(i, x[i], y[i], z[i], elements[i]);
-
-        if (sites[i].element == "d")
+    // populate #interstitials, and #metals
+    for (int i = 0; i < N; i++){
+        if (site_element[i] == DEFECT)
         {
             this->N_int++;
-            sites[i].isdefect = true;
         }
         else
         {
             this->N_atom++;
         }
+        if (site_element[i] == metals[0] || site_element[i] == metals[1])
+        {
+            this->N_metals++;
+        }
     }
 
     // initialize and construct the neighbor lists
+    std::cout << "Building the neighbor list...\n";
     site_neighbors.initialize(N);
     constructSiteNeighborList();
-    updateAtomNeighborList();
+
+    // neighbor index for threads to use in the KMC step
+    neigh_idx.resize(N * max_num_neighbors);
+    #pragma omp parallel for
+    for (auto i = 0; i < N; ++i) {
+        int nb = 0;
+        for (auto j: site_neighbors.l[i]) {
+            neigh_idx[i * max_num_neighbors + nb] = j;
+            nb++;
+        }
+        for (auto j = nb; j < max_num_neighbors; ++j) {
+            neigh_idx[i * max_num_neighbors + j] = -1;
+        }
+    }
+    std::cout << "Built neighbor lists...\n";
 
     // initialize the size of the field vectors
     site_charge.resize(N);
@@ -97,154 +84,90 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     site_power.resize(N);
     site_temperature.resize(N, T_bg);
 
-    std::cout << "Loaded " << N << " sites into device"
-              << "\n";
-    std::cout << "Consisting of " << N_atom << " atoms and " << N_int << " interstitials "
-              << "\n";
+    std::cout << "Loaded " << N << " sites into device" << "\n";
+    std::cout << "Consisting of " << N_atom << " atoms and " << N_int << " interstitials " << "\n";
 }
 
 void Device::constructSiteNeighborList()
 {
-
-    double dist;
+    
+    #pragma omp parallel
+    {
+    int local_max_nn = 0;
 
     // construct neighbor graph for all sites
+    #pragma omp for 
     for (int i = 0; i < N; i++)
     {
         for (int j = 0; j < N; j++)
         {
-            dist = site_dist(sites[i].pos, sites[j].pos, lattice, pbc);
-            if (dist < nn_dist && i != j)
+            if (is_neighbor(i, j)) 
             {
-                site_neighbors.addEdge(sites[i].ind, sites[j].ind);
+                site_neighbors.addEdge(i, j);
             }
         }
+
+        if (site_neighbors.l[i].size() > local_max_nn) 
+        {
+            local_max_nn = site_neighbors.l[i].size();
+        }
     }
+
+    // set the maximum number of neighbors
+    #pragma omp critical
+    {
+    if (local_max_nn > this->max_num_neighbors) 
+    {
+        this->max_num_neighbors = local_max_nn;
+    }
+    }
+
+    }
+
+    site_neighbors.is_constructed = 1;
+    std::cout << "Maximum number of neighbors in device is: " << this->max_num_neighbors << "\n";
 }
 
-void Device::updateAtomNeighborList()
+void Device::updateAtomLists()
 {
-    // updates (1) the atoms list and (2) the atom neighbor graph (excluding defects)
-
-    // reset the atoms array and neighbor list
-    atoms.clear();
-    if (!atom_neighbors.l.empty())
-    {
-        atom_neighbors.erase();
-    }
+    // reset the atoms arrays
+    atom_x.clear();
+    atom_y.clear();
+    atom_z.clear();
+    atom_ind.clear();
+    atom_element.clear();
     int atom_count = 0;
 
-    // !! check for race conditions or mem leak!!
-
-    /*int threads_num = omp_get_max_threads();
-    int local_iter_num = (int)std::ceil((double)N / threads_num);
-    std::vector<std::vector<Site *>> atoms_local(threads_num);
-    for (auto i = 0; i < threads_num; ++i)
-    {
-        atoms_local[i].reserve(local_iter_num);
-    }
-
-// locate the non-defect sites
-#pragma omp parallel num_threads(1) // DEBUG
-    {
-        int thread_id = omp_get_thread_num();
-
-#pragma omp for
-        for (auto i = 0; i < N; i++)
-        {
-            if (sites[i].element != "d")
-            {
-                atoms_local[thread_id].push_back(&sites[i]);
-            }
-        }
-    }
-
-    // populate the atoms array with the non-defect sites
-    for (auto i = 0; i < threads_num; ++i)
-    {
-        if (atoms_local[i].size() > 0)
-        {
-            atoms.insert(atoms.end(), atoms_local[i].begin(), atoms_local[i].end());
-            atom_count += atoms_local[i].size();
-            atoms_local[i].clear();
-        }
-    }
-
-    // construct subset neighbor graph for atoms (exclude defects):
-    atom_neighbors.initialize(atom_count);
-    double dist;
-#pragma omp parallel for private(dist) num_threads(1) // DEBUG
-    for (auto i = 0; i < N_atom; i++)
-    {
-        for (auto j = 0; j < N_atom; j++)
-        {
-            dist = site_dist(atoms[i]->pos, atoms[j]->pos, lattice, pbc);
-            if (dist < nn_dist && i != j)
-            {
-                atom_neighbors.addEdge(i, j);
-            }
-        }
-    }*/
-
-    // !! check for race conditions or mem leak!!
-
-    // !! unoptimized !!
-
-    // the elements of the atoms array are pointers to the atoms in the site array
+    // the elements of the atoms array are copies of the non-defects in the site array
+    #pragma omp parallel for ordered schedule(static, 1)
     for (auto i = 0; i < N; i++)
     {
-        if (sites[i].element != "d")
+	    if (site_element[i] != DEFECT)
         {
-            atoms.push_back(&sites[i]);
-            atom_count++;
-        }
-    }
-
-    // construct subset neighbor graph for atoms (exclude defects):
-    double dist;
-    atom_neighbors.initialize(atom_count);
-    for (auto i = 0; i < atom_count; i++)
-    {
-        for (auto j = 0; j < atom_count; j++)
-        {
-            dist = site_dist(atoms[i]->pos, atoms[j]->pos, lattice, pbc);
-            if (dist < nn_dist && i != j)
+            #pragma omp ordered
             {
-                atom_neighbors.addEdge(i, j);
+            atom_x.push_back(site_x[i]);	
+            atom_y.push_back(site_y[i]);
+            atom_z.push_back(site_z[i]);
+            atom_element.push_back(site_element[i]);
+            atom_ind.push_back(i);
+            atom_count++;
             }
         }
     }
-
-    // !! unoptimized !!
-
+    
     this->N_atom = atom_count;
-}
-
-// Computes the total number of atoms
-int Device::get_num_metals(std::vector<std::string> metals)
-{
-    int count = 0;
-    for (int i = 0; i < N; i++)
-    {
-        std::string element_ = sites[i].element;
-        if (element_ == metals[0] || element_ == metals[1])
-        {
-            count++;
-        }
-    }
-    return count;
 }
 
 // construct laplacian and steady state laplacian
 void Device::constructLaplacian(cusolverDnHandle_t handle, double k_th_interface, double k_th_metal, double delta,
-                                double delta_t, double tau, std::vector<std::string> metals, double background_temp,
+                                double delta_t, double tau, std::vector<ELEMENT> metals, double background_temp,
                                 double num_atoms_contact)
 {
-    print("constructing graph Laplacian");
+    print("Constructing graph Laplacian");
 
     // Get the number of interface atoms
     int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
-    int N_metals = get_num_metals(metals);
     int N_right_tot = get_num_in_contacts(N_metals - num_atoms_contact, "right");
     N_interface = N - N_left_tot - N_right_tot;
 
@@ -270,6 +193,7 @@ void Device::constructLaplacian(cusolverDnHandle_t handle, double k_th_interface
 
     // Initialize B for to calculate the inverse
     double *B_L = (double *)calloc(N_interface * N_interface, sizeof(double));
+
     // Initialize B for to calculate the inverse
     double *B_L_ss = (double *)calloc(N_interface * N_interface, sizeof(double));
 
@@ -280,6 +204,7 @@ void Device::constructLaplacian(cusolverDnHandle_t handle, double k_th_interface
     }
 
     int info;
+
     // Map the index to a new array
     int new_index = 0;
 
@@ -324,7 +249,7 @@ void Device::constructLaplacian(cusolverDnHandle_t handle, double k_th_interface
                 }
 
                 bool metal_atom2;
-                metal_atom2 = is_present(metals, sites[j].element);
+                metal_atom2 = is_in_vector<ELEMENT>(metals, site_element[j]);
 
                 if (metal_atom2) // Boundary atom iff connected to a metallic site
                 {
@@ -378,7 +303,6 @@ void Device::constructLaplacian(cusolverDnHandle_t handle, double k_th_interface
 
 #ifdef USE_CUDA
 
-    print("constructing graph Laplacian on the GPU");
     gesv(handle, &N_interface, &N_interface, L_inv, &N_interface, ipiv_L_T, B_L, &N_interface, &info);
     gesv(handle, &N_interface, &N_interface, L_ss, &N_interface, ipiv_L_ss_T, B_L_ss, &N_interface, &info);
 
@@ -448,13 +372,14 @@ void Device::constructLaplacian(cusolverDnHandle_t handle, double k_th_interface
 }
 
 // returns number of sites of element
-int Device::get_num_of_element(std::string element_)
+int Device::get_num_of_element(ELEMENT element_)
 {
 
     int count = 0;
+    #pragma omp parallel for reduction(+:count)
     for (int i = 0; i < N; i++)
     {
-        if (sites[i].element == element_)
+        if (site_element[i] == element_)
         {
             count++;
         }
@@ -466,23 +391,38 @@ int Device::get_num_of_element(std::string element_)
 bool Device::is_neighbor(int i, int j)
 {
 
-    for (int a : site_neighbors.l[i])
-    {
-        if (a == j)
+    if (site_neighbors.is_constructed){
+        int count = std::count(site_neighbors.l[i].begin(), site_neighbors.l[i].end(), j);
+
+        if (count > 0){
+            return 1;
+        }
+        return 0;
+
+    } else {
+
+        std::vector<double> pos_i, pos_j;
+        double dist;
+        
+        pos_i.push_back(site_x[i]); pos_i.push_back(site_y[i]); pos_i.push_back(site_z[i]);
+        pos_j.push_back(site_x[j]); pos_j.push_back(site_y[j]); pos_j.push_back(site_z[j]);
+        dist = site_dist(pos_i, pos_j, lattice, pbc);
+
+        if (dist < nn_dist && i != j)
         {
             return 1;
         }
+        return 0;
     }
-
-    return 0;
 }
 
-// returns true if metal site
-bool Device::is_present(std::vector<std::string> metals, std::string element_)
+// returns true if thing is present in the vector of things
+template <typename T>
+bool Device::is_in_vector(std::vector<T> things_, T thing_)
 {
-    for (int i = 0; i < metals.size(); i++)
+    for (auto t : things_)
     {
-        if (metals[i] == element_)
+        if (t == thing_)
             return 1;
     }
     return 0;
@@ -498,7 +438,7 @@ int Device::get_num_in_contacts(int num_atoms_contact, std::string contact_name_
         int i = 0;
         while (i < num_atoms_contact)
         {
-            if (sites[count].element != "d")
+            if (site_element[count] != DEFECT)
             {
                 i++;
             }
@@ -511,7 +451,7 @@ int Device::get_num_in_contacts(int num_atoms_contact, std::string contact_name_
         count = N;
         while (i > N - num_atoms_contact)
         {
-            if (sites[count - 1].element != "d")
+            if (site_element[count-1] != DEFECT) 
             {
                 i--;
             }
@@ -530,7 +470,7 @@ void Device::makeSubstoichiometric(double vacancy_concentration)
     int num_O, num_V_add, loc;
     double random_num;
 
-    num_O = get_num_of_element("O");
+    num_O = get_num_of_element(O);
     num_V_add = vacancy_concentration * num_O;
 
     std::cout << num_V_add << " oxygen atoms will be converted to vacancies" << std::endl;
@@ -538,16 +478,16 @@ void Device::makeSubstoichiometric(double vacancy_concentration)
     {
         random_num = random_generator.getRandomNumber();
         loc = random_num * N;
-        if (sites[loc].element == "O")
+        if (site_element[loc] == O)
         {
-            sites[loc].element = "V";
+            site_element[loc] == VACANCY;
             num_V_add--;
         }
     }
 }
 
 // update the charge of each vacancy and ion
-std::map<std::string, int> Device::updateCharge(std::vector<std::string> metals)
+std::map<std::string, int> Device::updateCharge(std::vector<ELEMENT> metals)
 {
     int Vnn;
     int uncharged_V_counter = 0;
@@ -559,20 +499,19 @@ std::map<std::string, int> Device::updateCharge(std::vector<std::string> metals)
 #pragma omp parallel for private(Vnn) reduction(+ : uncharged_V_counter, uncharged_Od_counter, V_counter, Od_counter)
     for (int i = 0; i < N; i++)
     {
-
-        if (sites[i].element == "V")
+        if (site_element[i] == VACANCY)
         {
             V_counter++;
             Vnn = 0;
             site_charge[i] = 2;
             for (int j : site_neighbors.l[i])
             {
-                bool metal = is_present(metals, sites[j].element);
-                if (sites[j].element == "V")
+                bool metal = is_in_vector<ELEMENT>(metals, site_element[j]);
+                if (site_element[j] == VACANCY)
                 {
                     Vnn++;
                 };
-                if (sites[j].element == metals[0] || sites[j].element == metals[1])
+                if (site_element[j] == metals[0] || site_element[j] == metals[1])
                 {
                     site_charge[i] = 0;
                     uncharged_V_counter++;
@@ -587,13 +526,13 @@ std::map<std::string, int> Device::updateCharge(std::vector<std::string> metals)
             }
         }
 
-        if (sites[i].element == "Od")
+        if (site_element[i] == OXYGEN_DEFECT)
         {
             Od_counter++;
             site_charge[i] = -2;
             for (int j : site_neighbors.l[i])
             {
-                if (sites[j].element == metals[0] || sites[j].element == metals[1])
+                if (site_element[j] == metals[0] || site_element[j] == metals[1])
                 {
                     site_charge[i] = 0;
                     uncharged_Od_counter++;
@@ -615,7 +554,7 @@ std::map<std::string, int> Device::updateCharge(std::vector<std::string> metals)
 
 // update the potential of each site
 void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                                  double G_coeff, double high_G, double low_G, std::vector<std::string> metals)
+                                  double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
 {
 
     std::map<std::string, int> result;
@@ -654,23 +593,23 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 #pragma omp for
         for (int i = 0; i < N; i++)
         {
-            bool metal1 = is_present(metals, sites[i].element);
-            bool cvacancy1 = sites[i].element == "V" && site_charge[i] == 0;
+            bool metal1 = is_in_vector<ELEMENT>(metals, site_element[i]);
+            bool cvacancy1 = site_element[i] == VACANCY && site_charge[i] == 0;
 
             for (int j : site_neighbors.l[i])
             {
-                bool metal2 = is_present(metals, sites[j].element);
-                bool cvacancy2 = sites[j].element == "V" && site_charge[j] == 0;
+                bool metal2 = is_in_vector<ELEMENT>(metals, site_element[j]);
+                bool cvacancy2 = site_element[j] == VACANCY && site_charge[j] == 0;
 
                 if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
                 {
-                    K[N * sites[i].ind + sites[j].ind] = -high_G;
-                    K[N * sites[j].ind + sites[i].ind] = -high_G;
+                    K[N * i + j] = -high_G;
+                    K[N * j + i] = -high_G;
                 }
                 else
                 {
-                    K[N * sites[i].ind + sites[j].ind] = -low_G;
-                    K[N * sites[j].ind + sites[i].ind] = -low_G;
+                    K[N * i + j] = -low_G;
+                    K[N * j + i] = -low_G;
                 }
             }
         }
@@ -736,14 +675,6 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
         }
     }
 
-    if (info != 0)
-    {
-        print("Warning: error in linear system solver for background potential!");
-    }
-
-    // Solving the oxide potential considering only pairwise coulomb interactions.
-    // solve poisson's equation with zero BC
-
     free(K);
     free(D);
     free(VL);
@@ -769,9 +700,16 @@ void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice
 
             if (i != j && site_charge[j] != 0)
             {
-                r_dist = (1e-10) * site_dist(sites[i].pos, sites[j].pos, lattice, pbc);
-                // solution for the potential r_dist away from a gaussian charge distribution with width sigma
-                V_temp += site_charge[j] * erfc(r_dist / (sigma * sqrt(2))) * k * q / r_dist;
+                std::vector<double> pos_i, pos_j;
+                pos_i.push_back(site_x[i]);
+                pos_i.push_back(site_y[i]);
+                pos_i.push_back(site_z[i]);
+                pos_j.push_back(site_x[j]);
+                pos_j.push_back(site_y[j]);
+                pos_j.push_back(site_z[j]);
+
+		        r_dist = (1e-10) * site_dist(pos_i, pos_j, lattice, pbc);
+                V_temp += site_charge[j] * erfc(r_dist / (sigma * sqrt(2))) * k * q / r_dist; 
             }
         }
         site_potential[i] += V_temp;
@@ -780,7 +718,7 @@ void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice
 
 // update the potential of each site
 void Device::updatePotential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                             double G_coeff, double high_G, double low_G, std::vector<std::string> metals)
+                             double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
 {
     // circuit-model-based potential solver
     background_potential(handle, num_atoms_contact, Vd, lattice,
@@ -792,13 +730,13 @@ void Device::updatePotential(cusolverDnHandle_t handle, int num_atoms_contact, d
 
 // update the power of each site
 std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
-                                                  std::vector<std::string> metals, double m_e, double V0)
+                                                  std::vector<ELEMENT> metals, double m_e, double V0)
 {
     // Map
     std::map<std::string, double> result;
 
     // Re-identify the atomic sites (differentiate from the vacancy sites)
-    updateAtomNeighborList();
+    updateAtomLists();
 
     // number of injection nodes
     int num_source_inj = num_atoms_first_layer;
@@ -842,16 +780,16 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                 bool metal1, metal2, cvacancy1, cvacancy2, vacancy1, vacancy2, neighbor, V_V, V_contact;
 
                 // contacts
-                metal1 = is_present(metals, atoms[i]->element);
-                metal2 = is_present(metals, atoms[j]->element);
+                metal1 = is_in_vector<ELEMENT>(metals, atom_element[i]);
+                metal2 = is_in_vector<ELEMENT>(metals, atom_element[j]);
 
                 // conductive vacancies
-                cvacancy1 = atoms[i]->element == "V" && site_charge[atoms[i]->ind] == 0;
-                cvacancy2 = atoms[j]->element == "V" && site_charge[atoms[j]->ind] == 0;
+                cvacancy1 = atom_element[i] == VACANCY && site_charge[atom_ind[i]] == 0;
+                cvacancy2 = atom_element[j] == VACANCY && site_charge[atom_ind[j]] == 0;
 
                 // charged vacancies
-                vacancy1 = atoms[i]->element == "V" && site_charge[atoms[i]->ind] != 0;
-                vacancy2 = atoms[j]->element == "V" && site_charge[atoms[j]->ind] != 0;
+                vacancy1 = atom_element[i] == VACANCY && site_charge[atom_ind[i]] != 0;
+                vacancy2 = atom_element[j] == VACANCY && site_charge[atom_ind[j]] != 0;
 
                 neighbor = is_neighbor(i, j);
 
@@ -878,7 +816,15 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 
                     if (V_V || V_contact)
                     {
-                        dist = (1e-10) * site_dist(atoms[i]->pos, atoms[j]->pos, lattice, pbc);
+                        std::vector<double> pos_i, pos_j;
+                        pos_i.push_back(atom_x[i]);
+                        pos_i.push_back(atom_y[i]);
+                        pos_i.push_back(atom_z[i]);
+                        pos_j.push_back(atom_x[j]);
+                        pos_j.push_back(atom_y[j]);
+                        pos_j.push_back(atom_z[j]);
+                        dist = (1e-10) * site_dist(pos_i, pos_j, lattice, pbc);
+
                         T = exp(-2 * sqrt((2 * m_e * V0 * eV_to_J) / (h_bar_sq)) * dist);
                         G = 2 * 3.8612e-5 * T;
                         X[N_full * (i + 2) + (j + 2)] = -G;
@@ -1017,8 +963,8 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     {
 
         double alpha;
-        bool metal = is_present(metals, atoms[i]->element);
-        bool vacancy = atoms[i]->element == "V";
+        bool metal = is_in_vector<ELEMENT>(metals, atom_element[i]);
+        bool vacancy = atom_element[i] == VACANCY;
 
         if (metal)
         {
@@ -1033,7 +979,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
             alpha = 0.20;
         }
 
-        site_power[atoms[i]->ind] = -1 * alpha * P_disp[i];
+        site_power[atom_ind[i]] = -1 * alpha * P_disp[i];
     }
 
     free(D_T);
@@ -1086,7 +1032,7 @@ std::map<std::string, double> Device::updateTemperatureGlobal(double event_time,
 
 // update the local and global temperature
 std::map<std::string, double> Device::updateLocalTemperature(double background_temp, double t, double tau, double power_adjustment_term, double k_th_interface,
-                                                             double k_th_vacancies, double num_atoms_contact, std::vector<std::string> metals)
+                                                             double k_th_vacancies, double num_atoms_contact, std::vector<ELEMENT> metals)
 {
 
     // Map
@@ -1140,7 +1086,7 @@ std::map<std::string, double> Device::updateLocalTemperature(double background_t
 
                     double factor = laplacian[index_i * N_interface + index_j] * T_vec[j];
 
-                    if (sites[j].element == "V")
+                    if (site_element[j] == VACANCY) 
                     {
 
                         T_transf += factor + laplacian[index_i * N_interface + index_j] * (site_power[j]) * p_transfer_vacancies * step_time;
@@ -1177,7 +1123,7 @@ std::map<std::string, double> Device::updateLocalTemperature(double background_t
 
 // update the local and global temperature in steady state
 std::map<std::string, double> Device::updateLocalTemperatureSteadyState(double background_temp, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
-                                                                        double k_th_vacancies, double num_atoms_contact, std::vector<std::string> metals)
+                                                                        double k_th_vacancies, double num_atoms_contact, std::vector<ELEMENT> metals)
 {
     // Map
     std::map<std::string, double> result;
@@ -1213,7 +1159,7 @@ std::map<std::string, double> Device::updateLocalTemperatureSteadyState(double b
                 if (index_j != -1)
                 {
 
-                    if (sites[j].element == "V")
+                    if (site_element[j] == VACANCY)
                     {
 
                         T_transf += laplacian_ss[index_i * N_interface + index_j] * (site_power[j]) * p_transfer_vacancies;
@@ -1258,6 +1204,6 @@ void Device::writeSnapshot(std::string filename, std::string foldername)
 
     for (int i = 0; i < N; i++)
     {
-        fout << sites[i].element << "   " << sites[i].pos[0] << "   " << sites[i].pos[1] << "   " << sites[i].pos[2] << "   " << site_potential[i] << "   " << site_temperature[i] << "\n";
+        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential[i] << "   " << site_temperature[i] << "\n";
     }
 }

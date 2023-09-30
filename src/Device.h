@@ -10,26 +10,13 @@
 #ifndef DEVICE_H
 #define DEVICE_H
 
-// Base struct for individual vacancy or atom:
-struct Site
-{
-
-    int ind;                 // index in neighbor list
-    std::vector<double> pos; // xyz position
-    std::string element;     // atomic element ('d' for defect)
-    bool isdefect;           // is this a interstitial position?
-
-    Site();
-    void init_site(int ind_, double x_, double y_, double z_, std::string element);
-    void disp_site();
-};
-
-// generic graph
+// Graph of neighbors (undirected graph)
 struct Graph
 {
 
     int N;                           // number of nodes in the graph
     std::vector<std::vector<int>> l; // list of arrays which define the neighbor connections
+    bool is_constructed = 0;         // is the neighbor list populated?
 
     Graph() {}
 
@@ -63,16 +50,31 @@ class Device
 {
 
 public:
-    int N = 0;                 // number of sites in this device
-    std::vector<Site> sites;   // list of sites in this device
-    std::vector<Site *> atoms; // list of pointers to atoms in the sites array (exlcuding defects)
-    Graph site_neighbors;      // list of neighbors of each site (including defects)
-    Graph atom_neighbors;      // list of neighbors of each atom (excluding defects)
-    double nn_dist;            // neighbor distance
-    double sigma;              // gaussian width for potential solver
-    double k;                  //
-    double T_bg;               // global background temperature
+    int N = 0;                  // number of sites in this device
+    int N_metals = 0;           // number of atoms identified as metals
+    int max_num_neighbors = 0;  // maximum number of neighbors per site
+    Graph site_neighbors;       // list of neighbors of each site (including defects)
+    Graph atom_neighbors;       // list of neighbors of each atom (excluding defects)
+    std::vector<int> neigh_idx; // neighbors for the event list setup
+    double nn_dist;             // neighbor distance
+    double sigma;               // gaussian width for potential solver
+    double k;                   //
+    double T_bg;                // global background temperature
 
+    // Site attributes:
+    std::vector<double> site_x;
+    std::vector<double> site_y;
+    std::vector<double> site_z;
+    std::vector<ELEMENT> site_element;
+
+    // Atom attributes:
+    std::vector<double> atom_x;
+    std::vector<double> atom_y;
+    std::vector<double> atom_z;
+    std::vector<double> atom_ind;
+    std::vector<ELEMENT> atom_element;
+
+    // Fields:
     std::vector<int> site_charge;         // charge of each site
     std::vector<double> site_potential;   // potential of each site
     std::vector<double> site_power;       // power of each site
@@ -83,12 +85,12 @@ public:
     std::vector<double> index_mapping; // index mappped
 
     // constructor from input xyz file(s)
-    Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
+    Device(std::vector<std::string> &xyz_files, std::vector<double> lattice, std::vector<ELEMENT> metals,
            bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon,
            double nn_dist, double background_temp, unsigned int rnd_seed);
 
     // get number of sites with this element
-    int get_num_of_element(std::string element_);
+    int get_num_of_element(ELEMENT element_);
 
     // find the number of site objects located in the contacts
     int get_num_in_contacts(int num_atoms_contact, std::string contact_name_);
@@ -96,37 +98,38 @@ public:
     // returns true if neighbor
     bool is_neighbor(int i, int j);
 
-    // returns true if metal site
-    bool is_present(std::vector<std::string> metals, std::string element_);
+    // returns true if thing is in vector of given things
+    template <typename T>
+    bool is_in_vector(std::vector<T> things_, T thing_);
 
     // remove a specific percentage of oxygen from the lattice (convert to vacancies)
     void makeSubstoichiometric(double vacancy_concentration);
 
     // construct inverse of the laplacian and the steady state laplacian
     void constructLaplacian(cusolverDnHandle_t handle, double k_th_interface, double k_th_metal, double delta,
-                            double delta_t, double tau, std::vector<std::string> metals, double background_temp,
+                            double delta_t, double tau, std::vector<ELEMENT> metals, double background_temp,
                             double num_atoms_contact);
 
-    // update the neighbor list of just the atoms (excluding the defects)
-    void updateAtomNeighborList();
+    // update the arrays of just the atoms (re-identify the defects)
+    void updateAtomLists();
 
     // update the charge of each vacancy and ion
-    std::map<std::string, int> updateCharge(std::vector<std::string> metals);
+    std::map<std::string, int> updateCharge(std::vector<ELEMENT> metals);
 
-    int get_num_metals(std::vector<std::string> metals);
-
+    // resistive-network solver for the background potential
     void background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                              double G_coeff, double high_G, double low_G, std::vector<std::string> metals);
+                              double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals);
 
+    // n-body poisson solver for the charged atoms
     void poisson_gridless(int num_atoms_contact, std::vector<double> lattice);
 
     // update the potential of each site
     void updatePotential(cusolverDnHandle_t handle, int num_atoms_contacts, double Vd, std::vector<double> lattice,
-                         double G_coeff, double high_G, double low_G, std::vector<std::string> metals);
+                         double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals);
 
     // update the power of each site
     std::map<std::string, double> updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
-                                              std::vector<std::string> metals, double m_e, double V0);
+                                              std::vector<ELEMENT> metals, double m_e, double V0);
 
     // update the temperature of each site
     std::map<std::string, double> updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
@@ -134,11 +137,11 @@ public:
 
     // update the local and global temperature
     std::map<std::string, double> updateLocalTemperature(double background_temp, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
-                                                         double k_th_vacancies, double num_atoms_contact, std::vector<std::string> metals);
+                                                         double k_th_vacancies, double num_atoms_contact, std::vector<ELEMENT> metals);
 
     // update the local and global temperature in steady state
     std::map<std::string, double> updateLocalTemperatureSteadyState(double background_temp, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
-                                                                    double k_th_vacancies, double num_atoms_contact, std::vector<std::string> metals);
+                                                                    double k_th_vacancies, double num_atoms_contact, std::vector<ELEMENT> metals);
 
     // write an xyz file with [element, x, y, z, potential, temperature] data
     void writeSnapshot(std::string filename, std::string foldername);
@@ -156,10 +159,9 @@ private:
     double m_0 = 9.11e-31;                  // [kg]
     double eV_to_J = 1.6e-19;               // [C]
     const double T_1 = 50;                  // [K] Normalization T_1 < background_temperature!!!
+
     // initialize site_neighbors depending on nn_dist
     void constructSiteNeighborList();
 
-    // initialize laplacian for heat solver
-    // void initLaplacian();
 };
 #endif
