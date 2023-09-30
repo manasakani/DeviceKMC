@@ -38,14 +38,8 @@ enum ELEMENT
     DEFECT,         // d - lattice interstitial site
     OXYGEN_DEFECT,  // Od - Oxygen defect/interstitial
     VACANCY,        // V - Lattice vacancy
-    O, 
-    Hf,
-    Ni,
-    Ti, 
-    Pt,
-    N,
+    O, Hf, Ni, Ti, Pt, N,
 };
-
 
 // convert string to element type
 ELEMENT update_element(std::string element_);
@@ -101,7 +95,7 @@ void center_coords(std::vector<double> &x, std::vector<double> &y, std::vector<d
 // translates the periodic boundaries of the cell
 void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, int N, std::vector<double> lattice, std::vector<double> shifts);
 
-// CUDA/cuBLAS
+// CUDA/cuBLAS/CuSolver
 void CheckCublasError(cublasStatus_t const& status);
 static void CheckCusolverDnError(cusolverStatus_t const& status);
 cublasHandle_t CreateCublasHandle(int device);

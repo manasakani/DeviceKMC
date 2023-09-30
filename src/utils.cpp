@@ -262,7 +262,7 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
 
 #ifdef USE_CUDA
 
-    printf("Executing GEMM on GPU ...\n");
+    //printf("Executing GEMM on GPU ...\n");
 
     double *gpu_A, *gpu_B, *gpu_C, *gpu_alpha, *gpu_beta;
     cudaMalloc((void**)&gpu_A, ((*m) * (*k)) * sizeof(double));
@@ -300,7 +300,7 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
 
 #else
 
-    printf("Executing GEMM on CPU ...\n");
+    //printf("Executing GEMM on CPU ...\n");
     dgemm_(transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
 
 #endif
@@ -332,7 +332,7 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
 #ifdef USE_CUDA
 
     // https://github.com/NVIDIA/CUDALibrarySamples/blob/master/cuSOLVER/getrf/cusolver_getrf_example.cu
-    printf("Solving linear system on the GPU ...\n");
+    //printf("Solving linear system on the GPU ...\n");
 
     int lwork = 0;                /* size of workspace */
     double *gpu_work = nullptr;   /* device workspace for getrf */
@@ -359,10 +359,10 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
     cudaDeviceSynchronize();
 
     CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, *N, *nrhs, gpu_A, *lda, gpu_ipiv, gpu_B, *ldb, gpu_info));
-    cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
 
-    if (!info){
-        printf("WARNING: info for cusolverDnDgetrs: %i \n", info);
+    if (*info != 0){
+        std::cout << "WARNING: info for cusolverDnDgetrs: " << *info << "\n";
     }
     cudaDeviceSynchronize();
 
@@ -377,11 +377,12 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
 
 #else
 
-    printf("Solving linear system on the CPU ...\n");
+    // printf("Solving linear system on the CPU ...\n");
     dgesv_(N, nrhs, A, lda, ipiv, B, ldb, info);
-    printf("info for dgesv %i: \n", *info);
+    if (*info != 0){
+        std::cout <<"WARNING: info for dgesv %i: " << *info << "\n";
+    }
 
 #endif
 
 }
-

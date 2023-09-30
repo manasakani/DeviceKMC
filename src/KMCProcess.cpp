@@ -29,7 +29,6 @@ KMCProcess::KMCProcess(Device *device, double _freq)
 
     // initialize random number generator
     random_generator.setSeed(rnd_seed_kmc);
-
     this->freq = _freq;
 
     // intialize device layers
@@ -67,7 +66,6 @@ double KMCProcess::executeKMCStep(Device &device)
 
     int num_sites = device.N;
     int num_neigh = device.max_num_neighbors;
-
     EVENTTYPE *event_type = new EVENTTYPE[num_sites * num_neigh];
     double    *event_prob = new    double[num_sites * num_neigh];
 
@@ -229,8 +227,8 @@ double KMCProcess::executeKMCStep(Device &device)
 
             }
 
-            swap_values<ELEMENT>(&device.site_element[i], &device.site_element[j]);
-            swap_values<int>(&device.site_charge[i], &device.site_charge[j]);
+            swap_values(&device.site_element[i], &device.site_element[j]);
+            swap_values(&device.site_charge[i], &device.site_charge[j]);
 
             break;
         }
@@ -241,8 +239,8 @@ double KMCProcess::executeKMCStep(Device &device)
                 print("Wrong event type!");
             }
 
-            swap_values<ELEMENT>(&device.site_element[i], &device.site_element[j]);
-            swap_values<int>(&device.site_charge[i], &device.site_charge[j]);
+            swap_values(&device.site_element[i], &device.site_element[j]);
+            swap_values(&device.site_charge[i], &device.site_charge[j]);
 
             break;
         }
@@ -269,6 +267,5 @@ double KMCProcess::executeKMCStep(Device &device)
     delete[] event_type;
     delete[] event_prob;
     delete[] event_prob_cum;
-    std::cout << "Event time: " << event_time << std::endl;
     return event_time;
 }

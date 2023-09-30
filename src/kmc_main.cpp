@@ -95,7 +95,7 @@ int main(int argc, char **argv)
     int kmc_step_count;
     std::map<std::string, double> resultMap;
     std::string file_name;
-    std::chrono::duration<double> diff, diff_pot, diff_temp, diff_perturb;
+    std::chrono::duration<double> diff, diff_pot, diff_power, diff_temp, diff_perturb;
     outputBuffer.str(std::string());
 
     for (size_t vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
@@ -156,6 +156,8 @@ int main(int argc, char **argv)
                 std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                                                                             p.metals, p.m_e, p.V0);
                 resultMap.insert(powerMap.begin(), powerMap.end());
+                auto t_power = std::chrono::steady_clock::now();
+                diff_power = t_power - t_perturb;
 
                 if (p.solve_heating_global)
                 {
@@ -164,9 +166,11 @@ int main(int argc, char **argv)
                     resultMap.insert(temperatureMap.begin(), temperatureMap.end());
                 }
                 if (p.solve_heating_local)
-                { // use this to modify the rates
+                { 
+                    // use this to modify the rates
                     if (step_time > 1e3 * p.delta_t)
-                    { // use steady state solution
+                    { 
+                        // use steady state solution
                         std::map<std::string, double> localTemperatureMap = device.updateLocalTemperatureSteadyState(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
                                                                                                                      p.k_th_vacancies, p.num_atoms_contact, p.metals);
                         resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
@@ -182,10 +186,12 @@ int main(int argc, char **argv)
                         }
                     }
                 }
+
+                auto t_temp = std::chrono::steady_clock::now();
+                diff_temp = t_temp - t_power;
             }
 
-            auto t_temp = std::chrono::steady_clock::now();
-            diff_temp = t_temp - t_perturb;
+            // IMPLEMENT COMPLIANCE CURRENT AND SERIES RESISTOR TO MODIFY VD
 
             // *** Log results ***
 
@@ -213,11 +219,13 @@ int main(int argc, char **argv)
                 device.writeSnapshot(file_name, folder_name);
             }
 
-            // Timing info
+            // *** Log timing info ***  
+
             auto t1 = std::chrono::steady_clock::now();
             diff = t1 - t0;
             outputBuffer << "**Calculation times:**\n";
             outputBuffer << "Potential update: " << diff_pot.count() << "\n";
+            outputBuffer << "Power update: " << diff_power.count() << "\n";
             outputBuffer << "Temperature update: " << diff_temp.count() << "\n";
             outputBuffer << "Structure perturbation: " << diff_perturb.count() << "\n";
             outputBuffer << "Total KMC Step: " << diff.count() << "\n";

@@ -499,8 +499,9 @@ std::map<std::string, int> Device::updateCharge(std::vector<ELEMENT> metals)
     int Od_counter = 0;
     int uncharged_Od_counter = 0;
     int nn_cond = 3;
+    bool metal_neighbor;
 
-#pragma omp parallel for private(Vnn) reduction(+ : uncharged_V_counter, uncharged_Od_counter, V_counter, Od_counter)
+#pragma omp parallel for private(Vnn, metal_neighbor) reduction(+ : uncharged_V_counter, uncharged_Od_counter, V_counter, Od_counter)
     for (int i = 0; i < N; i++)
     {
         if (site_element[i] == VACANCY)
@@ -510,12 +511,12 @@ std::map<std::string, int> Device::updateCharge(std::vector<ELEMENT> metals)
             site_charge[i] = 2;
             for (int j : site_neighbors.l[i])
             {
-                bool metal = is_in_vector<ELEMENT>(metals, site_element[j]);
+                metal_neighbor = is_in_vector<ELEMENT>(metals, site_element[j]);
                 if (site_element[j] == VACANCY)
                 {
                     Vnn++;
                 };
-                if (site_element[j] == metals[0] || site_element[j] == metals[1])
+                if (metal_neighbor) //site_element[j] == metals[0] || site_element[j] == metals[1])
                 {
                     site_charge[i] = 0;
                     uncharged_V_counter++;
@@ -536,7 +537,8 @@ std::map<std::string, int> Device::updateCharge(std::vector<ELEMENT> metals)
             site_charge[i] = -2;
             for (int j : site_neighbors.l[i])
             {
-                if (site_element[j] == metals[0] || site_element[j] == metals[1])
+                metal_neighbor = is_in_vector<ELEMENT>(metals, site_element[j]);
+                if (metal_neighbor) //(site_element[j] == metals[0] || site_element[j] == metals[1])
                 {
                     site_charge[i] = 0;
                     uncharged_Od_counter++;
@@ -658,7 +660,6 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
     // do Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub
     // dgesv_(&N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
     gesv(handle, &N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
-
     // the negative internal voltages are now contained in Ksub
 
 // assign potentials to sites:
@@ -704,16 +705,9 @@ void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice
 
             if (i != j && site_charge[j] != 0)
             {
-                std::vector<double> pos_i, pos_j;
-                pos_i.push_back(site_x[i]);
-                pos_i.push_back(site_y[i]);
-                pos_i.push_back(site_z[i]);
-                pos_j.push_back(site_x[j]);
-                pos_j.push_back(site_y[j]);
-                pos_j.push_back(site_z[j]);
-
-		        r_dist = (1e-10) * site_dist(pos_i, pos_j, lattice, pbc);
-                V_temp += site_charge[j] * erfc(r_dist / (sigma * sqrt(2))) * k * q / r_dist; 
+                r_dist = (1e-10) * site_dist(site_x[i], site_y[i], site_z[i],
+                                             site_x[j], site_y[j], site_z[j], lattice, pbc);
+                V_temp += v_solve(r_dist, site_charge[j], sigma, k, q);
             }
         }
         site_potential[i] += V_temp;
