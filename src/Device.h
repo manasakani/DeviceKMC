@@ -1,14 +1,13 @@
 // Device class
+#pragma once
+#include "gpu_buffers.h"
+#include "random_num.h"
+#include "utils.h"
 #include <string>
 #include <vector>
 #include <random>
 #include <omp.h>
-#include "random_num.h"
 #include <map>
-#include "utils.h"
-
-#ifndef DEVICE_H
-#define DEVICE_H
 
 // Graph of neighbors (undirected graph)
 struct Graph
@@ -68,6 +67,7 @@ public:
     std::vector<double> site_y;
     std::vector<double> site_z;
     std::vector<ELEMENT> site_element;
+    std::vector<int> site_is_metal; // acts as a bool
 
     // Atom attributes:
     std::vector<double> atom_x;
@@ -88,8 +88,8 @@ public:
 
     // constructor from input xyz file(s)
     Device(std::vector<std::string> &xyz_files, std::vector<double> lattice, std::vector<ELEMENT> metals,
-           bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon,
-           double nn_dist, double background_temp, unsigned int rnd_seed);
+          bool shift, std::vector<double> shifts, bool pbc, double sigma, double epsilon,
+          double nn_dist, double background_temp, unsigned int rnd_seed);
 
     // get number of sites with this element
     int get_num_of_element(ELEMENT element_);
@@ -117,6 +117,7 @@ public:
 
     // update the charge of each vacancy and ion
     std::map<std::string, int> updateCharge(std::vector<ELEMENT> metals);
+    void updateCharge_gpu(GPUBuffers gpubuf);
 
     // resistive-network solver for the background potential
     void background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
@@ -164,4 +165,3 @@ private:
     void constructSiteNeighborList();
 
 };
-#endif

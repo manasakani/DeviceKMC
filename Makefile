@@ -35,7 +35,7 @@ CPPFILES = $(wildcard $(SRCDIR)/*.cpp)
 CU_OBJ_FILES = $(patsubst $(SRCDIR)/%.cu, $(OBJDIR)/%.o, $(CUFILES))
 CPP_OBJ_FILES = $(patsubst $(SRCDIR)/%.cpp, $(OBJDIR)/%.o, $(CPPFILES))
 
-DEPS = $(SRCDIR)/random_num.h $(SRCDIR)/input_parser.h
+DEPS = $(SRCDIR)/random_num.h $(SRCDIR)/input_parser.h #$(SRCDIR)/gpu_buffers.h
 
 $(shell mkdir -p $(OBJDIR))
 $(shell mkdir -p $(BINDIR))
@@ -45,7 +45,7 @@ all: $(TARGET)
 $(TARGET): $(CU_OBJ_FILES) $(CPP_OBJ_FILES)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 	
-$(OBJDIR)/%.o: $(SRCDIR)/%.cpp $(DEPS) $(SRCDIR)/cuda_wrapper.h
+$(OBJDIR)/%.o: $(SRCDIR)/%.cpp $(DEPS) $(SRCDIR)/cuda_wrapper.h #$(SRCDIR)/gpu_buffers.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 	
 $(OBJDIR)/%.o: $(SRCDIR)/%.cu $(SRCDIR)/cuda_wrapper.h

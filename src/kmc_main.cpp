@@ -9,6 +9,7 @@
 #include "KMCProcess.h"
 #include "utils.h"
 #include "Device.h"
+#include "gpu_buffers.h"
 #include "input_parser.h"
 #include "cuda_wrapper.h"
 
@@ -33,6 +34,7 @@ int main(int argc, char **argv)
     get_gpu_info(gpu_string, 0);
 #ifdef USE_CUDA
     printf("Will use this GPU: %s\n", gpu_string);
+    set_gpu(0);
 #else
     std::cout << "Simulation will not use the GPU.\n";
 #endif
@@ -56,7 +58,6 @@ int main(int argc, char **argv)
         {
             outputBuffer << "Restarting from " << p.restart_xyz_file << "\n";
             outputFile << outputBuffer.str();
-            outputBuffer.str(std::string());
             xyz_files.push_back(p.restart_xyz_file);
         }
     }
@@ -96,7 +97,6 @@ int main(int argc, char **argv)
     std::map<std::string, double> resultMap;
     std::string file_name;
     std::chrono::duration<double> diff, diff_pot, diff_power, diff_temp, diff_perturb;
-    outputBuffer.str(std::string());
 
     for (size_t vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
     {
@@ -116,10 +116,13 @@ int main(int argc, char **argv)
 
         kmc_time = 0.0;
         kmc_step_count = 0;
-
-        // initial device snapshot
         file_name = "snapshot_init.xyz";
         device.writeSnapshot(file_name, folder_name);
+
+        // initialize device attributes on GPU
+#ifdef USE_CUDA
+        GPUBuffers gpubuf(device.N);
+#endif
 
         // KMC loop for atomic structure perturbations with these conditions
         while (kmc_time < t)
@@ -133,9 +136,15 @@ int main(int argc, char **argv)
             auto t0 = std::chrono::steady_clock::now();
             if (p.solve_potential)
             {
+//#ifdef USE_CUDA
+                gpubuf.upload_HostToGPU(device); // keep moving this upload up
+                device.updateCharge_gpu(gpubuf);
+                gpubuf.download_GPUToHost(device); // keep moving this download down
+                exit(1);
+//#else
                 std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
-
+//#endif
                 device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);
             }
@@ -150,7 +159,7 @@ int main(int argc, char **argv)
             diff_perturb = t_perturb - t_pot;
 
             // Power and Temperature
-            if (p.solve_current)
+            /*if (p.solve_current)
             {
 
                 std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
@@ -189,19 +198,14 @@ int main(int argc, char **argv)
 
                 auto t_temp = std::chrono::steady_clock::now();
                 diff_temp = t_temp - t_power;
-            }
-
-            // IMPLEMENT COMPLIANCE CURRENT AND SERIES RESISTOR TO MODIFY VD
+            }*/
 
             // *** Log results ***
 
             outputBuffer << "KMC time is: " << kmc_time << "\n";
 
             // load step results into print buffer
-            for (const auto &pair : resultMap)
-            {
-                outputBuffer << pair.first << ": " << pair.second << std::endl;
-            }
+            for (const auto &pair : resultMap) { outputBuffer << pair.first << ": " << pair.second << std::endl; }
             resultMap.clear();
 
             // dump print buffer into the output file

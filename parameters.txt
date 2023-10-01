@@ -37,17 +37,17 @@ background_temp = 300 						// [K] contact temperature
 
 pbc = 1								// toggle for periodic boundary conditions
 
-V_switch = 15 							// [V] applied bias to right contact
+V_switch = 8 							// [V] applied bias to right contact
 
-t_switch = 1e-11 						// [s] timescale for switching
+t_switch = 0.1 						// [s] timescale for switching
 
 Icc = 3e-3 							// [A] enforced compliance current
 
-log_freq = 5							// frequency of device snapshot generation (per x kmc steps)
+log_freq = 20							// frequency of device snapshot generation (per x kmc steps)
 
-output_freq = 1 						// frequency of printing the steps into the output file
+output_freq = 10 						// frequency of printing the steps into the output file
 
-verbose = 0							// print all the events that are selected in the output file
+verbose = 0							    // this doesn't do anything yet
 
 num_atoms_first_layer = 144
 num_atoms_contact = 864

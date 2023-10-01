@@ -1,12 +1,12 @@
 //***********************************
 //  Global Input Structure Parameters
 //***********************************
-
+#pragma once
 #include <vector>
 #include <string>
 
-#ifndef STRUCTURE_H
-#define STRUCTURE_H
+// #ifndef STRUCTURE_H
+// #define STRUCTURE_H
 
 unsigned int rnd_seed_kmc = 1;
 
@@ -52,4 +52,4 @@ double layer_4_E_diff_3 = 0.76; // CHANGED
 double layer_4_start_x = 54.33894;
 double layer_4_end_x = 90.0;
 
-#endif
+// #endif

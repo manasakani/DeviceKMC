@@ -1,5 +1,7 @@
 #include "Device.h"
-//#include <chrono>
+#include "gpu_buffers.h"
+#include "cuda_wrapper.h"
+#include <cassert>
 
 void Graph::printAdjList()
 {
@@ -47,14 +49,15 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
         if (site_element[i] == DEFECT)
         {
             this->N_int++;
-        }
-        else
-        {
+        } else {
             this->N_atom++;
         }
-        if (site_element[i] == metals[0] || site_element[i] == metals[1])
-        {
+        if (is_in_vector<ELEMENT>(metals, site_element[i]))
+        {   
+            site_is_metal.push_back(1);
             this->N_metals++;
+        } else {
+            site_is_metal.push_back(0);
         }
     }
 
@@ -407,10 +410,10 @@ bool Device::is_neighbor(int i, int j)
 
         std::vector<double> pos_i, pos_j;
         double dist;
-        
         pos_i.push_back(site_x[i]); pos_i.push_back(site_y[i]); pos_i.push_back(site_z[i]);
         pos_j.push_back(site_x[j]); pos_j.push_back(site_y[j]); pos_j.push_back(site_z[j]);
         dist = site_dist(pos_i, pos_j, lattice, pbc);
+        //dist = site_dist(site_x[i], site_y[i], site_z[i], site_x[j], site_y[j], site_z[j], pos_j, lattice, pbc);
 
         if (dist < nn_dist && i != j)
         {
@@ -516,7 +519,7 @@ std::map<std::string, int> Device::updateCharge(std::vector<ELEMENT> metals)
                 {
                     Vnn++;
                 };
-                if (metal_neighbor) //site_element[j] == metals[0] || site_element[j] == metals[1])
+                if (metal_neighbor) 
                 {
                     site_charge[i] = 0;
                     uncharged_V_counter++;
@@ -538,7 +541,7 @@ std::map<std::string, int> Device::updateCharge(std::vector<ELEMENT> metals)
             for (int j : site_neighbors.l[i])
             {
                 metal_neighbor = is_in_vector<ELEMENT>(metals, site_element[j]);
-                if (metal_neighbor) //(site_element[j] == metals[0] || site_element[j] == metals[1])
+                if (metal_neighbor) 
                 {
                     site_charge[i] = 0;
                     uncharged_Od_counter++;
@@ -556,6 +559,19 @@ std::map<std::string, int> Device::updateCharge(std::vector<ELEMENT> metals)
     result["Charged oxygen ions"] = Od_counter - uncharged_Od_counter;
 
     return result;
+}
+
+void Device::updateCharge_gpu(GPUBuffers gpubuf){
+
+    // expects that the device has already been copied to GPU memory
+    assert(gpubuf.gpu_site_element != nullptr);
+    assert(gpubuf.gpu_site_x != nullptr);
+    assert(gpubuf.gpu_site_y != nullptr);
+    assert(gpubuf.gpu_site_z != nullptr);
+    assert(gpubuf.gpu_site_charge != nullptr);
+
+    // call CUDA implementation
+    update_charge_gpu(gpubuf.gpu_site_element, gpubuf.gpu_site_x, gpubuf.gpu_site_y, gpubuf.gpu_site_z, gpubuf.gpu_site_charge);
 }
 
 // update the potential of each site

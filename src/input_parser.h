@@ -1,6 +1,4 @@
-#ifndef PARSER_H
-#define PARSER_H
-
+#pragma once
 #include <vector>
 #include <string>
 #include <iostream>
@@ -508,4 +506,4 @@ void KMCParameters::set_expression_parameters(){
 
 void KMCParameters::print_to_file(){}
 
-#endif
+// #endif

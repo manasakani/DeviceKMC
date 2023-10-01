@@ -1,6 +1,5 @@
 // KMC Process
-#ifndef KMC_H
-#define KMC_H
+#pragma once
 #include "Device.h"
 #include "random_num.h"
 #include <algorithm>
@@ -57,5 +56,4 @@ class KMCProcess{
 		double m_0 = 9.11e-31;             // [kg]
 		double eV_to_J = 1.6e-19;          // [C]
 	
-};
-#endif 
+}; 

@@ -1,6 +1,6 @@
-#ifndef RANDOM_H
-#define RANDOM_H
-
+// #ifndef RANDOM_H
+// #define RANDOM_H
+#pragma once
 #include <random>
 
 class RandomNumberGenerator
@@ -24,4 +24,4 @@ private:
 	std::mt19937 rng;
 };
 
-#endif
+// #endif

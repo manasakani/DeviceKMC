@@ -1,6 +1,7 @@
 //*****************
 // Utility functions
 //*****************
+#pragma once
 #include <sys/stat.h>
 #include <string>
 #include <iostream>
@@ -17,8 +18,8 @@
 #include <cublas_v2.h>
 #include <cusolverDn.h>
 
-#ifndef UTILS_H
-#define UTILS_H
+// #ifndef UTILS_H
+// #define UTILS_H
 
 #define print(x) std::cout << x << std::endl
 
@@ -33,7 +34,7 @@ extern "C"
 }
 
 // Elements of the periodic table, converted from the input file
-enum ELEMENT
+enum ELEMENT : int
 {
     DEFECT,         // d - lattice interstitial site
     OXYGEN_DEFECT,  // Od - Oxygen defect/interstitial
@@ -108,4 +109,15 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
 // GESV (by LU decomposition)
 void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info);
 
-#endif
+// error checking for CUDA calls
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+    //   if (abort) exit(code);
+   }
+}
+
+// #endif
