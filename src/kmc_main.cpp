@@ -91,6 +91,12 @@ int main(int argc, char **argv)
     KMCProcess sim(&device, p.freq);
     outputBuffer.str(std::string());
 
+    // Initialize device attributes on GPU
+#ifdef USE_CUDA
+        GPUBuffers gpubuf(device.N, device.max_num_neighbors);
+        gpubuf.upload_HostToGPU(device); 
+#endif
+
     // loop over V_switch and t_switch
     double Vd, t, kmc_time, step_time, I_macro, T_kmc;
     int kmc_step_count;
@@ -119,11 +125,6 @@ int main(int argc, char **argv)
         file_name = "snapshot_init.xyz";
         device.writeSnapshot(file_name, folder_name);
 
-        // initialize device attributes on GPU
-#ifdef USE_CUDA
-        GPUBuffers gpubuf(device.N);
-#endif
-
         // KMC loop for atomic structure perturbations with these conditions
         while (kmc_time < t)
         {
@@ -136,15 +137,26 @@ int main(int argc, char **argv)
             auto t0 = std::chrono::steady_clock::now();
             if (p.solve_potential)
             {
-//#ifdef USE_CUDA
-                gpubuf.upload_HostToGPU(device); // keep moving this upload up
+#ifdef USE_CUDA
+                int esum = 0;
+                for (auto e : device.site_charge){
+                    esum += e;
+                }
+                std::cout << "charge total before: " <<  esum << "\n";
+
                 device.updateCharge_gpu(gpubuf);
                 gpubuf.download_GPUToHost(device); // keep moving this download down
+
+                esum = 0;
+                for (auto e : device.site_charge){
+                    esum += e;
+                }
+                std::cout << "charge total after: " <<  esum << "\n";
                 exit(1);
-//#else
+#else
                 std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
-//#endif
+#endif
                 device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);
             }
@@ -239,6 +251,10 @@ int main(int argc, char **argv)
         device.writeSnapshot(file_name, folder_name);
         vt_counter++;
     }
+
+#ifdef USE_CUDA
+        gpubuf.freeGPUmemory();
+#endif
 
     CheckCublasError(cublasDestroy(handle));
 

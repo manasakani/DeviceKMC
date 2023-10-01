@@ -571,7 +571,9 @@ void Device::updateCharge_gpu(GPUBuffers gpubuf){
     assert(gpubuf.gpu_site_charge != nullptr);
 
     // call CUDA implementation
-    update_charge_gpu(gpubuf.gpu_site_element, gpubuf.gpu_site_x, gpubuf.gpu_site_y, gpubuf.gpu_site_z, gpubuf.gpu_site_charge);
+    update_charge_gpu(gpubuf.gpu_site_element, 
+                      gpubuf.gpu_site_charge,
+                      gpubuf.gpu_neigh_idx, gpubuf.N_, gpubuf.nn_);
 }
 
 // update the potential of each site

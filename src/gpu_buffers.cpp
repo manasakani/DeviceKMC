@@ -4,16 +4,6 @@
 #include <cassert>
 #include <cuda.h>
 
-// GPUBuffers::GPUBuffers(int N) {
-//     this->N_ = N;
-//     gpuErrchk( cudaMalloc((void**)&gpu_site_element, N_ * sizeof(ELEMENT)) );
-//     gpuErrchk( cudaMalloc((void**)&gpu_site_x, N_  * sizeof(double)) );
-//     gpuErrchk( cudaMalloc((void**)&gpu_site_y, N_  * sizeof(double)) );
-//     gpuErrchk( cudaMalloc((void**)&gpu_site_z, N_  * sizeof(double)) );
-//     gpuErrchk( cudaMalloc((void**)&gpu_site_charge, N_ * sizeof(int)) );
-//     gpuErrchk( cudaMalloc((void**)&gpu_site_is_metal, N_* sizeof(int)) );
-// }
-
 void GPUBuffers::upload_HostToGPU(Device &device){
 
     assert(N_ > 0);
@@ -35,6 +25,7 @@ void GPUBuffers::upload_HostToGPU(Device &device){
     gpuErrchk( cudaMemcpy(gpu_site_z, device.site_z.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(gpu_site_charge, device.site_charge.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(gpu_site_is_metal, device.site_is_metal.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(gpu_neigh_idx, device.neigh_idx.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
 }
@@ -48,6 +39,7 @@ void GPUBuffers::download_GPUToHost(Device &device){
     gpuErrchk( cudaMemcpy(device.site_z.data(), gpu_site_z, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_charge.data(), gpu_site_charge, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_is_metal.data(), gpu_site_is_metal, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.neigh_idx.data(), gpu_neigh_idx, N_ * nn_ * sizeof(int), cudaMemcpyDeviceToHost) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
 
