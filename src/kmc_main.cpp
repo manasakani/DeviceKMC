@@ -138,38 +138,20 @@ int main(int argc, char **argv)
             if (p.solve_potential)
             {
 #ifdef USE_CUDA
-                int esum = 0;
-                for (auto e : device.site_charge){
-                    esum += e;
-                }
-                std::cout << "charge total before: " <<  esum << "\n";
 
                 device.updateCharge_gpu(gpubuf);
                 gpubuf.download_GPUToHost(device); // keep moving this download down
 
-                esum = 0;
-                for (auto e : device.site_charge){
-                    esum += e;
-                }
-                std::cout << "charge total after: " <<  esum << "\n";
-                exit(1);
+                // esum = 0;
+                // for (auto e : device.site_charge){
+                //     esum += e;
+                // }
+                // std::cout << "charge total after: " <<  esum << "\n";
+                // exit(1);
 #else
-                std::cout << "updating charge on CPU\n";
-                int esum = 0;
-                for (auto e : device.site_charge){
-                    esum += e;
-                }
-                std::cout << "charge total before: " <<  esum << "\n";
 
                 std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
-
-                esum = 0;
-                for (auto e : device.site_charge){
-                    esum += e;
-                }
-                std::cout << "charge total after: " <<  esum << "\n";
-                exit(1);
 #endif
                 device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);
@@ -185,7 +167,7 @@ int main(int argc, char **argv)
             diff_perturb = t_perturb - t_pot;
 
             // Power and Temperature
-            /*if (p.solve_current)
+            if (p.solve_current)
             {
 
                 std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
@@ -196,9 +178,18 @@ int main(int argc, char **argv)
 
                 if (p.solve_heating_global)
                 {
+#ifdef USE_CUDA
+                    gpubuf.upload_HostToGPU(device); 
+                    device.updateTemperatureGlobal_gpu(gpubuf, step_time, p.small_step, p.dissipation_constant,
+                                                       p.background_temp, p.t_ox, p.A, p.c_p);
+                    gpubuf.download_GPUToHost(device);
+                    std::cout << "T_bg : " << device.T_bg << "\n";
+                    exit(1);
+#else
                     std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(step_time, p.small_step, p.dissipation_constant,
                                                                                                   p.background_temp, p.t_ox, p.A, p.c_p);
                     resultMap.insert(temperatureMap.begin(), temperatureMap.end());
+#endif
                 }
                 if (p.solve_heating_local)
                 { 
@@ -224,7 +215,7 @@ int main(int argc, char **argv)
 
                 auto t_temp = std::chrono::steady_clock::now();
                 diff_temp = t_temp - t_power;
-            }*/
+            }
 
             // *** Log results ***
 

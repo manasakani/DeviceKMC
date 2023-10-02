@@ -26,6 +26,8 @@ void GPUBuffers::upload_HostToGPU(Device &device){
     gpuErrchk( cudaMemcpy(site_charge, device.site_charge.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_is_metal, device.site_is_metal.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(neigh_idx, device.neigh_idx.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(site_power, device.site_power.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(T_bg, &device.T_bg, 1 * sizeof(double), cudaMemcpyHostToDevice) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
 }
@@ -40,6 +42,8 @@ void GPUBuffers::download_GPUToHost(Device &device){
     gpuErrchk( cudaMemcpy(device.site_charge.data(), site_charge, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_is_metal.data(), site_is_metal, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.neigh_idx.data(), neigh_idx, N_ * nn_ * sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.site_power.data(), site_power, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(&device.T_bg, T_bg, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
 
@@ -52,4 +56,6 @@ void GPUBuffers::freeGPUmemory(){
     cudaFree(site_z);
     cudaFree(site_charge);
     cudaFree(site_is_metal);
+    cudaFree(site_power);
+    cudaFree(T_bg);
 }

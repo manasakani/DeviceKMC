@@ -21,8 +21,8 @@ nn_dist = 3.5 							// [Angstrom] neighbor distance
 
 solve_potential = 1						// field solvers
 solve_current = 1
-solve_heating_global = 0
-solve_heating_local = 1
+solve_heating_global = 1
+solve_heating_local = 0
 								// for potential solver:
 sigma = 3.5e-10 						// [m] gaussian broadening
 epsilon = 23.0  						// [1] relative permittivity

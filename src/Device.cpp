@@ -1013,6 +1013,24 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     return result;
 }
 
+void Device::updateTemperatureGlobal_gpu(GPUBuffers gpubuf, double event_time, double small_step, double dissipation_constant,
+                                                              double background_temp, double t_ox, double A, double c_p){
+
+    // expects that the device has already been copied to GPU memory
+    assert(gpubuf.site_power != nullptr);
+    assert(gpubuf.T_bg != nullptr);
+
+    double C_thermal = A * t_ox * c_p * (1e6); // [J/K]
+    double number_steps = event_time / small_step;
+    double a_coeff = -dissipation_constant*1/C_thermal*small_step + 1;
+    double b_coeff = dissipation_constant*1/C_thermal*small_step*background_temp; 
+
+    // call CUDA implementation
+    update_temperatureglobal_gpu(gpubuf.site_power, gpubuf.T_bg, gpubuf.N_, a_coeff, b_coeff, number_steps, C_thermal, small_step);
+
+    std::cout << "Called the gpu\n";
+}
+
 // update the global temperature using the global temperature model
 // @param: step_time: time of the kmc time step
 //         small_step: descretization time step

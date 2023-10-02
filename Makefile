@@ -11,7 +11,8 @@ CXXFLAGS = -O3 -std=c++17 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/inclu
 # OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
 # CUDA_ROOT = /usr/local/cuda
 # # CXXFLAGS = -O3 -std=c++17 -m64 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_lp64.a ${MKLROOT}/lib/intel64/libmkl_intel_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a -Wl,--end-group -liomp5 -lpthread -lm -ldl
-# CXXFLAGS = -O3 -std=c++17 -m64  -I"${MKLROOT}/include"  -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -liomp5 -lpthread -lm -ldl
+# #CXXFLAGS = -O3 -std=c++17 -m64 -DMKL_ILP64 -I$(OMPROOT) -I"${MKLROOT}/include" -I${CUDA_ROOT}/include -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl
+# CXXFLAGS = -O3 -std=c++11 -m64 -DMKL_ILP64 -I$(OMPROOT) -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -Wl,--start-group ${MKLROOT}/lib/intel64/libmkl_intel_ilp64.a ${MKLROOT}/lib/intel64/libmkl_gnu_thread.a ${MKLROOT}/lib/intel64/libmkl_core.a ${MKLROOT}/lib/intel64/libmkl_blacs_intelmpi_ilp64.a -Wl,--end-group -lgomp -lpthread -lm -ldl
 
 #Piz Daint
 #CXX = gcc
