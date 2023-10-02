@@ -8,7 +8,7 @@ class GPUBuffers {
 
 public:
     ELEMENT *site_element;
-    double *site_x, *site_y, *site_z, *site_power;
+    double *site_x, *site_y, *site_z, *site_power, *site_potential;
     int *site_charge, *site_is_metal;
     int *neigh_idx;
     int N_ = 0;
@@ -32,6 +32,7 @@ public:
         gpuErrchk( cudaMalloc((void**)&site_y, N_  * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_z, N_  * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_power, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void**)&site_potential, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_charge, N_ * sizeof(int)) );
         gpuErrchk( cudaMalloc((void**)&site_is_metal, N_* sizeof(int)) );
         gpuErrchk( cudaMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );

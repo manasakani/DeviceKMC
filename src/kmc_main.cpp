@@ -94,7 +94,6 @@ int main(int argc, char **argv)
     // Initialize device attributes on GPU
 #ifdef USE_CUDA
         GPUBuffers gpubuf(device.N, device.max_num_neighbors);
-        gpubuf.upload_HostToGPU(device); 
 #endif
 
     // loop over V_switch and t_switch
@@ -125,6 +124,10 @@ int main(int argc, char **argv)
         file_name = "snapshot_init.xyz";
         device.writeSnapshot(file_name, folder_name);
 
+#ifdef USE_CUDA
+        gpubuf.upload_HostToGPU(device); 
+#endif
+
         // KMC loop for atomic structure perturbations with these conditions
         while (kmc_time < t)
         {
@@ -140,21 +143,18 @@ int main(int argc, char **argv)
 #ifdef USE_CUDA
 
                 device.updateCharge_gpu(gpubuf);
-                gpubuf.download_GPUToHost(device); // keep moving this download down
-
-                // esum = 0;
-                // for (auto e : device.site_charge){
-                //     esum += e;
-                // }
-                // std::cout << "charge total after: " <<  esum << "\n";
-                // exit(1);
 #else
-
                 std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
 #endif
+#ifdef USE_CUDA
+                device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
+                                           p.G_coeff, p.high_G, p.low_G, p.metals);
+                gpubuf.download_GPUToHost(device); // keep moving this download down
+#else
                 device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);
+#endif
             }
             auto t_pot = std::chrono::steady_clock::now();
             diff_pot = t_pot - t0;

@@ -722,7 +722,6 @@ void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice
 
         for (int j = 0; j < N; j++)
         {
-
             if (i != j && site_charge[j] != 0)
             {
                 r_dist = (1e-10) * site_dist(site_x[i], site_y[i], site_z[i],
@@ -739,11 +738,23 @@ void Device::updatePotential(cusolverDnHandle_t handle, int num_atoms_contact, d
                              double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
 {
     // circuit-model-based potential solver
-    background_potential(handle, num_atoms_contact, Vd, lattice,
-                         G_coeff, high_G, low_G, metals);
+    background_potential(handle, num_atoms_contact, Vd, lattice, G_coeff, high_G, low_G, metals);
 
     // gridless Poisson equation solver (using sum of gaussian charge distribution solutions)
     poisson_gridless(num_atoms_contact, lattice);
+}
+
+void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
+                             double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
+{
+    background_potential_gpu(handle, num_atoms_contact, Vd, lattice.data(),
+                             G_coeff, high_G, low_G, gpubuf.site_is_metal);
+                             
+    poisson_gridless_gpu(num_atoms_contact, lattice.data(), gpubuf.site_charge, gpubuf.site_potential);
+
+    std::cout << "back in Device::updatePotential_gpu\n";
+    exit(1);
+
 }
 
 // update the power of each site
@@ -1027,8 +1038,6 @@ void Device::updateTemperatureGlobal_gpu(GPUBuffers gpubuf, double event_time, d
 
     // call CUDA implementation
     update_temperatureglobal_gpu(gpubuf.site_power, gpubuf.T_bg, gpubuf.N_, a_coeff, b_coeff, number_steps, C_thermal, small_step);
-
-    std::cout << "Called the gpu\n";
 }
 
 // update the global temperature using the global temperature model

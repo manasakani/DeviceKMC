@@ -7,10 +7,7 @@
 void GPUBuffers::upload_HostToGPU(Device &device){
 
     assert(N_ > 0);
-    if (site_element == nullptr || device.site_element.data() == nullptr) {
-        fprintf(stderr, "Invalid GPU buffer or device data pointer.\n");
-        exit(EXIT_FAILURE);
-    }
+    assert(nn_ > 0);
 
     size_t dataSize = N_ * sizeof(ELEMENT);
     if (dataSize != device.site_element.size() * sizeof(ELEMENT)) {
@@ -27,6 +24,7 @@ void GPUBuffers::upload_HostToGPU(Device &device){
     gpuErrchk( cudaMemcpy(site_is_metal, device.site_is_metal.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(neigh_idx, device.neigh_idx.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_power, device.site_power.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(site_power, device.site_potential.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(T_bg, &device.T_bg, 1 * sizeof(double), cudaMemcpyHostToDevice) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
@@ -43,6 +41,7 @@ void GPUBuffers::download_GPUToHost(Device &device){
     gpuErrchk( cudaMemcpy(device.site_is_metal.data(), site_is_metal, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.neigh_idx.data(), neigh_idx, N_ * nn_ * sizeof(int), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_power.data(), site_power, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.site_potential.data(), site_power, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(&device.T_bg, T_bg, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
@@ -57,5 +56,6 @@ void GPUBuffers::freeGPUmemory(){
     cudaFree(site_charge);
     cudaFree(site_is_metal);
     cudaFree(site_power);
+    cudaFree(site_potential);
     cudaFree(T_bg);
 }
