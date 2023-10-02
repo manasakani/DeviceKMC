@@ -564,16 +564,18 @@ std::map<std::string, int> Device::updateCharge(std::vector<ELEMENT> metals)
 void Device::updateCharge_gpu(GPUBuffers gpubuf){
 
     // expects that the device has already been copied to GPU memory
-    assert(gpubuf.gpu_site_element != nullptr);
-    assert(gpubuf.gpu_site_x != nullptr);
-    assert(gpubuf.gpu_site_y != nullptr);
-    assert(gpubuf.gpu_site_z != nullptr);
-    assert(gpubuf.gpu_site_charge != nullptr);
+    assert(gpubuf.site_element != nullptr);
+    assert(gpubuf.site_x != nullptr);
+    assert(gpubuf.site_y != nullptr);
+    assert(gpubuf.site_z != nullptr);
+    assert(gpubuf.site_charge != nullptr);
 
     // call CUDA implementation
-    update_charge_gpu(gpubuf.gpu_site_element, 
-                      gpubuf.gpu_site_charge,
-                      gpubuf.gpu_neigh_idx, gpubuf.N_, gpubuf.nn_);
+    update_charge_gpu(gpubuf.site_element, 
+                      gpubuf.site_charge,
+                      gpubuf.site_is_metal,
+                      gpubuf.neigh_idx, 
+                      gpubuf.N_, gpubuf.nn_);
 }
 
 // update the potential of each site

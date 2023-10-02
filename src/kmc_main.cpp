@@ -154,8 +154,22 @@ int main(int argc, char **argv)
                 std::cout << "charge total after: " <<  esum << "\n";
                 exit(1);
 #else
+                std::cout << "updating charge on CPU\n";
+                int esum = 0;
+                for (auto e : device.site_charge){
+                    esum += e;
+                }
+                std::cout << "charge total before: " <<  esum << "\n";
+
                 std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
+
+                esum = 0;
+                for (auto e : device.site_charge){
+                    esum += e;
+                }
+                std::cout << "charge total after: " <<  esum << "\n";
+                exit(1);
 #endif
                 device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);

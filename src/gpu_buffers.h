@@ -7,10 +7,10 @@ class Device;
 class GPUBuffers {
 
 public:
-    ELEMENT *gpu_site_element;
-    double *gpu_site_x, *gpu_site_y, *gpu_site_z;
-    int *gpu_site_charge, *gpu_site_is_metal;
-    int *gpu_neigh_idx;
+    ELEMENT *site_element;
+    double *site_x, *site_y, *site_z;
+    int *site_charge, *site_is_metal;
+    int *neigh_idx;
     int N_ = 0;
     int nn_ = 0;
 
@@ -26,13 +26,13 @@ public:
         this->nn_ = nn;
 
         cudaDeviceSynchronize();
-        gpuErrchk( cudaMalloc((void**)&gpu_site_element, N_ * sizeof(ELEMENT)) );
-        gpuErrchk( cudaMalloc((void**)&gpu_site_x, N_  * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&gpu_site_y, N_  * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&gpu_site_z, N_  * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&gpu_site_charge, N_ * sizeof(int)) );
-        gpuErrchk( cudaMalloc((void**)&gpu_site_is_metal, N_* sizeof(int)) );
-        gpuErrchk( cudaMalloc((void**)&gpu_neigh_idx, N_ * nn_ * sizeof(int)) );
+        gpuErrchk( cudaMalloc((void**)&site_element, N_ * sizeof(ELEMENT)) );
+        gpuErrchk( cudaMalloc((void**)&site_x, N_  * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void**)&site_y, N_  * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void**)&site_z, N_  * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void**)&site_charge, N_ * sizeof(int)) );
+        gpuErrchk( cudaMalloc((void**)&site_is_metal, N_* sizeof(int)) );
+        gpuErrchk( cudaMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );
 
         cudaDeviceSynchronize();
     }

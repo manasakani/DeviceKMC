@@ -21,7 +21,11 @@ void set_gpu(int dev){
 //     }
 // }
 
-__global__ void update_charge_V(const ELEMENT *element, int *charge, const int *neigh_idx, const int N, const int nn){
+__global__ void update_charge(const ELEMENT *element, 
+                                int *charge, 
+                                const int *site_is_metal, 
+                                const int *neigh_idx, 
+                                const int N, const int nn){
 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int total_threads = blockDim.x * gridDim.x;
@@ -38,7 +42,21 @@ __global__ void update_charge_V(const ELEMENT *element, int *charge, const int *
                 if (element[neigh_idx[j]] == VACANCY){
                     Vnn++;
                 }
+                if (site_is_metal[neigh_idx[j]]){
+                    charge[tid] = 0;
+                }
                 if (Vnn > 3){
+                    charge[tid] = 0;
+                }
+            }
+        }
+
+        if (tid < N && element[tid] == OXYGEN_DEFECT){
+            charge[tid] = -2;
+
+            // iterate over the neighbors
+            for (int j = tid * nn; j < (tid + 1) * nn; ++j){
+                if (site_is_metal[neigh_idx[j]]){
                     charge[tid] = 0;
                 }
             }
@@ -51,17 +69,18 @@ __global__ void update_charge_V(const ELEMENT *element, int *charge, const int *
 
 }
 
-void update_charge_gpu(ELEMENT *gpu_site_element, 
-                       int *gpu_site_charge,
-                       int *gpu_neigh_idx, int N, int nn){
+void update_charge_gpu(ELEMENT *site_element, 
+                       int *site_charge,
+                       int *site_is_metal,
+                       int *neigh_idx, int N, int nn){
 
-    std::cout << "N: " << N << "\n";
-    std::cout << "nn: " << nn << "\n";
+    // std::cout << "N: " << N << "\n";
+    // std::cout << "nn: " << nn << "\n";
 
     int num_threads = 512;
     int num_blocks = (N * nn - 1) / num_threads + 1;
     num_blocks = min(65535, num_blocks);
 
-    update_charge_V<<<num_blocks, num_threads>>>(gpu_site_element, gpu_site_charge, gpu_neigh_idx, N, nn);
+    update_charge<<<num_blocks, num_threads>>>(site_element, site_charge, site_is_metal, neigh_idx, N, nn);
 
 }

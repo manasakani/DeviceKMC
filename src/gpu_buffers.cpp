@@ -7,7 +7,7 @@
 void GPUBuffers::upload_HostToGPU(Device &device){
 
     assert(N_ > 0);
-    if (gpu_site_element == nullptr || device.site_element.data() == nullptr) {
+    if (site_element == nullptr || device.site_element.data() == nullptr) {
         fprintf(stderr, "Invalid GPU buffer or device data pointer.\n");
         exit(EXIT_FAILURE);
     }
@@ -19,13 +19,13 @@ void GPUBuffers::upload_HostToGPU(Device &device){
     }
 
     cudaDeviceSynchronize();
-    gpuErrchk( cudaMemcpy(gpu_site_element, device.site_element.data(), N_ * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(gpu_site_x, device.site_x.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(gpu_site_y, device.site_y.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(gpu_site_z, device.site_z.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(gpu_site_charge, device.site_charge.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(gpu_site_is_metal, device.site_is_metal.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(gpu_neigh_idx, device.neigh_idx.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(site_element, device.site_element.data(), N_ * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(site_x, device.site_x.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(site_y, device.site_y.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(site_z, device.site_z.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(site_charge, device.site_charge.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(site_is_metal, device.site_is_metal.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(neigh_idx, device.neigh_idx.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
 }
@@ -33,23 +33,23 @@ void GPUBuffers::upload_HostToGPU(Device &device){
 void GPUBuffers::download_GPUToHost(Device &device){
 
     cudaDeviceSynchronize();
-    gpuErrchk( cudaMemcpy(&device.site_element[0], gpu_site_element, N_ * sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(device.site_x.data(), gpu_site_x, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(device.site_y.data(), gpu_site_y, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(device.site_z.data(), gpu_site_z, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(device.site_charge.data(), gpu_site_charge, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(device.site_is_metal.data(), gpu_site_is_metal, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(device.neigh_idx.data(), gpu_neigh_idx, N_ * nn_ * sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(&device.site_element[0], site_element, N_ * sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.site_x.data(), site_x, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.site_y.data(), site_y, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.site_z.data(), site_z, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.site_charge.data(), site_charge, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.site_is_metal.data(), site_is_metal, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.neigh_idx.data(), neigh_idx, N_ * nn_ * sizeof(int), cudaMemcpyDeviceToHost) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
 
 }
 
 void GPUBuffers::freeGPUmemory(){
-    cudaFree(gpu_site_element);
-    cudaFree(gpu_site_x);
-    cudaFree(gpu_site_y);
-    cudaFree(gpu_site_z);
-    cudaFree(gpu_site_charge);
-    cudaFree(gpu_site_is_metal);
+    cudaFree(site_element);
+    cudaFree(site_x);
+    cudaFree(site_y);
+    cudaFree(site_z);
+    cudaFree(site_charge);
+    cudaFree(site_is_metal);
 }
