@@ -82,9 +82,9 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     std::cout << "Built neighbor lists...\n";
 
     // initialize the size of the field vectors
-    site_charge.resize(N);
-    site_potential.resize(N);
-    site_power.resize(N);
+    site_charge.resize(N, 0);
+    site_potential.resize(N, 0);
+    site_power.resize(N, 0);
     site_temperature.resize(N, T_bg);
 
     std::cout << "Loaded " << N << " sites into device" << "\n";
@@ -409,12 +409,13 @@ bool Device::is_neighbor(int i, int j)
     } else {
 
         std::vector<double> pos_i, pos_j;
-        double dist;
-        pos_i.push_back(site_x[i]); pos_i.push_back(site_y[i]); pos_i.push_back(site_z[i]);
-        pos_j.push_back(site_x[j]); pos_j.push_back(site_y[j]); pos_j.push_back(site_z[j]);
-        dist = site_dist(pos_i, pos_j, lattice, pbc);
-        //dist = site_dist(site_x[i], site_y[i], site_z[i], site_x[j], site_y[j], site_z[j], pos_j, lattice, pbc);
+        double dist, dist1, dist2;
+        // pos_i.push_back(site_x[i]); pos_i.push_back(site_y[i]); pos_i.push_back(site_z[i]);
+        // pos_j.push_back(site_x[j]); pos_j.push_back(site_y[j]); pos_j.push_back(site_z[j]);
+        // dist = site_dist(pos_i, pos_j, lattice, pbc);
 
+        dist = site_dist(site_x[i], site_y[i], site_z[i], site_x[j], site_y[j], site_z[j], lattice, pbc);
+        
         if (dist < nn_dist && i != j)
         {
             return 1;
@@ -570,7 +571,6 @@ void Device::updateCharge_gpu(GPUBuffers gpubuf){
     assert(gpubuf.site_z != nullptr);
     assert(gpubuf.site_charge != nullptr);
 
-    // call CUDA implementation
     update_charge_gpu(gpubuf.site_element, 
                       gpubuf.site_charge,
                       gpubuf.site_is_metal,
@@ -752,7 +752,7 @@ void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers gpubuf, i
                              
     poisson_gridless_gpu(num_atoms_contact, lattice.data(), gpubuf.site_charge, gpubuf.site_potential);
 
-    std::cout << "back in Device::updatePotential_gpu\n";
+    std::cout << "back in Device::updatePotential_gpu, implement this\n";
     exit(1);
 
 }
@@ -1025,7 +1025,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 }
 
 void Device::updateTemperatureGlobal_gpu(GPUBuffers gpubuf, double event_time, double small_step, double dissipation_constant,
-                                                              double background_temp, double t_ox, double A, double c_p){
+                                         double background_temp, double t_ox, double A, double c_p){
 
     // expects that the device has already been copied to GPU memory
     assert(gpubuf.site_power != nullptr);

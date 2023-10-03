@@ -3,14 +3,14 @@
 //******************************
 
 rnd_seed = 1							// random number for KMCProcess
-restart = 0							// restart calculation
+restart = 1							// restart calculation
 restart_xyz_file = snapshot_init.xyz				// restart filename
 
 atom_xyz_file = atoms_2x2.xyz	                 		// if not restart, draws from the atom coordinates file
 interstitial_xyz_file = interstitials_2x2.xyz 
 lattice = 93.72586 53.82954, 53.27438 	         		// 1x1 device
 
-pristine = 1							// add initial vacancy concentration if starting from pristine
+pristine = 0							// add initial vacancy concentration if starting from pristine
 initial_vacancy_concentration = 0.05
 attempt_frequency = 10e13 					// [1/s]
 
@@ -43,7 +43,7 @@ t_switch = 1e-13 						// [s] timescale for switching
 
 Icc = 3e-3 							// [A] enforced compliance current
 
-log_freq = 50							// frequency of device snapshot generation (per x kmc steps)
+log_freq = 1							// frequency of device snapshot generation (per x kmc steps)
 
 output_freq = 1						// frequency of printing the steps into the output file
 

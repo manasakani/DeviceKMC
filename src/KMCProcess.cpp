@@ -6,6 +6,8 @@
 #include "utils.h"
 #include <iostream>
 #include <list>
+#include <algorithm>
+#include <numeric>
 
 void Layer::init_layer(std::string type_, double E_gen_0_, double E_rec_1_, double E_diff_2_, double E_diff_3_, double start_x_, double end_x_)
 {
@@ -163,6 +165,7 @@ double KMCProcess::executeKMCStep(Device &device)
         // NOTE: We can optimize this by only updating the required values
         // get the cumulative sum of the probabilities
         inclusive_prefix_sum<double>(event_prob, event_prob_cum, num_sites * num_neigh);
+        // std::inclusive_scan(event_prob, event_prob + num_sites * num_neigh, event_prob_cum);
 
         // Select an event
         double Psum = event_prob_cum[num_sites * num_neigh - 1];
@@ -177,7 +180,7 @@ double KMCProcess::executeKMCStep(Device &device)
         auto i = event_idx / num_neigh;
         auto j = device.neigh_idx[event_idx];
 
-        //std::cout << "Selected event index: " << event_idx << " with type "
+        // std::cout << "Selected event index: " << event_idx << " with type "
         //          << event_type[event_idx] << " and probability " << event_prob[event_idx]
         //          << " (" << sel_event_prob << ")" << " to happen between " << device.site_element[i]
         //          << " and " << device.site_element[j] << std::endl;
@@ -189,7 +192,8 @@ double KMCProcess::executeKMCStep(Device &device)
         {
             if (device.site_element[i] != DEFECT || device.site_element[j] != O)
             {
-                print("Wrong event type!");
+                print("Wrong event type - VACANCY_GENERATION!");
+                print(return_element(device.site_element[i]) << " and " << return_element(device.site_element[j]));
             }
 
             // turn the defect (site_1) into an oxygen ion:
@@ -206,7 +210,8 @@ double KMCProcess::executeKMCStep(Device &device)
         {
             if (device.site_element[i] != OXYGEN_DEFECT || device.site_element[j] != VACANCY)
             {
-                print("Wrong event type!");
+                print("Wrong event type - VACANCY_RECOMBINATION!");
+                print(return_element(device.site_element[i]) << " and " << return_element(device.site_element[j]));
             }
 
             // turn the oxygen (site_1) into a defect
@@ -223,8 +228,8 @@ double KMCProcess::executeKMCStep(Device &device)
         {
             if (device.site_element[i] != VACANCY || device.site_element[j] != O)
             {
-                print("Wrong event type!");
-
+                print("Wrong event type - VACANCY_DIFFUSION!");
+                print(return_element(device.site_element[i]) << " and " << return_element(device.site_element[j]));
             }
 
             swap_values(&device.site_element[i], &device.site_element[j]);
@@ -236,7 +241,8 @@ double KMCProcess::executeKMCStep(Device &device)
         {
             if (device.site_element[i] != OXYGEN_DEFECT || device.site_element[j] != DEFECT)
             {
-                print("Wrong event type!");
+                print("Wrong event type - ION_DIFFUSION!");
+                print(return_element(device.site_element[i]) << " and " << return_element(device.site_element[j]));
             }
 
             swap_values(&device.site_element[i], &device.site_element[j]);
@@ -250,7 +256,10 @@ double KMCProcess::executeKMCStep(Device &device)
 
         // Deactivate conflicting events
         int i_, j_;
-        #pragma omp parallel for private(i_, j_)
+#pragma omp parallel private(i_, j_)
+{
+        // other site's events with i or j
+        #pragma omp for //private(i_, j_)
         for (auto idx = 0; idx < num_sites * num_neigh; ++idx){
             i_ = idx / num_neigh;
             j_ = device.neigh_idx[idx];
@@ -260,7 +269,19 @@ double KMCProcess::executeKMCStep(Device &device)
                 event_prob[idx] = 0.0;
             }
         }
-
+        // i's events with its neighbors
+        #pragma omp for
+        for (auto neigh_idx = i * num_neigh; neigh_idx < (i + 1)*num_neigh; ++neigh_idx){
+            event_type[neigh_idx] = NULL_EVENT;
+            event_prob[neigh_idx] = 0.0;
+        }
+        // j's events with its neighbors
+        #pragma omp for
+        for (auto neigh_idx = j * num_neigh; neigh_idx < (j + 1)*num_neigh; ++neigh_idx){
+            event_type[neigh_idx] = NULL_EVENT;
+            event_prob[neigh_idx] = 0.0;
+        }
+}
         event_time = -log(random_generator.getRandomNumber()) / sel_event_prob;
     }
 

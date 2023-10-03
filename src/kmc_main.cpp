@@ -105,8 +105,7 @@ int main(int argc, char **argv)
 
     for (size_t vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
     {
-        Vd = p.V_switch[vt_counter];
-        t = p.t_switch[vt_counter];
+        Vd = p.V_switch[vt_counter]; t = p.t_switch[vt_counter];
         outputBuffer << "--------------------------------\n";
         outputBuffer << "Applied Voltage = " << Vd << " V\n";
         outputBuffer << "--------------------------------\n";
@@ -121,46 +120,55 @@ int main(int argc, char **argv)
 
         kmc_time = 0.0;
         kmc_step_count = 0;
-        file_name = "snapshot_init.xyz";
-        device.writeSnapshot(file_name, folder_name);
+        device.writeSnapshot("snapshot_init.xyz", folder_name);
 
-#ifdef USE_CUDA
-        gpubuf.upload_HostToGPU(device); 
-#endif
 
-        // KMC loop for atomic structure perturbations with these conditions
+        // ********************************************************
+        // ***************** MAIN KMC LOOP ************************
+        // ********************************************************
+// #ifdef USE_CUDA
+//         gpubuf.upload_HostToGPU(device); 
+// #endif
         while (kmc_time < t)
         {
             outputBuffer << "--------------\n";
             outputBuffer << "KMC step count: " << kmc_step_count << "\n";
 
-            // *** Update fields and execute events on structure ***
+            // ********************************************************
+            // **** Update fields and execute events on structure *****
+            // ********************************************************
 
             // Charge and Potential
             auto t0 = std::chrono::steady_clock::now();
             if (p.solve_potential)
             {
-#ifdef USE_CUDA
-
-                device.updateCharge_gpu(gpubuf);
-#else
+// #ifdef USE_CUDA
+//                 gpubuf.upload_HostToGPU(device); // remove eventually
+//                 device.updateCharge_gpu(gpubuf);
+//                 gpubuf.download_GPUToHost(device); // remove eventually
+// #else
                 std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
-#endif
-#ifdef USE_CUDA
-                device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
-                                           p.G_coeff, p.high_G, p.low_G, p.metals);
-                gpubuf.download_GPUToHost(device); // keep moving this download down
-#else
+// #endif
+// #ifdef USE_CUDA
+//                 device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
+//                                            p.G_coeff, p.high_G, p.low_G, p.metals);
+// #else
                 device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);
-#endif
+// #endif
             }
+
             auto t_pot = std::chrono::steady_clock::now();
             diff_pot = t_pot - t0;
 
             // KMC update step 
+// #ifdef USE_CUDA
+//            step_time = execute_kmc_step_gpu(gpubuf);
+// #else
             step_time = sim.executeKMCStep(device);
+// #endif
+
             double temperature_time = kmc_time;
             kmc_time += step_time;
             auto t_perturb = std::chrono::steady_clock::now();
@@ -169,27 +177,28 @@ int main(int argc, char **argv)
             // Power and Temperature
             if (p.solve_current)
             {
-
+// #ifdef USE_CUDA
+// #else
                 std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                                                                             p.metals, p.m_e, p.V0);
                 resultMap.insert(powerMap.begin(), powerMap.end());
+// #endif
                 auto t_power = std::chrono::steady_clock::now();
                 diff_power = t_power - t_perturb;
 
                 if (p.solve_heating_global)
                 {
 #ifdef USE_CUDA
-                    gpubuf.upload_HostToGPU(device); 
+                    gpubuf.upload_HostToGPU(device); // remove eventually
                     device.updateTemperatureGlobal_gpu(gpubuf, step_time, p.small_step, p.dissipation_constant,
                                                        p.background_temp, p.t_ox, p.A, p.c_p);
-                    gpubuf.download_GPUToHost(device);
-                    std::cout << "T_bg : " << device.T_bg << "\n";
-                    exit(1);
+                    gpubuf.download_GPUToHost(device); // remove eventually
 #else
                     std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(step_time, p.small_step, p.dissipation_constant,
                                                                                                   p.background_temp, p.t_ox, p.A, p.c_p);
                     resultMap.insert(temperatureMap.begin(), temperatureMap.end());
 #endif
+
                 }
                 if (p.solve_heating_local)
                 { 
@@ -217,7 +226,9 @@ int main(int argc, char **argv)
                 diff_temp = t_temp - t_power;
             }
 
-            // *** Log results ***
+            // ********************************************************
+            // ******************** Log results ***********************
+            // ********************************************************
 
             outputBuffer << "KMC time is: " << kmc_time << "\n";
 
@@ -240,7 +251,7 @@ int main(int argc, char **argv)
                 device.writeSnapshot(file_name, folder_name);
             }
 
-            // *** Log timing info ***  
+            // Log timing info
 
             auto t1 = std::chrono::steady_clock::now();
             diff = t1 - t0;
@@ -258,6 +269,7 @@ int main(int argc, char **argv)
     }
 
 #ifdef USE_CUDA
+        // gpubuf.download_GPUToHost(device);
         gpubuf.freeGPUmemory();
 #endif
 

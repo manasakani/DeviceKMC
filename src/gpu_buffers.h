@@ -20,6 +20,9 @@ public:
 
     // downloads the GPU device attributes into the local versions
     void download_GPUToHost(Device &device);
+
+    // copy back just the site_power into the power vector
+    void copy_power_fromGPU(std::vector<double> &power);
     
     // constructor allocates arrays in GPU memory
     GPUBuffers(int N, int nn) {
