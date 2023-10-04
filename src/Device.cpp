@@ -573,7 +573,6 @@ void Device::updateCharge_gpu(GPUBuffers gpubuf){
 
     update_charge_gpu(gpubuf.site_element, 
                       gpubuf.site_charge,
-                      gpubuf.site_is_metal,
                       gpubuf.neigh_idx, 
                       gpubuf.N_, gpubuf.nn_, 
                       gpubuf.metal_types, gpubuf.num_metal_types_);

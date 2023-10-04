@@ -101,7 +101,6 @@ __global__ void calculate_pairwise_interaction(const T* posx, const T* posy, con
 
 __global__ void update_charge(const ELEMENT *element, 
                               int *charge, 
-                              const int *site_is_metal, 
                               const int *neigh_idx, 
                               const int N, const int nn, 
                               const ELEMENT* metals, const int num_metals){
@@ -231,7 +230,6 @@ void test_reduce()
 // wrapper function for the update_charge kernel, sets the site_charge array
 void update_charge_gpu(ELEMENT *site_element, 
                        int *site_charge,
-                       int *site_is_metal,
                        int *neigh_idx, int N, int nn, 
                        const ELEMENT *metals, const int num_metals){
 
@@ -239,7 +237,7 @@ void update_charge_gpu(ELEMENT *site_element,
     int num_blocks = (N * nn - 1) / num_threads + 1;
     num_blocks = min(65535, num_blocks);
 
-    update_charge<<<num_blocks, num_threads>>>(site_element, site_charge, site_is_metal, neigh_idx, N, nn, metals, num_metals);
+    update_charge<<<num_blocks, num_threads>>>(site_element, site_charge, neigh_idx, N, nn, metals, num_metals);
 }
 
 void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const int N, const double a_coeff, const double b_coeff, const double number_steps, const double C_thermal, const double small_step){
