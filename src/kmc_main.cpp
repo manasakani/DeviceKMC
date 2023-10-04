@@ -93,7 +93,7 @@ int main(int argc, char **argv)
 
     // Initialize device attributes on GPU
 #ifdef USE_CUDA
-        GPUBuffers gpubuf(device.N, device.max_num_neighbors);
+        GPUBuffers gpubuf(device.N, device.max_num_neighbors, p.metals, p.metals.size());
 #endif
 
     // loop over V_switch and t_switch
@@ -142,14 +142,15 @@ int main(int argc, char **argv)
             auto t0 = std::chrono::steady_clock::now();
             if (p.solve_potential)
             {
-// #ifdef USE_CUDA
-//                 gpubuf.upload_HostToGPU(device); // remove eventually
-//                 device.updateCharge_gpu(gpubuf);
-//                 gpubuf.download_GPUToHost(device); // remove eventually
-// #else
+#ifdef USE_CUDA
+                gpubuf.upload_HostToGPU(device); // remove eventually
+                device.updateCharge_gpu(gpubuf);
+                gpubuf.download_GPUToHost(device); // remove eventually
+#else
                 std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
-// #endif
+#endif
+
 // #ifdef USE_CUDA
 //                 device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
 //                                            p.G_coeff, p.high_G, p.low_G, p.metals);

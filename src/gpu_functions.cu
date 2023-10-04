@@ -20,6 +20,18 @@ void set_gpu(int dev){
 // *************** GPU HELPER FUNCTIONS *******************
 // ********************************************************
 
+// returns true if thing is present in the vector of things
+template <typename T>
+__device__ int is_in_array_gpu(const T *array, const T element, const int size) {
+
+    for (int i = 0; i < size; ++i) {
+        if (array[i] == element) {
+        return 1;
+        }
+    }
+    return 0;
+}
+
 __device__ double site_dist_gpu(double pos1x, double pos1y, double pos1z,
                                 double pos2x, double pos2y, double pos2z,
                                 double lattx, double latty, double lattz, bool pbc)
@@ -91,7 +103,8 @@ __global__ void update_charge(const ELEMENT *element,
                               int *charge, 
                               const int *site_is_metal, 
                               const int *neigh_idx, 
-                              const int N, const int nn){
+                              const int N, const int nn, 
+                              const ELEMENT* metals, const int num_metals){
 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int total_threads = blockDim.x * gridDim.x;
@@ -108,10 +121,11 @@ __global__ void update_charge(const ELEMENT *element,
                 if (element[neigh_idx[j]] == VACANCY){
                     Vnn++;
                 }
-                if (site_is_metal[neigh_idx[j]]){
+                // if (site_is_metal[neigh_idx[j]]){
+                if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
                     charge[tid] = 0;
                 }
-                if (Vnn > 3){
+                if (Vnn >= 3){
                     charge[tid] = 0;
                 }
             }
@@ -122,7 +136,9 @@ __global__ void update_charge(const ELEMENT *element,
 
             // iterate over the neighbors
             for (int j = tid * nn; j < (tid + 1) * nn; ++j){
-                if (site_is_metal[neigh_idx[j]]){
+                
+                // if (site_is_metal[neigh_idx[j]]){
+                if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
                     charge[tid] = 0;
                 }
             }
@@ -216,14 +232,14 @@ void test_reduce()
 void update_charge_gpu(ELEMENT *site_element, 
                        int *site_charge,
                        int *site_is_metal,
-                       int *neigh_idx, int N, int nn){
+                       int *neigh_idx, int N, int nn, 
+                       const ELEMENT *metals, const int num_metals){
 
     int num_threads = 512;
     int num_blocks = (N * nn - 1) / num_threads + 1;
     num_blocks = min(65535, num_blocks);
 
-    update_charge<<<num_blocks, num_threads>>>(site_element, site_charge, site_is_metal, neigh_idx, N, nn);
-
+    update_charge<<<num_blocks, num_threads>>>(site_element, site_charge, site_is_metal, neigh_idx, N, nn, metals, num_metals);
 }
 
 void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const int N, const double a_coeff, const double b_coeff, const double number_steps, const double C_thermal, const double small_step){
