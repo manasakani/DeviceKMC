@@ -496,8 +496,9 @@ std::vector<std::string> KMCParameters::read_vec_string(std::string line){
 
 
 void KMCParameters::set_expression_parameters(){
-	high_G = G_coeff * 1; 																					  		// [S]
-    low_G = G_coeff * 0.00000001;																				  	// [S]
+	high_G = G_coeff * 10; 
+	low_G = G_coeff * 1e-5;																					  		// [S]
+    //low_G = G_coeff * 0.00000001;																				  	// [S]
     k = 8.987552e9 / epsilon;   																				  	// [N m^2 / C^2]
     k_th_interface = k_th_non_vacancy + (k_th_vacancies - k_th_non_vacancy) * initial_vacancy_concentration; 		// [W/mK]
     tau = k_th_interface / (L_char * L_char * c_p * 1e6);                                                   	 	// Thermal rate constant [1/s]
