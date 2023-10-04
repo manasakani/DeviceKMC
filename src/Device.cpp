@@ -841,20 +841,30 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                 if (i != j && !neighbor)
                 {
                     V_V = (vacancy1 && vacancy2) || (vacancy2 && cvacancy1) || (vacancy1 && cvacancy2) || (cvacancy1 && cvacancy2);
-                    V_contact = (vacancy1 && metal2) || (vacancy2 && metal1) || (cvacancy1 && metal2) || (cvacancy2 && metal1);
 
-                    if (V_V || V_contact)
+                    if (V_V)
                     {
-                        std::vector<double> pos_i, pos_j;
-                        pos_i.push_back(atom_x[i]);
-                        pos_i.push_back(atom_y[i]);
-                        pos_i.push_back(atom_z[i]);
-                        pos_j.push_back(atom_x[j]);
-                        pos_j.push_back(atom_y[j]);
-                        pos_j.push_back(atom_z[j]);
-                        dist = (1e-10) * site_dist(pos_i, pos_j, lattice, pbc);
-
-                        T = exp(-2 * sqrt((2 * m_e * V0 * eV_to_J) / (h_bar_sq)) * dist);
+                        //std::vector<double> pos_i, pos_j;
+                        //pos_i.push_back(atom_x[i]);
+                        //pos_i.push_back(atom_y[i]);
+                        //pos_i.push_back(atom_z[i]);
+                        //pos_j.push_back(atom_x[j]);
+                        //pos_j.push_back(atom_y[j]);
+                        //pos_j.push_back(atom_z[j]);
+                        //dist = (1e-10) * site_dist(pos_i, pos_j, lattice, pbc);
+                        //T = exp(-2 * sqrt((2 * m_e * V0 * eV_to_J) / (h_bar_sq)) * dist);
+                        double Vdiff = site_potential[atom_ind[j]]- site_potential[atom_ind[i]];
+                        double xdiff = (1e-10) *(atom_x[j] - atom_x[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0
+                        double b = Vdiff/xdiff; 
+                        double a = 1e18; // zero prob
+                        if (abs(V0 - Vdiff) < 1e-18){
+                            a = 2.0/3.0*sqrt(V0)*xdiff;
+                        } else if (V0-Vdiff>0){ // if Vdiff < 0 then lower prob
+                            a = -2.0/3.0*(1/b)*(pow(V0-Vdiff, 1.5)-pow(V0, 1.5)); // always +
+                        } else if (V0-Vdiff<0 && xdiff > 0) {
+                            a = -2.0/3.0*(1/b)*(-1)*pow(V0, 3/2); // always +
+                        }
+                        T = exp(-2 *sqrt( (2*m_e*eV_to_J)/(h_bar_sq) ) * a);
                         G = 2 * 3.8612e-5 * T;
                         X[N_full * (i + 2) + (j + 2)] = -G;
                         X[N_full * (j + 2) + (i + 2)] = -G;
@@ -955,15 +965,22 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
             for (j = 0; j < N_atom; j++)
             {
 
+                bool neighbor = is_neighbor(i, j);
                 I_neg[i * N_atom + j] = 0;
                 I_cal = X[N_full * (i + 2) + (j + 2)] * (M[j + 2] - M[i + 2]);
 
-                if (I_cal < 0 && Vd > 0)
+                if (I_cal < 0 && Vd > 0 && neighbor)
                 {
                     I_neg[i * N_atom + j] = -I_cal;
                 }
-                else if (I_cal > 0 && Vd < 0)
+                else if (I_cal > 0 && Vd < 0 && neighbor)
                 {
+                    I_neg[i * N_atom + j] = -I_cal;
+                }
+                else if (I_cal < 0 && Vd > 0 && site_potential[j] - site_potential[i] < V0) { // excluding Fozler Nordheim tunneling
+                    I_neg[i * N_atom + j] = -I_cal;
+                }
+                else if (I_cal > 0 && Vd < 0 && site_potential[j] - site_potential[i] > V0){
                     I_neg[i * N_atom + j] = -I_cal;
                 }
             }
@@ -1001,11 +1018,11 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
         }
         else if (vacancy)
         {
-            alpha = 0.10;
+            alpha = 0.00010;
         }
         else
         {
-            alpha = 0.20;
+            alpha = 0.00020;
         }
 
         site_power[atom_ind[i]] = -1 * alpha * P_disp[i];
