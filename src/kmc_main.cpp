@@ -203,7 +203,6 @@ int main(int argc, char **argv)
                                                                                                   p.background_temp, p.t_ox, p.A, p.c_p);
                     resultMap.insert(temperatureMap.begin(), temperatureMap.end());
 #endif
-
                 }
                 if (p.solve_heating_local)
                 { 
