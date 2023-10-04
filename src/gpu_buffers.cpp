@@ -34,6 +34,7 @@ void GPUBuffers::download_GPUToHost(Device &device){
 
     cudaDeviceSynchronize();
     gpuErrchk( cudaMemcpy(&device.site_element[0], site_element, N_ * sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
+    // gpuErrchk( cudaMemcpy(device.site_element.data(), site_element, N_ * sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_x.data(), site_x, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_y.data(), site_y, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_z.data(), site_z, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
