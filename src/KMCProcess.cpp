@@ -102,7 +102,7 @@ void KMCProcess::execute_event(Site *site_1, Site *site_2, int &event_type, int 
 
         // turn the defect (site_1) into an oxygen ion:
         site_1->element = "Od";
-        charge_1 = -2;
+        charge_1 = 0;
 
         // turn the oxygen (site_2) into a charged vacancy:
         site_2->element = "V";
@@ -211,7 +211,7 @@ double KMCProcess::executeKMCStep(Device *device, double freq, std::vector<doubl
                     E = 2 * (device->site_potential[i] - device->site_potential[j]);
                     zero_field_energy = layers[site_layer[j]].E_gen_0;
                     event_type_ = 0;
-                    Ekin = kB * (device->site_temperature[i] - device->site_temperature[j]);
+                    Ekin = kB * (device->site_temperature[j] - device->site_temperature[i]);
                     EA = zero_field_energy - E - Ekin;
                     P = exp(-1 * EA / (kB * T_kmc)) * freq;
                     t_event_list.emplace_back(i, j, event_type_, P);
@@ -256,7 +256,7 @@ double KMCProcess::executeKMCStep(Device *device, double freq, std::vector<doubl
                     zero_field_energy = layers[site_layer[i]].E_diff_2;
 
                     event_type_ = 2;
-                    Ekin = kB * (device->site_temperature[i] - device->site_temperature[j]);
+                    Ekin = kB * (device->site_temperature[j] - device->site_temperature[i]);
                     EA = zero_field_energy - E - Ekin;
                     P = exp(-1 * EA / (kB * T_kmc)) * freq;
                     t_event_list.emplace_back(i, j, event_type_, P);
