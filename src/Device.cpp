@@ -570,6 +570,7 @@ void Device::updateCharge_gpu(GPUBuffers gpubuf){
     assert(gpubuf.site_y != nullptr);
     assert(gpubuf.site_z != nullptr);
     assert(gpubuf.site_charge != nullptr);
+    assert(gpubuf.lattice != nullptr);
 
     update_charge_gpu(gpubuf.site_element, 
                       gpubuf.site_charge,
@@ -750,7 +751,9 @@ void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers gpubuf, i
     background_potential_gpu(handle, num_atoms_contact, Vd, lattice.data(),
                              G_coeff, high_G, low_G, gpubuf.site_is_metal);
                              
-    poisson_gridless_gpu(num_atoms_contact, lattice.data(), gpubuf.site_charge, gpubuf.site_potential);
+    poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
+                         gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+                         gpubuf.site_charge, gpubuf.site_potential);
 
     std::cout << "back in Device::updatePotential_gpu, implement this\n";
     exit(1);

@@ -82,21 +82,28 @@ __device__ double v_solve_gpu(double r_dist, int charge, double sigma, double k)
 template <typename T, int NTHREADS>
 __global__ void calculate_pairwise_interaction(const T* posx, const T* posy, const T*posz, 
                                                const double *lattice, const int pbc, 
-                                               const int N, T* result_array){
+                                               const int N, const double sigma, const double k, T* potential){
 
-    int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
-    int num_threads_total = blockDim.x * gridDim.x;
+    // int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
+    // int num_threads_total = blockDim.x * gridDim.x;
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_threads = blockDim.x * gridDim.x;
+    int Vnn = 0;
     double V_temp = 0;
+    double dist;
 
-    for (int idx = tid_total; idx < N * N; idx += num_threads_total) {
-        int i = idx / N;
-        int j = idx % N;
-        double dist = 0.0;
-        dist = site_dist_gpu(posx[i], posy[i], posz[i], 
-                             posx[j], posy[j], posz[j], 
-                             lattice[0], lattice[1], lattice[2], pbc);
-        // continue implementing
-    }
+    // // each thread gets a different site to evaluate
+    // for (int idx = tid; idx < N; idx += total_threads) {
+        
+    //     // iterate over the neighbors
+    //     for (int j = tid * nn; j < (tid + 1) * nn; ++j){
+    //         dist = site_dist_gpu(posx[i], posy[i], posz[i], 
+    //                              posx[j], posy[j], posz[j], 
+    //                              lattice[0], lattice[1], lattice[2], pbc);
+    //         // V_temp += v_solve_gpu(dist, site_charge[j], sigma, k;
+    //     }
+    //     potential[tid] += V_temp;
+    // }
 }
 
 __global__ void update_charge(const ELEMENT *element, 
@@ -234,7 +241,7 @@ void update_charge_gpu(ELEMENT *site_element,
                        const ELEMENT *metals, const int num_metals){
 
     int num_threads = 512;
-    int num_blocks = (N * nn - 1) / num_threads + 1;
+    int num_blocks = (N * nn - 1) / num_threads + 1; // revise kernel to distribute pair-resolved work instead of site-resolved work
     num_blocks = min(65535, num_blocks);
 
     update_charge<<<num_blocks, num_threads>>>(site_element, site_charge, neigh_idx, N, nn, metals, num_metals);
@@ -246,12 +253,12 @@ void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const 
     int num_blocks = (N - 1) / num_threads + 1;
     num_blocks = min(65535, num_blocks);
 
-    //collect site_power
     double *P_tot;
     gpuErrchk( cudaMalloc((void**)&P_tot, 1 * sizeof(double)) );
     gpuErrchk( cudaMemset(P_tot, 0, 1 * sizeof(double)) );
+
+    //collect site_power
     reduce<double, NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS*sizeof(double)>>>(site_power, P_tot, N);
-    // test_reduce();
 
     //update the temperature
     update_temp_global<<<1, 1>>>(P_tot, T_bg, a_coeff, b_coeff, number_steps, C_thermal, small_step);
@@ -273,9 +280,19 @@ void background_potential_gpu(cusolverDnHandle_t handle, const int num_atoms_con
 
 }
 
-void poisson_gridless_gpu(const int num_atoms_contact, const double *lattice, const int *site_charge, double *site_potential){
+void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice, 
+                          const double *sigma, const double *k,
+                          const double *posx, const double *posy, const double *posz, 
+                          const int *site_charge, double *site_potential){
+
     std::cout << "inside poisson_gridless_gpu\n";
-    std::cout << "still need to implement this!\n";
+
+    int num_threads = 512;
+    int num_blocks = (N * N - 1) / num_threads + 1;
+    num_blocks = min(65535, num_blocks);
+
+    // calculate_pairwise_interaction<double, NUM_THREADS><<<num_blocks, num_threads>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_potential);
+
 }
 
     // # if __CUDA_ARCH__>=200

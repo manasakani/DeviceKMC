@@ -93,7 +93,9 @@ int main(int argc, char **argv)
 
     // Initialize device attributes on GPU
 #ifdef USE_CUDA
-        GPUBuffers gpubuf(device.N, device.max_num_neighbors, p.metals, p.metals.size());
+        GPUBuffers gpubuf(device.N, device.site_x, device.site_y, device.site_z,
+                          device.max_num_neighbors, device.sigma, device.k, 
+                          device.lattice, device.neigh_idx, p.metals, p.metals.size());
 #endif
 
     // loop over V_switch and t_switch
@@ -143,17 +145,19 @@ int main(int argc, char **argv)
             if (p.solve_potential)
             {
 #ifdef USE_CUDA
-                gpubuf.upload_HostToGPU(device); // remove eventually
+                gpubuf.upload_HostToGPU(device);  // remove once full while loop is completed
                 device.updateCharge_gpu(gpubuf);
-                gpubuf.download_GPUToHost(device); // remove eventually
+                gpubuf.download_GPUToHost(device); // remove once full while loop is completed
 #else
                 std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
 #endif
 
 // #ifdef USE_CUDA
+//                 gpubuf.upload_HostToGPU(device);  // remove once full while loop is completed
 //                 device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
 //                                            p.G_coeff, p.high_G, p.low_G, p.metals);
+//                 gpubuf.download_GPUToHost(device); // remove once full while loop is completed
 // #else
                 device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);
