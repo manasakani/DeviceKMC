@@ -162,9 +162,6 @@ int main(int argc, char **argv)
                 device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);
 #endif
-                // for (auto i = 4000 ; i < 4010; i++){
-                //     std::cout << "potential " << device.site_potential[i] << "\n"; 
-                // }
             }
             auto t_pot = std::chrono::steady_clock::now();
             diff_pot = t_pot - t0;

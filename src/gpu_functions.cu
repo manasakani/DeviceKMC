@@ -73,12 +73,7 @@ __device__ double v_solve_gpu(double r_dist, int charge, const double *sigma, co
     double q = 1.60217663e-19;              // [C]
     double vterm = static_cast<double>(charge) * erfc(r_dist / ((*sigma) * sqrt(2.0))) * (*k) * q / r_dist; 
 
-    // double vterm = erfc(r_dist / ((*sigma) * sqrt(2.0))) * (*k) * q / r_dist; 
-    // vterm /= r_dist;
-    // double vterm = r_dist;
     return vterm;
-    // return charge * erfc(r_dist / ((*sigma) * sqrt(2.0))) * (*k) * q / r_dist; 
-
 }
 
 
@@ -93,8 +88,6 @@ __global__ void calculate_pairwise_interaction(const T* posx, const T* posy, con
                                                const int N, const double *sigma, const double *k, 
                                                const int *charge, T* potential){
 
-    // int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
-    // int num_threads_total = blockDim.x * gridDim.x;
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int total_threads = blockDim.x * gridDim.x;
     double V_temp = 0;
@@ -113,9 +106,6 @@ __global__ void calculate_pairwise_interaction(const T* posx, const T* posy, con
                 V_temp += v_solve_gpu(dist, charge[j], sigma, k);
                 
             }
-            // # if __CUDA_ARCH__>=200
-            // printf("%i \n", N);
-            // #endif  
         }
         potential[tid] += V_temp;
     }
