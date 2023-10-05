@@ -95,7 +95,9 @@ int main(int argc, char **argv)
 
     // Initialize device attributes on GPU
 #ifdef USE_CUDA
-        GPUBuffers gpubuf(device.N, device.max_num_neighbors, p.metals, p.metals.size());
+        GPUBuffers gpubuf(device.N, device.site_x, device.site_y, device.site_z,
+                          device.max_num_neighbors, device.sigma, device.k, 
+                          device.lattice, device.neigh_idx, p.metals, p.metals.size());
 #endif
 
     // loop over V_switch and t_switch
@@ -146,30 +148,34 @@ int main(int argc, char **argv)
                 // **** Update fields and execute events on structure *****
                 // ********************************************************
 
-                // Charge and Potential
-                auto t0 = std::chrono::steady_clock::now();
-                if (p.solve_potential)
-                {
-                    // #ifdef USE_CUDA
-                    //                 gpubuf.upload_HostToGPU(device); // remove eventually
-                    //                 device.updateCharge_gpu(gpubuf);
-                    //                 gpubuf.download_GPUToHost(device); // remove eventually
-                    // #else
-                    std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
-                    resultMap.insert(chargeMap.begin(), chargeMap.end());
-                    // #endif
+            // Charge and Potential
+            auto t0 = std::chrono::steady_clock::now();
+            if (p.solve_potential)
+            {
+#ifdef USE_CUDA
+                gpubuf.upload_HostToGPU(device);  // remove once full while loop is completed
+                device.updateCharge_gpu(gpubuf);
+                gpubuf.download_GPUToHost(device); // remove once full while loop is completed
+#else
+                std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
+                resultMap.insert(chargeMap.begin(), chargeMap.end());
+#endif
 
-                    // #ifdef USE_CUDA
-                    //                 device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
-                    //                                            p.G_coeff, p.high_G, p.low_G, p.metals);
-                    // #else
-                    device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
+#ifdef USE_CUDA
+                gpubuf.upload_HostToGPU(device);  // remove once full while loop is completed
+                device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
                                            p.G_coeff, p.high_G, p.low_G, p.metals);
-                    // #endif
-                }
-
-                auto t_pot = std::chrono::steady_clock::now();
-                diff_pot = t_pot - t0;
+                gpubuf.download_GPUToHost(device); // remove once full while loop is completed
+#else
+                device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
+                                       p.G_coeff, p.high_G, p.low_G, p.metals);
+#endif
+                // for (auto i = 4000 ; i < 4010; i++){
+                //     std::cout << "potential " << device.site_potential[i] << "\n"; 
+                // }
+            }
+            auto t_pot = std::chrono::steady_clock::now();
+            diff_pot = t_pot - t0;
 
                 // KMC update step
                 // #ifdef USE_CUDA
@@ -195,35 +201,35 @@ int main(int argc, char **argv)
                     auto t_power = std::chrono::steady_clock::now();
                     diff_power = t_power - t_perturb;
 
-                    if (p.solve_heating_global)
-                    {
-                        // #ifdef USE_CUDA
-                        //                     gpubuf.upload_HostToGPU(device); // remove eventually
-                        //                     device.updateTemperatureGlobal_gpu(gpubuf, step_time, p.small_step, p.dissipation_constant,
-                        //                                                       p.background_temp, p.t_ox, p.A, p.c_p);
-                        //                    gpubuf.download_GPUToHost(device); // remove eventually
-                        // #else
-                        std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(step_time, p.small_step, p.dissipation_constant,
-                                                                                                      p.background_temp, p.t_ox, p.A, p.c_p);
-                        resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-                        // #endif
+                if (p.solve_heating_global)
+                {
+#ifdef USE_CUDA
+                    gpubuf.upload_HostToGPU(device); // remove eventually
+                    device.updateTemperatureGlobal_gpu(gpubuf, step_time, p.small_step, p.dissipation_constant,
+                                                       p.background_temp, p.t_ox, p.A, p.c_p);
+                    gpubuf.download_GPUToHost(device); // remove eventually
+#else
+                    std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(step_time, p.small_step, p.dissipation_constant,
+                                                                                                  p.background_temp, p.t_ox, p.A, p.c_p);
+                    resultMap.insert(temperatureMap.begin(), temperatureMap.end());
+#endif
+                }
+                if (p.solve_heating_local)
+                { 
+                    // use this to modify the rates
+                    if (step_time > 1e3 * p.delta_t)
+                    { 
+                        // use steady state solution
+                        std::map<std::string, double> localTemperatureMap = device.updateLocalTemperatureSteadyState(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
+                                                                                                                     p.k_th_vacancies, p.num_atoms_contact, p.metals);
+                        resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
                     }
-                    if (p.solve_heating_local)
+                    else
                     {
-                        // use this to modify the rates
-                        if (step_time > 1e3 * p.delta_t)
+                        for (int i = 0; i < int(step_time / p.delta_t); ++i)
                         {
-                            // use steady state solution
-                            std::map<std::string, double> localTemperatureMap = device.updateLocalTemperatureSteadyState(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
-                                                                                                                         p.k_th_vacancies, p.num_atoms_contact, p.metals);
-                            resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
-                        }
-                        else
-                        {
-                            for (int i = 0; i < int(step_time / p.delta_t); ++i)
-                            {
-                                std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
-                                                                                                                  p.k_th_vacancies, p.num_atoms_contact, p.metals);
+                            std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
+                                                                                                              p.k_th_vacancies, p.num_atoms_contact, p.metals);
 
                                 resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
                             }
