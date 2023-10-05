@@ -53,11 +53,12 @@ public:
     std::vector<double> V_switch;
     std::vector<double> t_switch;
     double Icc;
-    
-    // for potential solver
-    double G_coeff = 1;
-    double high_G; //[S]
-    double low_G;
+	double Rs; // [Ohm]
+
+	// for potential solver
+	double G_coeff = 1;
+	double high_G; //[S]
+	double low_G;
     double sigma; // [m]
     double epsilon;  //[1]
     
@@ -263,7 +264,12 @@ KMCParameters::KMCParameters(std::string param_file){
 		if (line.find("Icc ") != std::string::npos) {
 			Icc = read_double(line);
 		}
-		
+
+		if (line.find("Rs ") != std::string::npos)
+		{
+			Rs = read_double(line);
+		}
+
 		// for potential solver
 		if (line.find("sigma ") != std::string::npos) {
 			sigma = read_double(line);
@@ -496,10 +502,10 @@ std::vector<std::string> KMCParameters::read_vec_string(std::string line){
 
 
 void KMCParameters::set_expression_parameters(){
-	high_G = G_coeff * 10; 
-	low_G = G_coeff * 1e-5;																					  		// [S]
-    //low_G = G_coeff * 0.00000001;																				  	// [S]
-    k = 8.987552e9 / epsilon;   																				  	// [N m^2 / C^2]
+	high_G = G_coeff * 1;
+	low_G = G_coeff * 1e-7; // [S]
+	// low_G = G_coeff * 0.00000001;																				  	// [S]
+	k = 8.987552e9 / epsilon;   																				  	// [N m^2 / C^2]
     k_th_interface = k_th_non_vacancy + (k_th_vacancies - k_th_non_vacancy) * initial_vacancy_concentration; 		// [W/mK]
     tau = k_th_interface / (L_char * L_char * c_p * 1e6);                                                   	 	// Thermal rate constant [1/s]
     m_e = m_r * m_0;            																				  	// [kg] 
