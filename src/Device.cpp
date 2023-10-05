@@ -755,7 +755,7 @@ void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers gpubuf, i
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
                          gpubuf.site_charge, gpubuf.site_potential);
 
-    std::cout << "back in Device::updatePotential_gpu, implement this\n";
+    std::cout << "back in Device::updatePotential_gpu, finish implementing background_potential_gpu\n";
     exit(1);
 
 }

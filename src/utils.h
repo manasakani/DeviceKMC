@@ -75,7 +75,7 @@ void inclusive_prefix_sum(T* input, T* output, size_t N) {
 }
 
 // potential solution for gaussian charge distribution
-inline double v_solve(double &r_dist, int &charge, double &sigma, double &k, double &q) { return charge * erfc(r_dist / (sigma * sqrt(2))) * k * q / r_dist; }
+inline double v_solve(double &r_dist, int &charge, double &sigma, double &k, double &q) { return static_cast<double>(charge) * erfc(r_dist / (sigma * sqrt(2))) * k * q / r_dist; }
 
 // read xyz and populate the xyz coordinate array and lattice array
 int read_xyz(std::string filename, std::vector<ELEMENT> &elements,

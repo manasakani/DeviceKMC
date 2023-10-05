@@ -153,17 +153,19 @@ int main(int argc, char **argv)
                 resultMap.insert(chargeMap.begin(), chargeMap.end());
 #endif
 
-// #ifdef USE_CUDA
-//                 gpubuf.upload_HostToGPU(device);  // remove once full while loop is completed
-//                 device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
-//                                            p.G_coeff, p.high_G, p.low_G, p.metals);
-//                 gpubuf.download_GPUToHost(device); // remove once full while loop is completed
-// #else
+#ifdef USE_CUDA
+                gpubuf.upload_HostToGPU(device);  // remove once full while loop is completed
+                device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
+                                           p.G_coeff, p.high_G, p.low_G, p.metals);
+                gpubuf.download_GPUToHost(device); // remove once full while loop is completed
+#else
                 device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                        p.G_coeff, p.high_G, p.low_G, p.metals);
-// #endif
+#endif
+                // for (auto i = 4000 ; i < 4010; i++){
+                //     std::cout << "potential " << device.site_potential[i] << "\n"; 
+                // }
             }
-
             auto t_pot = std::chrono::steady_clock::now();
             diff_pot = t_pot - t0;
 

@@ -3,6 +3,8 @@
 //#include <thrust/reduce.h>
 #include <vector>
 #include <cassert>
+#include <cuda_runtime.h>
+#include <math_functions.h>
 
 #define NUM_THREADS 1024
 
@@ -66,10 +68,16 @@ __device__ double site_dist_gpu(double pos1x, double pos1y, double pos1z,
     return dist;
 }
 
-__device__ double v_solve_gpu(double r_dist, int charge, double sigma, double k) { 
+__device__ double v_solve_gpu(double r_dist, int charge, const double *sigma, const double *k) { 
 
     double q = 1.60217663e-19;              // [C]
-    return charge * erfc(r_dist / (sigma * sqrt(2.0))) * k * q / r_dist; 
+    double vterm = static_cast<double>(charge) * erfc(r_dist / ((*sigma) * sqrt(2.0))) * (*k) * q / r_dist; 
+
+    // double vterm = erfc(r_dist / ((*sigma) * sqrt(2.0))) * (*k) * q / r_dist; 
+    // vterm /= r_dist;
+    // double vterm = r_dist;
+    return vterm;
+    // return charge * erfc(r_dist / ((*sigma) * sqrt(2.0))) * (*k) * q / r_dist; 
 
 }
 
@@ -82,28 +90,35 @@ __device__ double v_solve_gpu(double r_dist, int charge, double sigma, double k)
 template <typename T, int NTHREADS>
 __global__ void calculate_pairwise_interaction(const T* posx, const T* posy, const T*posz, 
                                                const double *lattice, const int pbc, 
-                                               const int N, const double sigma, const double k, T* potential){
+                                               const int N, const double *sigma, const double *k, 
+                                               const int *charge, T* potential){
 
     // int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
     // int num_threads_total = blockDim.x * gridDim.x;
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int total_threads = blockDim.x * gridDim.x;
-    int Vnn = 0;
     double V_temp = 0;
     double dist;
 
-    // // each thread gets a different site to evaluate
-    // for (int idx = tid; idx < N; idx += total_threads) {
+    // each thread gets a different site to evaluate
+    for (int i = tid; i < N; i += total_threads) {
         
-    //     // iterate over the neighbors
-    //     for (int j = tid * nn; j < (tid + 1) * nn; ++j){
-    //         dist = site_dist_gpu(posx[i], posy[i], posz[i], 
-    //                              posx[j], posy[j], posz[j], 
-    //                              lattice[0], lattice[1], lattice[2], pbc);
-    //         // V_temp += v_solve_gpu(dist, site_charge[j], sigma, k;
-    //     }
-    //     potential[tid] += V_temp;
-    // }
+        // iterate over the neighbors
+        for (int j = 0; j < N; j++){
+            if (i != j && charge[j] != 0){
+
+                dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
+                                    posx[j], posy[j], posz[j], 
+                                    lattice[0], lattice[1], lattice[2], pbc);
+                V_temp += v_solve_gpu(dist, charge[j], sigma, k);
+                
+            }
+            // # if __CUDA_ARCH__>=200
+            // printf("%i \n", N);
+            // #endif  
+        }
+        potential[tid] += V_temp;
+    }
 }
 
 __global__ void update_charge(const ELEMENT *element, 
@@ -127,7 +142,6 @@ __global__ void update_charge(const ELEMENT *element,
                 if (element[neigh_idx[j]] == VACANCY){
                     Vnn++;
                 }
-                // if (site_is_metal[neigh_idx[j]]){
                 if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
                     charge[tid] = 0;
                 }
@@ -143,7 +157,6 @@ __global__ void update_charge(const ELEMENT *element,
             // iterate over the neighbors
             for (int j = tid * nn; j < (tid + 1) * nn; ++j){
                 
-                // if (site_is_metal[neigh_idx[j]]){
                 if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
                     charge[tid] = 0;
                 }
@@ -285,14 +298,12 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const double *posx, const double *posy, const double *posz, 
                           const int *site_charge, double *site_potential){
 
-    std::cout << "inside poisson_gridless_gpu\n";
-
     int num_threads = 512;
-    int num_blocks = (N * N - 1) / num_threads + 1;
+    int num_blocks = (N) / num_threads + 1;
     num_blocks = min(65535, num_blocks);
 
-    // calculate_pairwise_interaction<double, NUM_THREADS><<<num_blocks, num_threads>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_potential);
-
+    calculate_pairwise_interaction<double, NUM_THREADS><<<num_blocks, num_threads>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential);
+                                                
 }
 
     // # if __CUDA_ARCH__>=200
