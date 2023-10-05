@@ -14,3 +14,4 @@ tests_old/
 # Ignore files
 output.txt
 run_job.sh
+Results_*/**

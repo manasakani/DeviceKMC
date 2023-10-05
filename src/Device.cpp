@@ -572,11 +572,10 @@ void Device::updateCharge_gpu(GPUBuffers gpubuf){
     assert(gpubuf.site_charge != nullptr);
     assert(gpubuf.lattice != nullptr);
 
-    update_charge_gpu(gpubuf.site_element, 
+    update_charge_gpu(gpubuf.site_element,
                       gpubuf.site_charge,
-                      gpubuf.neigh_idx, 
-                      gpubuf.N_, gpubuf.nn_, 
-                      gpubuf.metal_types, gpubuf.num_metal_types_);
+                      gpubuf.neigh_idx,
+                      gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_);
 }
 
 // update the potential of each site
@@ -893,8 +892,8 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 // Connect the source node to the ground node
 #pragma omp single
         {
-            X[0 * N_full + 1] = -high_G;
-            X[1 * N_full + 0] = -high_G;
+            X[0 * N_full + 1] = -high_G * 1;
+            X[1 * N_full + 0] = -high_G * 1; // change of the loop node value
         }
 
 // diagonals of X
@@ -968,22 +967,23 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
             for (j = 0; j < N_atom; j++)
             {
 
-                bool neighbor = is_neighbor(i, j);
                 I_neg[i * N_atom + j] = 0;
                 I_cal = X[N_full * (i + 2) + (j + 2)] * (M[j + 2] - M[i + 2]);
 
-                if (I_cal < 0 && Vd > 0 && neighbor)
+                if (I_cal < 0 && Vd > 0)
                 {
                     I_neg[i * N_atom + j] = -I_cal;
                 }
-                else if (I_cal > 0 && Vd < 0 && neighbor)
+                else if (I_cal > 0 && Vd < 0)
                 {
                     I_neg[i * N_atom + j] = -I_cal;
                 }
-                else if (I_cal < 0 && Vd > 0 && site_potential[j] - site_potential[i] < V0) { // excluding Fozler Nordheim tunneling
+                else if (I_cal < 0 && Vd > 0 && site_potential[j] - site_potential[i] < V0 && atom_x[j] > atom_x[i])
+                { // excluding Fozler Nordheim tunneling
                     I_neg[i * N_atom + j] = -I_cal;
                 }
-                else if (I_cal > 0 && Vd < 0 && site_potential[j] - site_potential[i] > V0){
+                else if (I_cal > 0 && Vd < 0 && site_potential[j] - site_potential[i] > V0 && atom_x[j] > atom_x[i])
+                {
                     I_neg[i * N_atom + j] = -I_cal;
                 }
             }
