@@ -4,7 +4,7 @@
 #include <cassert>
 #include <cuda.h>
 
-void GPUBuffers::upload_HostToGPU(Device &device){
+void GPUBuffers::sync_HostToGPU(Device &device){
 
     assert(N_ > 0);
     assert(nn_ > 0);
@@ -26,7 +26,7 @@ void GPUBuffers::upload_HostToGPU(Device &device){
     gpuErrchk(cudaGetLastError());
 }
 
-void GPUBuffers::download_GPUToHost(Device &device){
+void GPUBuffers::sync_GPUToHost(Device &device){
 
     cudaDeviceSynchronize();
     gpuErrchk( cudaMemcpy(device.site_element.data(), site_element, N_ * sizeof(ELEMENT), cudaMemcpyDeviceToHost) );

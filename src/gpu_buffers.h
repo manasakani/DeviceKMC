@@ -23,10 +23,10 @@ public:
     int nn_ = 0;
 
     // uploads the local device attributes into the GPU memory versions
-    void upload_HostToGPU(Device &device);
+    void sync_HostToGPU(Device &device);
 
     // downloads the GPU device attributes into the local versions
-    void download_GPUToHost(Device &device);
+    void sync_GPUToHost(Device &device);
 
     // copy back just the site_power into the power vector
     void copy_power_fromGPU(std::vector<double> &power);
