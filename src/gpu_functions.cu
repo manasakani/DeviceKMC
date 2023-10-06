@@ -260,7 +260,7 @@ void test_reduce()
 
     int num_threads = 512;
     int num_blocks = (N - 1) / num_threads + 1;
-    num_blocks = min(65535, num_blocks);
+    // num_blocks = min(65535, num_blocks);
 
     double *gpu_test_array;
     double *gpu_test_sum;
@@ -284,7 +284,6 @@ void test_reduce()
 // *************** WRAPPER FUNCTIONS **********************
 // ********************************************************
 
-// wrapper function for the update_charge kernel, sets the site_charge array
 void update_charge_gpu(ELEMENT *site_element, 
                        int *site_charge,
                        int *neigh_idx, int N, int nn, 
@@ -292,7 +291,7 @@ void update_charge_gpu(ELEMENT *site_element,
 
     int num_threads = 512;
     int num_blocks = (N * nn - 1) / num_threads + 1; // revise kernel to distribute pair-resolved work instead of site-resolved work
-    num_blocks = min(65535, num_blocks);
+    // num_blocks = min(65535, num_blocks);
 
     update_charge<<<num_blocks, num_threads>>>(site_element, site_charge, neigh_idx, N, nn, metals, num_metals);
 }
@@ -301,7 +300,7 @@ void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const 
 
     int num_threads = 512;
     int num_blocks = (N - 1) / num_threads + 1;
-    num_blocks = min(65535, num_blocks);
+    // num_blocks = min(65535, num_blocks);
 
     double *P_tot;
     gpuErrchk( cudaMalloc((void**)&P_tot, 1 * sizeof(double)) );
@@ -335,13 +334,8 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const double *posx, const double *posy, const double *posz, 
                           const int *site_charge, double *site_potential){
 
-    // int num_threads = 512;
-    // int num_blocks = (N) / num_threads + 1;
-    // num_blocks = min(65535, num_blocks);
-
     int num_threads = 1024;
     int blocks_per_row = (N - 1) / num_threads + 1; 
-    // int num_blocks = min(65535, blocks_per_row * N);
     int num_blocks = blocks_per_row * N; // NOTE: fix the kernel for block overflow!
 
     calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential);
