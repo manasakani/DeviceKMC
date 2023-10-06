@@ -100,7 +100,7 @@ int main(int argc, char **argv)
                           device.lattice, device.neigh_idx, p.metals, p.metals.size());
 #endif
 
-    // loop over V_switch and t_switch
+        // loop over V_switch and t_switch
         double Vd, t, kmc_time, step_time, I_macro, T_kmc, V_vcm;
         int kmc_step_count;
         std::map<std::string, double> resultMap;
@@ -119,12 +119,10 @@ int main(int argc, char **argv)
 
             const std::string folder_name = "Results_" + std::to_string(Vd);
             const bool folder_already_exists = location_exists(folder_name);
-            // remove location file if it already exists
             if (folder_already_exists)
             {
                 std::remove(folder_name.c_str());
             }
-
             const int error = mkdir(folder_name.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
             outputBuffer << "Created folder: " << folder_name << '\n';
 
@@ -135,9 +133,9 @@ int main(int argc, char **argv)
             // ********************************************************
             // ***************** MAIN KMC LOOP ************************
             // ********************************************************
-            // #ifdef USE_CUDA
-            //         gpubuf.upload_HostToGPU(device);
-            // #endif
+// #ifdef USE_CUDA
+//         gpubuf.upload_HostToGPU(device);
+// #endif
             while (kmc_time < t)
             {
                 outputBuffer << "--------------\n";

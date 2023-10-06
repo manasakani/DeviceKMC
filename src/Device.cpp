@@ -710,12 +710,13 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 
 void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice)
 {
-    int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
-    int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
-    int N_interface = N - N_left_tot - N_right_tot;
+    // int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
+    // int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
+    // int N_interface = N - N_left_tot - N_right_tot;
 
 #pragma omp parallel for
-    for (int i = N_left_tot; i < N - N_right_tot; i++)
+    // for (int i = N_left_tot; i < N - N_right_tot; i++)
+    for (int i = 0; i < N; i++)
     {
         double V_temp = 0;
         double r_dist;
@@ -753,9 +754,6 @@ void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers gpubuf, i
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
                          gpubuf.site_charge, gpubuf.site_potential);
-
-    std::cout << "back in Device::updatePotential_gpu, finish implementing background_potential_gpu\n";
-    exit(1);
 
 }
 

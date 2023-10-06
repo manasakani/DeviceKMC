@@ -81,34 +81,81 @@ __device__ double v_solve_gpu(double r_dist, int charge, const double *sigma, co
 // ******************** KERNELS ***************************
 // ********************************************************
 
-// // iterates over every pair of sites, and does an operation based on the distance
-template <typename T, int NTHREADS>
-__global__ void calculate_pairwise_interaction(const T* posx, const T* posy, const T*posz, 
+// iterates over every pair of sites, and does an operation based on the distance
+// NOTE: There is an error in the case of block overflow in the input matrix!
+template <int NTHREADS>
+__global__ void calculate_pairwise_interaction(const double* posx, const double* posy, const double*posz, 
                                                const double *lattice, const int pbc, 
                                                const int N, const double *sigma, const double *k, 
-                                               const int *charge, T* potential){
+                                               const int *charge, double* potential){
 
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    int total_threads = blockDim.x * gridDim.x;
-    double V_temp = 0;
+    // Version with reduction, where every thread evaluates site-site interaction term
+    int num_threads = blockDim.x;
+    int blocks_per_row = (N - 1) / num_threads + 1;
+    int block_id = blockIdx.x;
+
+    int row = block_id / blocks_per_row;
+    int scol = (block_id % blocks_per_row) * num_threads;
+    int lcol = min(N, scol + num_threads);
+
+    int tid = threadIdx.x;
+
+    __shared__ double buf[NTHREADS];
     double dist;
+    int i, j;
 
-    // each thread gets a different site to evaluate
-    for (int i = tid; i < N; i += total_threads) {
-        
-        // iterate over the neighbors
-        for (int j = 0; j < N; j++){
+    for (int ridx = row; ridx < N; ridx += gridDim.x) {
+
+        buf[tid] = 0.0;
+        if (tid + scol < lcol) {
+
+            i = ridx;
+            j = scol+tid;
             if (i != j && charge[j] != 0){
-
                 dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
-                                    posx[j], posy[j], posz[j], 
-                                    lattice[0], lattice[1], lattice[2], pbc);
-                V_temp += v_solve_gpu(dist, charge[j], sigma, k);
-                
+                                             posx[j], posy[j], posz[j], 
+                                             lattice[0], lattice[1], lattice[2], pbc);
+                buf[tid] = v_solve_gpu(dist, charge[j], sigma, k);
+
             }
         }
-        potential[tid] += V_temp;
+
+        int width = num_threads / 2;
+        while (width != 0) {
+            __syncthreads();
+            if (tid < width) {
+                buf[tid] += buf[tid + width];
+            }
+            width /= 2;
+        }
+
+        if (tid == 0) {
+            atomicAdd(potential + ridx, buf[0]);
+        }
+    
     }
+
+    // // Version without reduction, where every thread evaluates a site:
+    // int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    // int total_threads = blockDim.x * gridDim.x;
+    // double V_temp = 0;
+    // double dist;
+
+    // for (int i = tid; i < N; i += total_threads) {
+        
+    //     // iterate over the neighbors
+    //     for (int j = 0; j < N; j++){
+    //         if (i != j && charge[j] != 0){
+
+    //             dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
+    //                                          posx[j], posy[j], posz[j], 
+    //                                          lattice[0], lattice[1], lattice[2], pbc);
+    //             V_temp += v_solve_gpu(dist, charge[j], sigma, k);
+                
+    //         }
+    //     }
+    //     potential[tid] += V_temp;
+    // }
 }
 
 __global__ void update_charge(const ELEMENT *element, 
@@ -288,11 +335,16 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const double *posx, const double *posy, const double *posz, 
                           const int *site_charge, double *site_potential){
 
-    int num_threads = 512;
-    int num_blocks = (N) / num_threads + 1;
-    num_blocks = min(65535, num_blocks);
+    // int num_threads = 512;
+    // int num_blocks = (N) / num_threads + 1;
+    // num_blocks = min(65535, num_blocks);
 
-    calculate_pairwise_interaction<double, NUM_THREADS><<<num_blocks, num_threads>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential);
+    int num_threads = 1024;
+    int blocks_per_row = (N - 1) / num_threads + 1; 
+    // int num_blocks = min(65535, blocks_per_row * N);
+    int num_blocks = blocks_per_row * N; // NOTE: fix the kernel for block overflow!
+
+    calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential);
                                                 
 }
 
