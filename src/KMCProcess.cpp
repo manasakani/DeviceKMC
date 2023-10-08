@@ -79,7 +79,7 @@ double KMCProcess::executeKMCStep(Device &device)
         double P = 0;
 
         // site-neighbor pair indicies for this element of neigh_idx
-        auto i = idx / num_neigh;
+        int i = std::floor(idx / num_neigh);
         auto j = device.neigh_idx[idx]; 
 
         // j is -1 if there is no neighbor at this position
@@ -134,6 +134,7 @@ double KMCProcess::executeKMCStep(Device &device)
                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
             }
 
+            // Ion diffusion
             else if (device.site_element[i] == OXYGEN_DEFECT && device.site_element[j] == DEFECT)
             {
                 int charge_abs = 2;
@@ -172,12 +173,13 @@ double KMCProcess::executeKMCStep(Device &device)
         double number = random_generator.getRandomNumber() * Psum;
         int event_idx = std::upper_bound(event_prob_cum, event_prob_cum + num_sites * num_neigh, number) - event_prob_cum;
         double sel_event_prob = event_prob_cum[event_idx];
+
         //std::cout << "Searching for " << number << " in [" << event_prob_cum[0] << ", " << Psum << "]" << std::endl;
 
         EVENTTYPE sel_event_type = event_type[event_idx];
 
         // find the site-neighbor pair corresponding to this event
-        auto i = event_idx / num_neigh;
+        int i = std::floor(event_idx / num_neigh);
         auto j = device.neigh_idx[event_idx];
 
         // std::cout << "Selected event index: " << event_idx << " with type "
@@ -261,10 +263,10 @@ double KMCProcess::executeKMCStep(Device &device)
         // other site's events with i or j
         #pragma omp for //private(i_, j_)
         for (auto idx = 0; idx < num_sites * num_neigh; ++idx){
-            i_ = idx / num_neigh;
+            i_ = std::floor(idx / num_neigh);
             j_ = device.neigh_idx[idx];
 
-            if (i == i_ || j == j_){
+            if (i == i_ || j == j_ || i == j_ || j == i_){
                 event_type[idx] = NULL_EVENT;
                 event_prob[idx] = 0.0;
             }
@@ -282,7 +284,8 @@ double KMCProcess::executeKMCStep(Device &device)
             event_prob[neigh_idx] = 0.0;
         }
 }
-        event_time = -log(random_generator.getRandomNumber()) / sel_event_prob;
+        // event_time = -log(random_generator.getRandomNumber()) / sel_event_prob;
+        event_time = -log(random_generator.getRandomNumber()) / Psum;
     }
 
     delete[] event_type;

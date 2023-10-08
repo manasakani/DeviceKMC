@@ -259,7 +259,9 @@ int main(int argc, char **argv)
                 // generate xyz snapshot
                 if (!(kmc_step_count % p.log_freq))
                 {
+#ifdef USE_CUDA
                     gpubuf.sync_GPUToHost(device); 
+#endif
                     std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
                     device.writeSnapshot(file_name, folder_name);
                 }
@@ -275,7 +277,9 @@ int main(int argc, char **argv)
                 outputBuffer << "Total KMC Step: " << diff.count() << "\n";
                 outputBuffer << "--------------------------------------";
             }
+#ifdef USE_CUDA
             gpubuf.sync_GPUToHost(device);
+#endif
             const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
             device.writeSnapshot(file_name, folder_name);
             vt_counter++;
