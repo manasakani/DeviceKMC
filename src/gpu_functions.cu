@@ -1,12 +1,28 @@
 #include "cuda_wrapper.h"
 #include <stdio.h>
-//#include <thrust/reduce.h>
 #include <vector>
 #include <cassert>
 #include <cuda_runtime.h>
 #include <math_functions.h>
+#include <cmath>
+#include <math.h>
+
+// #include <thrust/reduce.h>
+// #include <thrust/extrema.h>
+// #include <thrust/binary_search.h>
+
+// const double eV_to_J = 1.6e-19;
+// const double h_bar_sq = 4.3957e-67;      
+const double kB = 8.617333262e-5;     
 
 #define NUM_THREADS 1024
+#define NUM_LAYERS 5
+
+// stored in cache
+__constant__ double E_gen_const[NUM_LAYERS];
+__constant__ double E_rec_const[NUM_LAYERS];
+__constant__ double E_Vdiff_const[NUM_LAYERS];
+__constant__ double E_Odiff_const[NUM_LAYERS];
 
 void get_gpu_info(char *gpu_string, int dev){
  struct cudaDeviceProp dprop;
@@ -250,17 +266,98 @@ __global__ void update_temp_global(double *P_tot, double* T_bg, const double a_c
     *T_bg = c_coeff*(1.0-pow(a_coeff, (double) step)) / (1.0-a_coeff) + pow(a_coeff, (double) step)* T_intermediate;
 }
 
-__global__ void build_event_list()
+__global__ void build_event_list(const int N, const int nn, const int *neigh_idx, 
+                                 const int *layer, const double *lattice, const int pbc, 
+                                 const double *T_bg, const double *freq, const double *sigma, const double *k, 
+                                 const double *posx, const double *posy, const double *posz,
+                                 const double *potential, const double *temperature,
+                                 const ELEMENT *element, const int *charge, EVENTTYPE *event_type, double *event_prob)
 {
-    // int total_tid = blockIdx.x * blockDim.x + threadIdx.x;
-    // int total_threads = blockDim.x * gridDim.x;
+    int total_tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_threads = blockDim.x * gridDim.x;
 
-    // for (auto idx = total_tid; idx < N * nn; idx += total_threads) {
+    for (int idx = total_tid; idx < N * nn; idx += total_threads) {
 
-    //     EventType event_type_ = NULL_EVENT;
-    //     double P = 0;
+        EVENTTYPE event_type_ = NULL_EVENT;
+        double P = 0;
 
-    // }
+        int i = static_cast<int>(floorf(static_cast<float>(idx) / static_cast<float>(nn)));
+        int j = neigh_idx[idx];
+
+        // condition for neighbor existing
+        if (j >= 0 && j < N) {
+            double dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
+                                                posx[j], posy[j], posz[j], 
+                                                lattice[0], lattice[1], lattice[2], pbc);
+                                    
+            // Generation
+            if (element[i] == DEFECT && element[j] == O)
+            {
+
+                double E = 2 * (potential[i] - potential[j]);
+                double zero_field_energy = E_gen_const[layer[j]]; 
+                event_type_ = VACANCY_GENERATION;
+                double Ekin = kB * (temperature[j] - temperature[i]);
+                double EA = zero_field_energy - E - Ekin;
+                P = exp(-1.0 * EA / (kB * (*T_bg))) * (*freq);
+            }
+
+            // Recombination
+            else if (element[i] == OXYGEN_DEFECT && element[j] == VACANCY)
+            {
+                int charge_abs = 2;
+                double self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
+
+                int charge_state = charge[i] - charge[j];
+                double E = charge_state * (potential[i] - potential[j] + (charge_state / 2) * self_int_V);
+                double zero_field_energy = E_rec_const[layer[j]];
+
+                event_type_ = VACANCY_RECOMBINATION;
+                double Ekin = kB * (temperature[i] - temperature[j]);
+                double EA = zero_field_energy - E - Ekin;
+                P = exp(-1.0 * EA / (kB * (*T_bg))) * (*freq);
+            }
+
+            // Vacancy diffusion
+            if (element[i] == VACANCY && element[j] == O)
+            {
+
+                double self_int_V = 0.0;
+                if (charge[i] != 0)
+                {
+                    double self_int_V = v_solve_gpu(dist, charge[i], sigma, k);
+                }
+
+                event_type_ = VACANCY_DIFFUSION;
+                double E = (charge[i] - charge[j]) * (potential[i] - potential[j] + self_int_V);
+                double zero_field_energy = E_Vdiff_const[layer[j]];  
+                double Ekin = kB * (temperature[j] - temperature[i]);
+                double EA = zero_field_energy - E - Ekin;
+                P = exp(-1.0 * EA / (kB * (*T_bg))) * (*freq);
+            }
+
+            // Ion diffusion
+            else if (element[i] == OXYGEN_DEFECT && element[j] == DEFECT)
+            {
+                int charge_abs = 2;
+                double self_int_V = 0.0;
+                if (charge[i] != 0)
+                {                    
+                    double self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
+                }
+
+                double E = (charge[i] - charge[j]) * (potential[i] - potential[j] - self_int_V);
+                double zero_field_energy = E_Odiff_const[layer[j]];
+
+                event_type_ = ION_DIFFUSION;
+                double Ekin = kB * (temperature[i] - temperature[j]);
+                double EA = zero_field_energy - E - Ekin;
+                P = exp(-1.0 * EA / (kB * (*T_bg))) * (*freq);
+            }
+        }
+        event_type[idx] = event_type_;
+        event_prob[idx] = P;
+    }
 }
 
 // ********************************************************
@@ -356,22 +453,65 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                                                 
 }
 
-void execute_kmc_step_gpu(const int N, const int nn, 
-                         const double *posx, const double *posy, const double *posz, 
-                         const double *site_potential, 
-                         const double *site_temperature,
-                         ELEMENT *site_element, int *site_charge){
+void execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
+                          const double *lattice, const int pbc, const double *T_bg, 
+                          const double *freq, const double *sigma, const double *k,
+                          const double *posx, const double *posy, const double *posz, 
+                          const double *site_potential, const double *site_temperature,
+                          ELEMENT *site_element, int *site_charge){
+
+    // the KMC event list arrays are only ever allocated on the gpu
+    EVENTTYPE *event_type; 
+    double    *event_prob; 
+    gpuErrchk( cudaMalloc((void**)&event_type, N * nn * sizeof(EVENTTYPE)) );
+    gpuErrchk( cudaMalloc((void**)&event_prob, N * nn * sizeof(double)) );
                 
     int num_threads = 512;
     int num_blocks = (N * nn - 1) / num_threads + 1;
 
     // populate the event_type and event_prob arrays:
-    build_event_list<<<num_blocks, num_threads>>>();
+    build_event_list<<<num_blocks, num_threads>>>(N, nn, neigh_idx, site_layer, lattice, pbc, T_bg, freq, sigma, k,
+                                                  posx, posy, posz, site_potential, site_temperature, 
+                                                  site_element, site_charge, event_type, event_prob);
+
     cudaDeviceSynchronize();
+    gpuErrchk( cudaPeekAtLastError() );
 
+    // **************************
+    // ** Event Execution Loop **
+    // **************************
 
-    std::cout << "got here2\n"; exit(1);
+    std::cout << "Starting the event execution loop ..." << std::endl;
 
+    double *event_prob_cum;
+    gpuErrchk( cudaMalloc((void**)&event_prob_cum, 1 * sizeof(double)) );
+
+    double event_time = 0.0;
+    double freq_host;
+    gpuErrchk( cudaMemcpy(&freq_host, freq, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
+
+    while (event_time < 1 / freq_host) {
+
+        // get the cumulative sum of the probabilities
+        // thrust::inclusive_scan(thrust::device, event_prob, event_prob + N * nn, event_prob_cum);
+    
+        std::cout << "got here2\n"; exit(1);
+    }
+
+    cudaFree(event_prob_cum);
+    cudaFree(event_type);
+    cudaFree(event_prob);
+
+    std::cout << "got here3\n"; exit(1);
+    
+}
+
+void copytoConstMemory(const double *E_gen, const double *E_rec, const double *E_Vdiff, const double *E_Odiff)
+{   
+    cudaMemcpyToSymbol(E_gen_const, E_gen, NUM_LAYERS * sizeof(double));
+    cudaMemcpyToSymbol(E_rec_const, E_rec, NUM_LAYERS * sizeof(double));
+    cudaMemcpyToSymbol(E_Vdiff_const, E_Vdiff, NUM_LAYERS * sizeof(double));
+    cudaMemcpyToSymbol(E_Odiff_const, E_Odiff, NUM_LAYERS * sizeof(double));
 }
 
     // # if __CUDA_ARCH__>=200

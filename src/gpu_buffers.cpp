@@ -58,4 +58,5 @@ void GPUBuffers::freeGPUmemory(){
     cudaFree(site_power);
     cudaFree(site_potential);
     cudaFree(T_bg);
+    //... FREE THE REST OF THE MEMORY ...
 }

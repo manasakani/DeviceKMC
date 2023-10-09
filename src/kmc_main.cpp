@@ -28,7 +28,6 @@ int main(int argc, char **argv)
     outputBuffer << "----------------------------\n";
     outputBuffer << "Starting Kinetic Monte Carlo\n";
     outputBuffer << "----------------------------\n";
-    // outputFile << outputBuffer.str();
 
     // check for accelerators
     std::cout << "checking for an accelerator...\n";
@@ -59,7 +58,6 @@ int main(int argc, char **argv)
         else
         {
             outputBuffer << "Restarting from " << p.restart_xyz_file << "\n";
-            // outputFile << outputBuffer.str();
             xyz_files.push_back(p.restart_xyz_file);
         }
     }
@@ -84,7 +82,6 @@ int main(int argc, char **argv)
     diff_laplacian = t_lap1 - t_lap0;
     outputBuffer << "**Calculation time for the laplacian:**\n";
     outputBuffer << "Laplacian update: " << diff_laplacian.count() << "\n";
-    // outputFile << outputBuffer.str();
 
     if (p.pristine)
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
@@ -95,7 +92,8 @@ int main(int argc, char **argv)
 
     // Initialize device attributes on GPU
 #ifdef USE_CUDA
-        GPUBuffers gpubuf(device.N, device.site_x, device.site_y, device.site_z,
+        GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,
+                          device.N, device.site_x, device.site_y, device.site_z,
                           device.max_num_neighbors, device.sigma, device.k, 
                           device.lattice, device.neigh_idx, p.metals, p.metals.size());
 #endif
@@ -173,11 +171,11 @@ int main(int argc, char **argv)
                 diff_pot = t_pot - t0;
 
                 // KMC update step
-// #ifdef USE_CUDA
-//                 step_time = sim.executeKMCStep_gpu(gpubuf);
-// #else
+#ifdef USE_CUDA
+                step_time = sim.executeKMCStep_gpu(gpubuf, device.pbc);
+#else
                 step_time = sim.executeKMCStep(device);
-// #endif
+#endif
 
                 double temperature_time = kmc_time;
                 kmc_time += step_time;
@@ -200,16 +198,16 @@ int main(int argc, char **argv)
 
                 if (p.solve_heating_global)
                 {
-// #ifdef USE_CUDA
-//                     gpubuf.sync_HostToGPU(device); // remove eventually
-//                     device.updateTemperatureGlobal_gpu(gpubuf, step_time, p.small_step, p.dissipation_constant,
-//                                                        p.background_temp, p.t_ox, p.A, p.c_p);
-//                     gpubuf.sync_GPUToHost(device); // remove eventually
-// #else
+#ifdef USE_CUDA
+                    gpubuf.sync_HostToGPU(device); // remove eventually
+                    device.updateTemperatureGlobal_gpu(gpubuf, step_time, p.small_step, p.dissipation_constant,
+                                                       p.background_temp, p.t_ox, p.A, p.c_p);
+                    gpubuf.sync_GPUToHost(device); // remove eventually
+#else
                     std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(step_time, p.small_step, p.dissipation_constant,
                                                                                                   p.background_temp, p.t_ox, p.A, p.c_p);
                     resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-// #endif
+#endif
                 }
                 if (p.solve_heating_local)
                 { 

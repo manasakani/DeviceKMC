@@ -34,12 +34,13 @@ extern "C"
 }
 
 // Elements of the periodic table, converted from the input file
-enum ELEMENT : int
+enum ELEMENT //: int
 {
     DEFECT,         // d - lattice interstitial site
     OXYGEN_DEFECT,  // Od - Oxygen defect/interstitial
     VACANCY,        // V - Lattice vacancy
     O, Hf, Ni, Ti, Pt, N,
+    NULL_ELEMENT
 };
 
 // convert string to element type
@@ -47,6 +48,29 @@ ELEMENT update_element(std::string element_);
 
 // convert element type to string
 std::string return_element(ELEMENT element_);
+
+// KMC events
+enum EVENTTYPE
+{
+    VACANCY_GENERATION,
+    VACANCY_RECOMBINATION,
+    VACANCY_DIFFUSION,
+    ION_DIFFUSION,
+    NULL_EVENT
+};
+
+//Creates a device 'layer', with activation energies and types
+struct Layer{
+    std::string type;
+    double E_gen_0, E_rec_1, E_diff_2, E_diff_3;
+    double start_x, end_x;
+    double init_vac_percentage; 
+    Layer(){}
+   
+    void init_layer(std::string type_, double E_gen_0_, double E_rec_1_, double E_diff_2_, double E_diff_3_, double start_x_, double end_x_);
+    void disp_layer();
+};
+
 
 // check if file/folder exists here
 inline bool location_exists(const std::string &fname)

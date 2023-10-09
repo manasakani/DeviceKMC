@@ -3,29 +3,11 @@
 #include "KMCProcess.h"
 #include "structure_input.h"
 #include "Device.h"
-#include "utils.h"
 #include "cuda_wrapper.h"
 #include <iostream>
 #include <list>
 #include <algorithm>
 #include <numeric>
-
-void Layer::init_layer(std::string type_, double E_gen_0_, double E_rec_1_, double E_diff_2_, double E_diff_3_, double start_x_, double end_x_)
-{
-    type = type_;
-    E_gen_0 = E_gen_0_;
-    E_rec_1 = E_rec_1_;
-    E_diff_2 = E_diff_2_;
-    E_diff_3 = E_diff_3_;
-    start_x = start_x_;
-    end_x = end_x_;
-    init_vac_percentage = 0.0;
-}
-
-void Layer::disp_layer()
-{
-    print("Layer of type " << type << " from " << start_x << " to " << end_x);
-}
 
 KMCProcess::KMCProcess(Device *device, double _freq)
 {
@@ -167,7 +149,6 @@ double KMCProcess::executeKMCStep(Device &device)
         // NOTE: We can optimize this by only updating the required values
         // get the cumulative sum of the probabilities
         inclusive_prefix_sum<double>(event_prob, event_prob_cum, num_sites * num_neigh);
-        // std::inclusive_scan(event_prob, event_prob + num_sites * num_neigh, event_prob_cum);
 
         // Select an event
         double Psum = event_prob_cum[num_sites * num_neigh - 1];
@@ -294,12 +275,13 @@ double KMCProcess::executeKMCStep(Device &device)
     return event_time;
 }
 
-double KMCProcess::executeKMCStep_gpu(GPUBuffers gpubuf){
+double KMCProcess::executeKMCStep_gpu(GPUBuffers gpubuf, int pbc){
 
-    execute_kmc_step_gpu(gpubuf.N_, gpubuf.nn_, 
+    execute_kmc_step_gpu(gpubuf.N_, gpubuf.nn_, gpubuf.neigh_idx, gpubuf.site_layer,
+                         gpubuf.lattice, pbc, gpubuf.T_bg, 
+                         gpubuf.freq, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
-                         gpubuf.site_potential, 
-                         gpubuf.site_temperature,
+                         gpubuf.site_potential, gpubuf.site_temperature,
                          gpubuf.site_element, gpubuf.site_charge);
 
     std::cout << "got here"; exit(1);

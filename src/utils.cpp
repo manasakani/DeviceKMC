@@ -23,6 +23,7 @@ ELEMENT update_element(std::string element_) {
         return Pt;
     } else {
         std::cout << "Error: Unknown element type!" << std::endl;
+        return NULL_ELEMENT;
     }
 }
 
@@ -45,7 +46,25 @@ std::string return_element(ELEMENT element_) {
         return "Pt";
     } else {
         std::cout << "Error: Unknown element type!" << std::endl;
+        return "";
     }
+}
+
+void Layer::init_layer(std::string type_, double E_gen_0_, double E_rec_1_, double E_diff_2_, double E_diff_3_, double start_x_, double end_x_)
+{
+    type = type_;
+    E_gen_0 = E_gen_0_;
+    E_rec_1 = E_rec_1_;
+    E_diff_2 = E_diff_2_;
+    E_diff_3 = E_diff_3_;
+    start_x = start_x_;
+    end_x = end_x_;
+    init_vac_percentage = 0.0;
+}
+
+void Layer::disp_layer()
+{
+    print("Layer of type " << type << " from " << start_x << " to " << end_x);
 }
 
 int read_xyz(std::string filename, std::vector<ELEMENT> &elements,

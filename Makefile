@@ -6,11 +6,11 @@
 # CXXFLAGS = -O3 -std=c++17 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
 
 # *** GNU C++ compiler (with C++17) *** -- USE ONLY WITH GPU FLAG
-CXX = /usr/sepp/bin/g++-9.2.0   
+CXX = /usr/sepp/bin/g++ 
 MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
 OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
 CUDA_ROOT = /usr/local/cuda
-CXXFLAGS = -O3 -std=c++17 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
+CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
 
 # *** Piz Daint *** 
 #CXX = gcc
@@ -18,7 +18,7 @@ CXXFLAGS = -O3 -std=c++17 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/
 
 # If compiling with GPU
 NVCC = nvcc
-NVCCFLAGS = -O3 -arch=sm_60
+NVCCFLAGS = -O3 -arch=sm_60 -std=c++17
 LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver
 CXXFLAGS += -DUSE_CUDA
 
