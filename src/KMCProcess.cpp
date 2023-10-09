@@ -4,6 +4,7 @@
 #include "structure_input.h"
 #include "Device.h"
 #include "utils.h"
+#include "cuda_wrapper.h"
 #include <iostream>
 #include <list>
 #include <algorithm>
@@ -261,7 +262,7 @@ double KMCProcess::executeKMCStep(Device &device)
 #pragma omp parallel private(i_, j_)
 {
         // other site's events with i or j
-        #pragma omp for //private(i_, j_)
+        #pragma omp for
         for (auto idx = 0; idx < num_sites * num_neigh; ++idx){
             i_ = std::floor(idx / num_neigh);
             j_ = device.neigh_idx[idx];
@@ -284,7 +285,6 @@ double KMCProcess::executeKMCStep(Device &device)
             event_prob[neigh_idx] = 0.0;
         }
 }
-        // event_time = -log(random_generator.getRandomNumber()) / sel_event_prob;
         event_time = -log(random_generator.getRandomNumber()) / Psum;
     }
 
@@ -292,4 +292,15 @@ double KMCProcess::executeKMCStep(Device &device)
     delete[] event_prob;
     delete[] event_prob_cum;
     return event_time;
+}
+
+double KMCProcess::executeKMCStep_gpu(GPUBuffers gpubuf){
+
+    execute_kmc_step_gpu(gpubuf.N_, gpubuf.nn_, 
+                         gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+                         gpubuf.site_potential, 
+                         gpubuf.site_temperature,
+                         gpubuf.site_element, gpubuf.site_charge);
+
+    std::cout << "got here"; exit(1);
 }

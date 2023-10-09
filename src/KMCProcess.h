@@ -2,6 +2,7 @@
 #pragma once
 #include "Device.h"
 #include "random_num.h"
+#include "gpu_buffers.h"
 #include <algorithm>
 #include <list>
 #include <numeric>
@@ -41,6 +42,7 @@ class KMCProcess{
 
 		// executes one step on the device and returns the time taken for it
 		double executeKMCStep(Device &device);
+		double executeKMCStep_gpu(GPUBuffers gpubuf);
 		
 	private:
 		RandomNumberGenerator random_generator;							// random number generator object for this KMC process

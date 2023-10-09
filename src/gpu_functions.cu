@@ -82,7 +82,8 @@ __device__ double v_solve_gpu(double r_dist, int charge, const double *sigma, co
 // ********************************************************
 
 // iterates over every pair of sites, and does an operation based on the distance
-// NOTE: There is an error in the case of block overflow in the input matrix!
+// NOTE: There is an error in the case of block overflow in the input matrix! But this will never
+// be triggered because the number of blocks can reach 2^31.
 template <int NTHREADS>
 __global__ void calculate_pairwise_interaction(const double* posx, const double* posy, const double*posz, 
                                                const double *lattice, const int pbc, 
@@ -249,6 +250,19 @@ __global__ void update_temp_global(double *P_tot, double* T_bg, const double a_c
     *T_bg = c_coeff*(1.0-pow(a_coeff, (double) step)) / (1.0-a_coeff) + pow(a_coeff, (double) step)* T_intermediate;
 }
 
+__global__ void build_event_list()
+{
+    // int total_tid = blockIdx.x * blockDim.x + threadIdx.x;
+    // int total_threads = blockDim.x * gridDim.x;
+
+    // for (auto idx = total_tid; idx < N * nn; idx += total_threads) {
+
+    //     EventType event_type_ = NULL_EVENT;
+    //     double P = 0;
+
+    // }
+}
+
 // ********************************************************
 // ****************** KERNEL UNIT TESTS *******************
 // ********************************************************
@@ -290,7 +304,7 @@ void update_charge_gpu(ELEMENT *site_element,
                        const ELEMENT *metals, const int num_metals){
 
     int num_threads = 512;
-    int num_blocks = (N * nn - 1) / num_threads + 1; // revise kernel to distribute pair-resolved work instead of site-resolved work
+    int num_blocks = (N * nn - 1) / num_threads + 1;
     // num_blocks = min(65535, num_blocks);
 
     update_charge<<<num_blocks, num_threads>>>(site_element, site_charge, neigh_idx, N, nn, metals, num_metals);
@@ -340,6 +354,24 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
 
     calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential);
                                                 
+}
+
+void execute_kmc_step_gpu(const int N, const int nn, 
+                         const double *posx, const double *posy, const double *posz, 
+                         const double *site_potential, 
+                         const double *site_temperature,
+                         ELEMENT *site_element, int *site_charge){
+                
+    int num_threads = 512;
+    int num_blocks = (N * nn - 1) / num_threads + 1;
+
+    // populate the event_type and event_prob arrays:
+    build_event_list<<<num_blocks, num_threads>>>();
+    cudaDeviceSynchronize();
+
+
+    std::cout << "got here2\n"; exit(1);
+
 }
 
     // # if __CUDA_ARCH__>=200

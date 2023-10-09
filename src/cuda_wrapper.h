@@ -26,4 +26,11 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz, 
                           const int *site_charge, double *site_potential);
+
+void execute_kmc_step_gpu(const int N, const int nn, 
+                         const double *posx, const double *posy, const double *posz, 
+                         const double *site_potential, 
+                         const double *site_temperature,
+                         ELEMENT *site_element, int *site_charge);
+
 }

@@ -9,7 +9,7 @@ class GPUBuffers {
 public:
     // varying parameters
     int *site_charge, *site_is_metal = nullptr;
-    double *site_power, *site_potential = nullptr;
+    double *site_power, *site_potential, *site_temperature = nullptr;
     double *T_bg = nullptr;
 
     // unchanging parameters:
@@ -49,6 +49,7 @@ public:
         gpuErrchk( cudaMalloc((void**)&site_z, N_  * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_power, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_potential, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void**)&site_temperature, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_charge, N_ * sizeof(int)) );
         gpuErrchk( cudaMalloc((void**)&site_is_metal, N_* sizeof(int)) );
         gpuErrchk( cudaMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );

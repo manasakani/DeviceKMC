@@ -39,7 +39,7 @@ pbc = 1								// toggle for periodic boundary conditions
 
 V_switch = 25 							// [V] applied bias to right contact
 
-t_switch = 1e-13 						// [s] timescale for switching
+t_switch = 3e-13 						// [s] timescale for switching
 
 Icc = 3e-3 							// [A] enforced compliance current
 
