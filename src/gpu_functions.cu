@@ -492,11 +492,16 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
 
     // std::cout << "copying event prob back\n";
     // double    *event_prob_host = new    double[N * nn];
+    // double    *event_type_host = new    double[N * nn];
     // gpuErrchk( cudaMemcpy(event_prob_host, event_prob, N * nn * sizeof(double), cudaMemcpyDeviceToHost) );
+    // gpuErrchk( cudaMemcpy(event_type_host, event_type, N * nn * sizeof(EVENTTYPE), cudaMemcpyDeviceToHost) );
     // std::cout << "copied\n";
     // for (int p = 0; p < N*nn; p++){
     //     if (event_prob_host[p] != 0){
-    //         std::cout << event_prob_host[p] << "\n";
+    //         std::cout << event_prob_host[p] << " " << event_type_host[p] << "\n";
+    //     }
+    //     if (event_type_host[p] < 0 || event_type_host[p] > 4){
+    //         std::cout << "found an illegal event"; exit(1);
     //     }
     // }
 
@@ -532,10 +537,10 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
         gpuErrchk( cudaMemcpy(&sel_event_type, event_type + event_idx, sizeof(EVENTTYPE), cudaMemcpyDeviceToHost) );
 
         // test output:
-        double sel_event_prob;
-        gpuErrchk( cudaMemcpy(&sel_event_prob, event_prob + event_idx, sizeof(double), cudaMemcpyDeviceToHost) );
-        std::cout << "Selected event index: " << event_idx << " with type "
-                  << sel_event_type << " and probability " << sel_event_prob << std::endl;
+        // double sel_event_prob;
+        // gpuErrchk( cudaMemcpy(&sel_event_prob, event_prob + event_idx, sizeof(double), cudaMemcpyDeviceToHost) );
+        // std::cout << "Selected event index: " << event_idx << " with type "
+        //           << sel_event_type << " and probability " << sel_event_prob << std::endl;
 
         // get attributes of the sites involved:
         int i_host = static_cast<int>(floorf(event_idx / nn));
@@ -658,36 +663,26 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
             }
         }
 
-        // i's events with its neighbors
-        gpuErrchk( cudaMemcpy(event_type + i_host * nn, &null_event_host, nn * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(event_type + i_host * nn, &zero_double_host, nn * sizeof(double), cudaMemcpyHostToDevice) );
-        // for (auto neigh_idx = i_host * nn; neigh_idx < (i_host + 1)*nn; ++neigh_idx){
-        //     event_type[neigh_idx] = NULL_EVENT;
-        //     event_prob[neigh_idx] = 0.0;
-        // }
+        // REPLACE WITH THRUST::FILL AND CUDAMEMSET
+        for (int fill_ind = 0; fill_ind < (nn-1); fill_ind++){
 
-        // j's events with its neighbors
-        gpuErrchk( cudaMemcpy(event_type + j_host * nn, &null_event_host, nn * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(event_type + j_host * nn, &zero_double_host, nn * sizeof(double), cudaMemcpyHostToDevice) );
+            // i's events with its neighbors    
+            gpuErrchk( cudaMemcpy(event_type + i_host * nn + fill_ind, &null_event_host, 1 * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(event_type + i_host * nn + fill_ind, &zero_double_host, 1 * sizeof(double), cudaMemcpyHostToDevice) );
 
-        //use memset and then cudaDeviceSync
-        // for (auto neigh_idx = j_host * nn; neigh_idx < (j_host + 1)*nn; ++neigh_idx){
-        //     event_type[neigh_idx] = NULL_EVENT;
-        //     event_prob[neigh_idx] = 0.0;
-        // }
+            // j's events with its neighbors
+            gpuErrchk( cudaMemcpy(event_type + j_host * nn + fill_ind, &null_event_host, 1 * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(event_type + j_host * nn + fill_ind, &zero_double_host, 1 * sizeof(double), cudaMemcpyHostToDevice) );
+        }
 
         event_time = -log(rng.getRandomNumber()) / Psum_host;
-        // std::cout << "event time is: " << event_time << "\n";
     }
 
     gpuErrchk( cudaFree(event_prob_cum) );
     gpuErrchk( cudaFree(event_type) );
     gpuErrchk( cudaFree(event_prob) );
 
-    return event_time;
-
-    // std::cout << "got here3\n"; exit(1);
-    
+    return event_time;    
 }
 
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff)

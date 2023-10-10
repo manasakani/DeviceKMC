@@ -178,7 +178,7 @@ int main(int argc, char **argv)
 //                 std::cout << "finished KMC step on GPU\n";
 // #else
                 step_time = sim.executeKMCStep(device);
-//                 std::cout << "finished KMC step on host\n";
+                std::cout << "finished KMC step on host\n";
 // #endif
 
                 double temperature_time = kmc_time;
