@@ -171,11 +171,15 @@ int main(int argc, char **argv)
                 diff_pot = t_pot - t0;
 
                 // KMC update step
-#ifdef USE_CUDA
-                step_time = sim.executeKMCStep_gpu(gpubuf, device.pbc);
-#else
+// #ifdef USE_CUDA
+//                 gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+//                 step_time = sim.executeKMCStep_gpu(gpubuf, device);
+//                 gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+//                 std::cout << "finished KMC step on GPU\n";
+// #else
                 step_time = sim.executeKMCStep(device);
-#endif
+//                 std::cout << "finished KMC step on host\n";
+// #endif
 
                 double temperature_time = kmc_time;
                 kmc_time += step_time;

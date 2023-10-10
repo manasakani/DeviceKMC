@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "random_num.h"
 
 extern "C" {
 
@@ -27,13 +28,13 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const double *posx, const double *posy, const double *posz, 
                           const int *site_charge, double *site_potential);
 
-void execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
+double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
                           const double *lattice, const int pbc, const double *T_bg, 
                           const double *freq, const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz, 
                           const double *site_potential, const double *site_temperature,
-                          ELEMENT *site_element, int *site_charge);
+                          ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, int *neigh_idx_host);
 
-void copytoConstMemory(const double *E_gen, const double *E_rec, const double *E_Vdiff, const double *E_Odiff);
+void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff);
 
 }

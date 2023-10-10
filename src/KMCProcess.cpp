@@ -275,14 +275,21 @@ double KMCProcess::executeKMCStep(Device &device)
     return event_time;
 }
 
-double KMCProcess::executeKMCStep_gpu(GPUBuffers gpubuf, int pbc){
+double KMCProcess::executeKMCStep_gpu(GPUBuffers gpubuf, Device &device){
 
-    execute_kmc_step_gpu(gpubuf.N_, gpubuf.nn_, gpubuf.neigh_idx, gpubuf.site_layer,
-                         gpubuf.lattice, pbc, gpubuf.T_bg, 
-                         gpubuf.freq, gpubuf.sigma, gpubuf.k,
-                         gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
-                         gpubuf.site_potential, gpubuf.site_temperature,
-                         gpubuf.site_element, gpubuf.site_charge);
+    // double event_time = execute_kmc_step_gpu(gpubuf.N_, gpubuf.nn_, gpubuf.neigh_idx, gpubuf.site_layer,
+    //                     gpubuf.lattice, device.pbc, gpubuf.T_bg, 
+    //                     gpubuf.freq, gpubuf.sigma, gpubuf.k,
+    //                     gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+    //                     gpubuf.site_potential, gpubuf.site_temperature,
+    //                     gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
 
-    std::cout << "got here"; exit(1);
+    double event_time = execute_kmc_step_gpu(device.N, device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
+                        gpubuf.lattice, device.pbc, gpubuf.T_bg, 
+                        gpubuf.freq, gpubuf.sigma, gpubuf.k,
+                        gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+                        gpubuf.site_potential, gpubuf.site_temperature,
+                        gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
+
+    return event_time;
 }

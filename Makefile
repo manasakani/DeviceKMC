@@ -1,26 +1,26 @@
-# *** Intel Compiler without some C++17 features like inclusive_scan ***
+# *** IIS - Intel Compiler without some C++17 features like inclusive_scan ***
 # CXX = /usr/sepp/bin/icc-2020-af 
 # MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
 # OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
 # CUDA_ROOT = /usr/local/cuda
 # CXXFLAGS = -O3 -std=c++17 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
 
-# *** GNU C++ compiler (with C++17) *** -- USE ONLY WITH GPU FLAG
+# *** IIS - GNU C++ compiler (with C++17) *** -- USE ONLY WITH GPU FLAG
 CXX = /usr/sepp/bin/g++ 
 MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
 OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
 CUDA_ROOT = /usr/local/cuda
 CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
 
+# IIS - If compiling with GPU
+NVCC = nvcc
+NVCCFLAGS = -O3 -arch=sm_60 -ccbin "/usr/sepp/bin/g++"
+LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver
+CXXFLAGS += -DUSE_CUDA
+
 # *** Piz Daint *** 
 #CXX = gcc
 #CXXFLAGS =-O3 -std=c++11 -I$(OMPROOT) -I"${CUDA_ROOT}/include" -I"${MKLROOT}/include" -L${MKLROOT}/lib/intel64 -Wl,--no-as-needed -lmkl_intel_lp64 -lmkl_gnu_thread -lmkl_core -lgomp -lpthread -lm -ldl
-
-# If compiling with GPU
-NVCC = nvcc
-NVCCFLAGS = -O3 -arch=sm_60 -std=c++17
-LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver
-CXXFLAGS += -DUSE_CUDA
 
 SRCDIR = src
 OBJDIR = obj

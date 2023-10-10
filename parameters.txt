@@ -2,7 +2,7 @@
 //  Simulation Parameters
 //******************************
 
-rnd_seed = 1													// random number for KMCProcess
+rnd_seed = 2													// random number for KMCProcess
 restart = 1														// restart calculation
 restart_xyz_file = structure_files/snapshot_init.xyz			// restart filename
 
@@ -37,7 +37,7 @@ background_temp = 300 											// [K] contact temperature
 
 pbc = 1															// toggle for periodic boundary conditions
 
-V_switch = 13 													// [V] applied bias to right contact
+V_switch = 20 													// [V] applied bias to right contact
 
 t_switch = 2.1e-13 													// [s] timescale for switching
 

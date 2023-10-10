@@ -14,14 +14,14 @@ class KMCProcess{
 				
 	public:
 	    std::vector<Layer> layers;
-		std::vector<double> site_layer;										// layerID for each site
+		std::vector<int> site_layer;										// layerID for each site
 		//std::string method;												// simulation type: rejection or rejection free?
 		double freq;                                                   	 	// attempt frequency of this set of events
 		KMCProcess(Device* device, double freq_); 
 
 		// executes one step on the device and returns the time taken for it
 		double executeKMCStep(Device &device);
-		double executeKMCStep_gpu(GPUBuffers gpubuf, int pbc);
+		double executeKMCStep_gpu(GPUBuffers gpubuf, Device &device);
 		
 	private:
 		RandomNumberGenerator random_generator;							// random number generator object for this KMC process

@@ -17,10 +17,11 @@ public:
     // unchanging parameters:
     ELEMENT *site_element = nullptr; 
     double *site_x, *site_y, *site_z = nullptr;
-    // double *E_gen, *E_rec, *E_Vdiff, *E_Odiff;
     ELEMENT *metal_types;
     double *sigma, *k, *lattice, *freq;
     int *neigh_idx, *site_layer = nullptr;
+
+    // NOT gpu pointers, passed by value
     int num_metal_types_ = 0;
     int N_ = 0;
     int nn_ = 0;
@@ -38,7 +39,7 @@ public:
     void copy_power_fromGPU(std::vector<double> &power);
     
     // constructor allocates arrays in GPU memory
-    GPUBuffers(std::vector<Layer> layers, std::vector<double> site_layer_in, double freq_in, int N,
+    GPUBuffers(std::vector<Layer> layers, std::vector<int> site_layer_in, double freq_in, int N,
                std::vector<double> site_x_in,  std::vector<double> site_y_in,  std::vector<double> site_z_in,
                int nn, double sigma_in, double k_in, std::vector<double> lattice_in, std::vector<int> neigh_idx_in, std::vector<ELEMENT> metals,
                int num_metals_types) {
@@ -57,7 +58,8 @@ public:
         int num_layers = layers.size();
 
         // the activation energies are stored in GPU global constant memory
-        copytoConstMemory(E_gen_host.data(), E_rec_host.data(), E_Vdiff_host.data(), E_Odiff_host.data());
+        // copytoConstMemory(E_gen_host.data(), E_rec_host.data(), E_Vdiff_host.data(), E_Odiff_host.data());
+        copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host);
 
         cudaDeviceSynchronize();
         

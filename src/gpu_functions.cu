@@ -3,26 +3,28 @@
 #include <vector>
 #include <cassert>
 #include <cuda_runtime.h>
-#include <math_functions.h>
+// #include <math_functions.h>
 #include <cmath>
 #include <math.h>
 
-// #include <thrust/reduce.h>
-// #include <thrust/extrema.h>
-// #include <thrust/binary_search.h>
+#include <thrust/reduce.h>
+#include <thrust/extrema.h>
+#include <thrust/binary_search.h>
+#include <thrust/device_ptr.h>
+#include <thrust/scan.h>
 
 // const double eV_to_J = 1.6e-19;
 // const double h_bar_sq = 4.3957e-67;      
-const double kB = 8.617333262e-5;     
+constexpr double kB = 8.617333262e-5;     
 
 #define NUM_THREADS 1024
-#define NUM_LAYERS 5
+#define MAX_NUM_LAYERS 5
 
-// stored in cache
-__constant__ double E_gen_const[NUM_LAYERS];
-__constant__ double E_rec_const[NUM_LAYERS];
-__constant__ double E_Vdiff_const[NUM_LAYERS];
-__constant__ double E_Odiff_const[NUM_LAYERS];
+// in GPU cache
+__constant__ double E_gen_const[MAX_NUM_LAYERS];
+__constant__ double E_rec_const[MAX_NUM_LAYERS];
+__constant__ double E_Vdiff_const[MAX_NUM_LAYERS];
+__constant__ double E_Odiff_const[MAX_NUM_LAYERS];
 
 void get_gpu_info(char *gpu_string, int dev){
  struct cudaDeviceProp dprop;
@@ -279,9 +281,9 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
     for (int idx = total_tid; idx < N * nn; idx += total_threads) {
 
         EVENTTYPE event_type_ = NULL_EVENT;
-        double P = 0;
+        double P = 0.0;
 
-        int i = static_cast<int>(floorf(static_cast<float>(idx) / static_cast<float>(nn)));
+        int i = static_cast<int>(floorf(idx / nn));
         int j = neigh_idx[idx];
 
         // condition for neighbor existing
@@ -289,7 +291,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
             double dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
                                                 posx[j], posy[j], posz[j], 
                                                 lattice[0], lattice[1], lattice[2], pbc);
-                                    
+
             // Generation
             if (element[i] == DEFECT && element[j] == O)
             {
@@ -299,11 +301,11 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 event_type_ = VACANCY_GENERATION;
                 double Ekin = kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
-                P = exp(-1.0 * EA / (kB * (*T_bg))) * (*freq);
+                P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
 
             // Recombination
-            else if (element[i] == OXYGEN_DEFECT && element[j] == VACANCY)
+            else if (element[i] == OXYGEN_DEFECT && element[j] == VACANCY) 
             {
                 int charge_abs = 2;
                 double self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
@@ -315,7 +317,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 event_type_ = VACANCY_RECOMBINATION;
                 double Ekin = kB * (temperature[i] - temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
-                P = exp(-1.0 * EA / (kB * (*T_bg))) * (*freq);
+                P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
 
             // Vacancy diffusion
@@ -333,7 +335,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 double zero_field_energy = E_Vdiff_const[layer[j]];  
                 double Ekin = kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
-                P = exp(-1.0 * EA / (kB * (*T_bg))) * (*freq);
+                P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
 
             // Ion diffusion
@@ -352,7 +354,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 event_type_ = ION_DIFFUSION;
                 double Ekin = kB * (temperature[i] - temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
-                P = exp(-1.0 * EA / (kB * (*T_bg))) * (*freq);
+                P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
         }
         event_type[idx] = event_type_;
@@ -453,14 +455,18 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                                                 
 }
 
-void execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
-                          const double *lattice, const int pbc, const double *T_bg, 
-                          const double *freq, const double *sigma, const double *k,
-                          const double *posx, const double *posy, const double *posz, 
-                          const double *site_potential, const double *site_temperature,
-                          ELEMENT *site_element, int *site_charge){
+double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
+                            const double *lattice, const int pbc, const double *T_bg, 
+                            const double *freq, const double *sigma, const double *k,
+                            const double *posx, const double *posy, const double *posz, 
+                            const double *site_potential, const double *site_temperature,
+                            ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, int *neigh_idx_host){
 
-    // the KMC event list arrays are only ever allocated on the gpu
+    // **************************
+    // **** Build Event List ****
+    // **************************
+
+    // the KMC event list arrays only exist in gpu memory
     EVENTTYPE *event_type; 
     double    *event_prob; 
     gpuErrchk( cudaMalloc((void**)&event_type, N * nn * sizeof(EVENTTYPE)) );
@@ -470,9 +476,12 @@ void execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const
     int num_blocks = (N * nn - 1) / num_threads + 1;
 
     // populate the event_type and event_prob arrays:
-    build_event_list<<<num_blocks, num_threads>>>(N, nn, neigh_idx, site_layer, lattice, pbc, T_bg, freq, sigma, k,
-                                                  posx, posy, posz, site_potential, site_temperature, 
-                                                  site_element, site_charge, event_type, event_prob);
+    build_event_list<<<num_blocks, num_threads>>>(N, nn, neigh_idx, 
+                                                 site_layer, lattice, pbc,
+                                                 T_bg, freq, sigma, k,
+                                                 posx, posy, posz, 
+                                                 site_potential, site_temperature, 
+                                                 site_element, site_charge, event_type, event_prob);
 
     cudaDeviceSynchronize();
     gpuErrchk( cudaPeekAtLastError() );
@@ -481,37 +490,212 @@ void execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const
     // ** Event Execution Loop **
     // **************************
 
-    std::cout << "Starting the event execution loop ..." << std::endl;
+    // std::cout << "copying event prob back\n";
+    // double    *event_prob_host = new    double[N * nn];
+    // gpuErrchk( cudaMemcpy(event_prob_host, event_prob, N * nn * sizeof(double), cudaMemcpyDeviceToHost) );
+    // std::cout << "copied\n";
+    // for (int p = 0; p < N*nn; p++){
+    //     if (event_prob_host[p] != 0){
+    //         std::cout << event_prob_host[p] << "\n";
+    //     }
+    // }
+
+    // helper variables:
+    // NOTE: INITIALIZE THESE ON GPU AND USE MEMCPY DEVICETODEVICE INSTEAD
+    int two_host = 2;
+    int two_neg_host = -2;
+    int zero_host = 0;
+    ELEMENT defect_element_host = DEFECT;
+    ELEMENT O_defect_element_host = OXYGEN_DEFECT;
+    ELEMENT vacancy_element_host = VACANCY;
+    ELEMENT O_element_host = O;
 
     double *event_prob_cum;
-    gpuErrchk( cudaMalloc((void**)&event_prob_cum, 1 * sizeof(double)) );
-
-    double event_time = 0.0;
+    gpuErrchk( cudaMalloc((void**)&event_prob_cum, N * nn * sizeof(double)) );
+ 
     double freq_host;
     gpuErrchk( cudaMemcpy(&freq_host, freq, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
 
+    double event_time = 0.0;
     while (event_time < 1 / freq_host) {
 
         // get the cumulative sum of the probabilities
-        // thrust::inclusive_scan(thrust::device, event_prob, event_prob + N * nn, event_prob_cum);
-    
-        std::cout << "got here2\n"; exit(1);
+        thrust::inclusive_scan(thrust::device, event_prob, event_prob + N * nn, event_prob_cum);
+
+        // select an event
+        double Psum_host;
+        gpuErrchk( cudaMemcpy(&Psum_host, event_prob_cum + N * nn - 1, sizeof(double), cudaMemcpyDeviceToHost) );
+        double number = rng.getRandomNumber() * Psum_host;
+        int event_idx = thrust::upper_bound(thrust::device, event_prob_cum, event_prob_cum + N * nn, number) - event_prob_cum;
+
+        EVENTTYPE sel_event_type = NULL_EVENT;
+        gpuErrchk( cudaMemcpy(&sel_event_type, event_type + event_idx, sizeof(EVENTTYPE), cudaMemcpyDeviceToHost) );
+
+        // test output:
+        double sel_event_prob;
+        gpuErrchk( cudaMemcpy(&sel_event_prob, event_prob + event_idx, sizeof(double), cudaMemcpyDeviceToHost) );
+        std::cout << "Selected event index: " << event_idx << " with type "
+                  << sel_event_type << " and probability " << sel_event_prob << std::endl;
+
+        // get attributes of the sites involved:
+        int i_host = static_cast<int>(floorf(event_idx / nn));
+        int j_host;
+        ELEMENT element_i_host, element_j_host;
+        int charge_i_host, charge_j_host;
+
+        gpuErrchk( cudaMemcpy(&j_host, neigh_idx + event_idx, sizeof(int), cudaMemcpyDeviceToHost) );
+        gpuErrchk( cudaMemcpy(&element_i_host, site_element + i_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
+        gpuErrchk( cudaMemcpy(&element_j_host, site_element + j_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
+        gpuErrchk( cudaMemcpy(&charge_i_host, site_charge + i_host, sizeof(int), cudaMemcpyDeviceToHost) );
+        gpuErrchk( cudaMemcpy(&charge_j_host, site_charge + j_host, sizeof(int), cudaMemcpyDeviceToHost) );
+
+        // std::cout << "element i: " << return_element(element_i_host) << "\n";
+        // std::cout << "element j: " << return_element(element_j_host) << "\n";
+        // std::cout << "charge i: " << charge_i_host << "\n";
+        // std::cout << "charge j: " << charge_j_host << "\n";
+
+        // Event execution loop
+        switch (sel_event_type)
+        {
+        case VACANCY_GENERATION:
+        {
+            if (element_i_host != DEFECT || element_j_host != O)
+            {
+                print("Wrong event type - VACANCY_GENERATION!");
+                print(return_element(element_i_host) << " and " << return_element(element_j_host));
+            }
+
+            // turn the defect (i) into an oxygen ion
+            // turn the oxygen (j) into a charged vacancy
+            gpuErrchk( cudaMemcpy(site_element + i_host, &O_defect_element_host, 1 * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_element + j_host, &vacancy_element_host, 1 * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_charge + i_host, &two_neg_host, 1 * sizeof(int), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_charge + j_host, &two_host, 1 * sizeof(int), cudaMemcpyHostToDevice) );
+
+            break;
+        }
+        case VACANCY_RECOMBINATION:
+        {
+            if (element_i_host != OXYGEN_DEFECT || element_j_host != VACANCY)
+            {
+                print("Wrong event type - VACANCY_RECOMBINATION!");
+                print(return_element(element_i_host) << " and " << return_element(element_j_host));
+            }
+
+            // turn the oxygen (i) into a defect
+            // turn the vacancy (j) into an oxygen atom
+            gpuErrchk( cudaMemcpy(site_element + i_host, &defect_element_host, 1 * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_element + j_host, &O_element_host, 1 * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_charge + i_host, &zero_host, 1 * sizeof(int), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_charge + j_host, &zero_host, 1 * sizeof(int), cudaMemcpyHostToDevice) );
+
+            break;
+        }
+        case VACANCY_DIFFUSION:
+        {
+            if (element_i_host != VACANCY || element_j_host != O)
+            {
+                print("Wrong event type - VACANCY_DIFFUSION!");
+                print(return_element(element_i_host) << " and " << return_element(element_j_host));
+            }
+
+            // swap element and charge
+            gpuErrchk( cudaMemcpy(site_element + i_host, &element_j_host, 1 * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_element + j_host, &element_i_host, 1 * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_charge + i_host, &charge_j_host, 1 * sizeof(int), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_charge + j_host, &charge_i_host, 1 * sizeof(int), cudaMemcpyHostToDevice) );
+
+            break;
+        }
+        case ION_DIFFUSION:
+        {
+            if (element_i_host != OXYGEN_DEFECT || element_j_host != DEFECT)
+            {
+                print("Wrong event type - ION_DIFFUSION!");
+                print(return_element(element_i_host) << " and " << return_element(element_j_host));
+            }
+
+            // swap element and charge
+            gpuErrchk( cudaMemcpy(site_element + i_host, &element_j_host, 1 * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_element + j_host, &element_i_host, 1 * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_charge + i_host, &charge_j_host, 1 * sizeof(int), cudaMemcpyHostToDevice) );
+            gpuErrchk( cudaMemcpy(site_charge + j_host, &charge_i_host, 1 * sizeof(int), cudaMemcpyHostToDevice) );
+
+            break;
+        }
+        default:
+            print("error: unidentified event key found: ");
+            print(sel_event_type);
+        }
+
+        gpuErrchk( cudaMemcpy(&element_i_host, site_element + i_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
+        gpuErrchk( cudaMemcpy(&element_j_host, site_element + j_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
+        gpuErrchk( cudaMemcpy(&charge_i_host, site_charge + i_host, sizeof(int), cudaMemcpyDeviceToHost) );
+        gpuErrchk( cudaMemcpy(&charge_j_host, site_charge + j_host, sizeof(int), cudaMemcpyDeviceToHost) );
+
+        // std::cout << "element i after: " << return_element(element_i_host) << "\n";
+        // std::cout << "element j after: " << return_element(element_j_host) << "\n";
+        // std::cout << "charge i after: " << charge_i_host << "\n";
+        // std::cout << "charge j after: " << charge_j_host << "\n";
+
+        // deactivate conflicting events
+
+        EVENTTYPE null_event_host = NULL_EVENT;
+        double zero_double_host = 0.0;
+
+        // other site's events with i or j
+         int i_, j_;
+        for (auto idx = 0; idx < N * nn; ++idx){
+            i_ = std::floor(idx / nn);
+            j_ = neigh_idx_host[idx];
+
+            if (i_host == i_ || j_host == j_ || i_host == j_ || j_host == i_){
+
+                gpuErrchk( cudaMemcpy(event_type + idx, &null_event_host, 1 * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
+                gpuErrchk( cudaMemcpy(event_prob + idx, &zero_double_host, 1 * sizeof(double), cudaMemcpyHostToDevice) );
+                // event_type[idx] = NULL_EVENT;
+                // event_prob[idx] = 0.0;
+            }
+        }
+
+        // i's events with its neighbors
+        gpuErrchk( cudaMemcpy(event_type + i_host * nn, &null_event_host, nn * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
+        gpuErrchk( cudaMemcpy(event_type + i_host * nn, &zero_double_host, nn * sizeof(double), cudaMemcpyHostToDevice) );
+        // for (auto neigh_idx = i_host * nn; neigh_idx < (i_host + 1)*nn; ++neigh_idx){
+        //     event_type[neigh_idx] = NULL_EVENT;
+        //     event_prob[neigh_idx] = 0.0;
+        // }
+
+        // j's events with its neighbors
+        gpuErrchk( cudaMemcpy(event_type + j_host * nn, &null_event_host, nn * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
+        gpuErrchk( cudaMemcpy(event_type + j_host * nn, &zero_double_host, nn * sizeof(double), cudaMemcpyHostToDevice) );
+
+        //use memset and then cudaDeviceSync
+        // for (auto neigh_idx = j_host * nn; neigh_idx < (j_host + 1)*nn; ++neigh_idx){
+        //     event_type[neigh_idx] = NULL_EVENT;
+        //     event_prob[neigh_idx] = 0.0;
+        // }
+
+        event_time = -log(rng.getRandomNumber()) / Psum_host;
+        // std::cout << "event time is: " << event_time << "\n";
     }
 
-    cudaFree(event_prob_cum);
-    cudaFree(event_type);
-    cudaFree(event_prob);
+    gpuErrchk( cudaFree(event_prob_cum) );
+    gpuErrchk( cudaFree(event_type) );
+    gpuErrchk( cudaFree(event_prob) );
 
-    std::cout << "got here3\n"; exit(1);
+    return event_time;
+
+    // std::cout << "got here3\n"; exit(1);
     
 }
 
-void copytoConstMemory(const double *E_gen, const double *E_rec, const double *E_Vdiff, const double *E_Odiff)
+void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff)
 {   
-    cudaMemcpyToSymbol(E_gen_const, E_gen, NUM_LAYERS * sizeof(double));
-    cudaMemcpyToSymbol(E_rec_const, E_rec, NUM_LAYERS * sizeof(double));
-    cudaMemcpyToSymbol(E_Vdiff_const, E_Vdiff, NUM_LAYERS * sizeof(double));
-    cudaMemcpyToSymbol(E_Odiff_const, E_Odiff, NUM_LAYERS * sizeof(double));
+    gpuErrchk( cudaMemcpyToSymbol(E_gen_const, E_gen.data(), E_gen.size() * sizeof(double)) );
+    gpuErrchk( cudaMemcpyToSymbol(E_rec_const, E_rec.data(), E_rec.size() * sizeof(double)) );
+    gpuErrchk( cudaMemcpyToSymbol(E_Vdiff_const, E_Vdiff.data(), E_Vdiff.size() * sizeof(double)) );
+    gpuErrchk( cudaMemcpyToSymbol(E_Odiff_const, E_Odiff.data(), E_Odiff.size() * sizeof(double)) );
 }
 
     // # if __CUDA_ARCH__>=200
