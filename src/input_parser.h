@@ -148,7 +148,7 @@ KMCParameters::KMCParameters(std::string param_file){
         
         // random number seed
         if (line.find("rnd_seed ") != std::string::npos) {
-			rnd_seed = read_bool(line);
+			rnd_seed = read_int(line);
 		}
         
         // option for restart calculation

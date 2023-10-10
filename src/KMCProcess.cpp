@@ -3,28 +3,11 @@
 #include "KMCProcess.h"
 #include "structure_input.h"
 #include "Device.h"
-#include "utils.h"
+#include "cuda_wrapper.h"
 #include <iostream>
 #include <list>
 #include <algorithm>
 #include <numeric>
-
-void Layer::init_layer(std::string type_, double E_gen_0_, double E_rec_1_, double E_diff_2_, double E_diff_3_, double start_x_, double end_x_)
-{
-    type = type_;
-    E_gen_0 = E_gen_0_;
-    E_rec_1 = E_rec_1_;
-    E_diff_2 = E_diff_2_;
-    E_diff_3 = E_diff_3_;
-    start_x = start_x_;
-    end_x = end_x_;
-    init_vac_percentage = 0.0;
-}
-
-void Layer::disp_layer()
-{
-    print("Layer of type " << type << " from " << start_x << " to " << end_x);
-}
 
 KMCProcess::KMCProcess(Device *device, double _freq)
 {
@@ -166,7 +149,6 @@ double KMCProcess::executeKMCStep(Device &device)
         // NOTE: We can optimize this by only updating the required values
         // get the cumulative sum of the probabilities
         inclusive_prefix_sum<double>(event_prob, event_prob_cum, num_sites * num_neigh);
-        // std::inclusive_scan(event_prob, event_prob + num_sites * num_neigh, event_prob_cum);
 
         // Select an event
         double Psum = event_prob_cum[num_sites * num_neigh - 1];
@@ -261,7 +243,7 @@ double KMCProcess::executeKMCStep(Device &device)
 #pragma omp parallel private(i_, j_)
 {
         // other site's events with i or j
-        #pragma omp for //private(i_, j_)
+        #pragma omp for
         for (auto idx = 0; idx < num_sites * num_neigh; ++idx){
             i_ = std::floor(idx / num_neigh);
             j_ = device.neigh_idx[idx];
@@ -284,12 +266,30 @@ double KMCProcess::executeKMCStep(Device &device)
             event_prob[neigh_idx] = 0.0;
         }
 }
-        // event_time = -log(random_generator.getRandomNumber()) / sel_event_prob;
         event_time = -log(random_generator.getRandomNumber()) / Psum;
     }
 
     delete[] event_type;
     delete[] event_prob;
     delete[] event_prob_cum;
+    return event_time;
+}
+
+double KMCProcess::executeKMCStep_gpu(GPUBuffers gpubuf, Device &device){
+
+    // double event_time = execute_kmc_step_gpu(gpubuf.N_, gpubuf.nn_, gpubuf.neigh_idx, gpubuf.site_layer,
+    //                     gpubuf.lattice, device.pbc, gpubuf.T_bg, 
+    //                     gpubuf.freq, gpubuf.sigma, gpubuf.k,
+    //                     gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+    //                     gpubuf.site_potential, gpubuf.site_temperature,
+    //                     gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
+
+    double event_time = execute_kmc_step_gpu(device.N, device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
+                        gpubuf.lattice, device.pbc, gpubuf.T_bg, 
+                        gpubuf.freq, gpubuf.sigma, gpubuf.k,
+                        gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+                        gpubuf.site_potential, gpubuf.site_temperature,
+                        gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
+
     return event_time;
 }

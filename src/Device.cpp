@@ -87,8 +87,7 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     site_power.resize(N, 0);
     site_temperature.resize(N, T_bg);
 
-    std::cout << "Loaded " << N << " sites into device" << "\n";
-    std::cout << "Consisting of " << N_atom << " atoms and " << N_int << " interstitials " << "\n";
+    std::cout << "Loaded " << N << " sites into device" << " : " << N_atom << " atoms and " << N_int << " interstitials " << "\n";
 }
 
 void Device::constructSiteNeighborList()

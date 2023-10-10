@@ -2,7 +2,7 @@
 //  Simulation Parameters
 //******************************
 
-rnd_seed = 1													// random number for KMCProcess
+rnd_seed = 2													// random number for KMCProcess
 restart = 1														// restart calculation
 restart_xyz_file = structure_files/snapshot_init.xyz			// restart filename
 
@@ -20,9 +20,9 @@ shifts = 0.0 0.5 0.5
 nn_dist = 3.5 													// [Angstrom] neighbor distance
 
 solve_potential = 1												// field solvers
-solve_current = 0
+solve_current = 1
 solve_heating_global = 0
-solve_heating_local = 0
+solve_heating_local = 1
 																// for potential solver:
 sigma = 3.5e-10 												// [m] gaussian broadening
 epsilon = 23.0  												// [1] relative permittivity
@@ -37,9 +37,9 @@ background_temp = 300 											// [K] contact temperature
 
 pbc = 1															// toggle for periodic boundary conditions
 
-V_switch = 13 													// [V] applied bias to right contact
+V_switch = 20 													// [V] applied bias to right contact
 
-t_switch = 1 													// [s] timescale for switching
+t_switch = 2.1e-13 													// [s] timescale for switching
 
 Icc = 3e-3 														// [A] enforced compliance current
 
