@@ -277,13 +277,6 @@ double KMCProcess::executeKMCStep(Device &device)
 
 double KMCProcess::executeKMCStep_gpu(GPUBuffers gpubuf, Device &device){
 
-    // double event_time = execute_kmc_step_gpu(gpubuf.N_, gpubuf.nn_, gpubuf.neigh_idx, gpubuf.site_layer,
-    //                     gpubuf.lattice, device.pbc, gpubuf.T_bg, 
-    //                     gpubuf.freq, gpubuf.sigma, gpubuf.k,
-    //                     gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
-    //                     gpubuf.site_potential, gpubuf.site_temperature,
-    //                     gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
-
     double event_time = execute_kmc_step_gpu(device.N, device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
                         gpubuf.lattice, device.pbc, gpubuf.T_bg, 
                         gpubuf.freq, gpubuf.sigma, gpubuf.k,
