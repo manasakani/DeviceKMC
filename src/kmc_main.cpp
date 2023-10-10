@@ -150,7 +150,7 @@ int main(int argc, char **argv)
                 if (p.solve_potential)
                 {
 #ifdef USE_CUDA
-                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
                     device.updateCharge_gpu(gpubuf);
                     gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 #else
@@ -195,7 +195,15 @@ int main(int argc, char **argv)
 // #ifdef USE_CUDA
                     // device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                     //                        p.metals, p.m_e, p.V0);
+
 // #else
+double powerTot2 = 0;
+
+for (int i = 0; i < device.N; ++i)
+{
+    powerTot2 += device.site_power[i];
+}
+
                     std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                                                                                 p.metals, p.m_e, p.V0);
                     resultMap.insert(powerMap.begin(), powerMap.end());
@@ -219,46 +227,29 @@ int main(int argc, char **argv)
                     if (p.solve_heating_local)
                     {
                         // use this to modify the rates
-                        // if (step_time > 1e4 * p.delta_t)
-                        // {
-                        //     // use steady state solution
-                        //     std::map<std::string, double> localTemperatureMap = device.updateLocalTemperatureSteadyState(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
-                        //                                                                                                  p.k_th_vacancies, p.num_atoms_contact, p.metals);
-                        //     resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
-                        // }
-                        // else
-                        //{
-                        // Compare the local temperature vector with the device temperature vector
-                        // If they are not the same we have a problem
-                        // Set a local vector to device.temperature
-                        std::vector<double> site_temperature_test(device.site_temperature.size());
-                        for (int i = 0; i < device.site_temperature.size(); ++i)
+                        if (step_time > 1e4 * p.delta_t)
                         {
-                            site_temperature_test[i] = device.site_temperature[i];
+                            // use steady state solution
+                            std::map<std::string, double> localTemperatureMap = device.updateLocalTemperatureSteadyState(p.background_temp, p.delta_t, p.tau, p.power_adjustment_term, p.k_th_interface,
+                                                                                                                         p.k_th_vacancies, p.num_atoms_contact, p.metals);
+                            resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
                         }
-
-                        for (int i = 0; i < device.site_temperature.size(); ++i)
+                        else
                         {
-                            if (device.site_temperature[i] != site_temperature_test[i])
+                            // Compare the local temperature vector with the device temperature vector
+                            // If they are not the same we have a problem
+
+                            // Set a local vector to device.temperature
+                            std::cout << int(step_time / p.delta_t) << std::endl;
+
+                            for (int i = 0; i <= int(step_time / p.delta_t); ++i)
                             {
-                                std::cout << "ERROR: Local and device temperature vectors are not the same!\n";
-                                std::cout << "Local: " << site_temperature_test[i] << " Device: " << device.site_temperature[i] << "\n";
-                            }
-                        }
-
-                        for (int i = 0; i < int(step_time / p.delta_t); ++i)
-                        {
-                            std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(p.background_temp, step_time, p.tau, p.power_adjustment_term, p.k_th_interface,
-                                                                                                              p.k_th_vacancies, p.num_atoms_contact, p.metals);
+                                std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(p.background_temp, p.delta_t, p.tau, p.power_adjustment_term, p.k_th_interface,
+                                                                                                                  p.k_th_vacancies, p.num_atoms_contact, p.metals);
 
                                 resultMap.insert(localTemperatureMap.begin(), localTemperatureMap.end());
                             }
-                            for (int i = 0; i < device.site_temperature.size(); ++i)
-                            {
-                                site_temperature_test[i] = device.site_temperature[i];
-                            }
-
-                            //}
+                        }
                     }
 
                     auto t_temp = std::chrono::steady_clock::now();
@@ -290,11 +281,14 @@ int main(int argc, char **argv)
                 if (!(kmc_step_count % p.log_freq))
                 {
 #ifdef USE_CUDA
-                    gpubuf.sync_GPUToHost(device); 
+                    gpubuf.sync_GPUToHost(device);
 #endif
                     std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
                     device.writeSnapshot(file_name, folder_name);
                 }
+
+                std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
+                device.writeSnapshot(file_name, folder_name);
 
                 // Log timing info
                 auto t1 = std::chrono::steady_clock::now();

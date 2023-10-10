@@ -43,9 +43,9 @@ t_switch = 1.5e-13 						// [s] timescale for switching
 
 Icc = 3e-3 							// [A] enforced compliance current
 
-log_freq = 50							// frequency of device snapshot generation (per x kmc steps)
+log_freq = 1							// frequency of device snapshot generation (per x kmc steps)
 
-output_freq = 10						// frequency of printing the steps into the output file
+output_freq = 1						// frequency of printing the steps into the output file
 
 verbose = 0							// print all the events that are selected in the output file
 

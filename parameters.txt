@@ -28,7 +28,7 @@ sigma = 3.5e-10 												// [m] gaussian broadening
 epsilon = 23.0  												// [1] relative permittivity
 								
 																// for current solver (tunneling parameters)
-m_r = 0.8 														// [1] relative effective mass
+m_r = 0.1 														// [1] relative effective mass
 V0 = 3.0  														// [eV] defect state energy
 
 																// for temperature solver
@@ -37,17 +37,17 @@ background_temp = 300 											// [K] contact temperature
 
 pbc = 1															// toggle for periodic boundary conditions
 
-V_switch = 20 													// [V] applied bias to right contact
+V_switch = 14 													// [V] applied bias to right contact
 
-t_switch = 2.1e-13 													// [s] timescale for switching
+t_switch = 1 													// [s] timescale for switching
 
 Icc = 3e-3 														// [A] enforced compliance current
 
 Rs = 1e-20 														// [Ohm] series resistance 
 
-log_freq = 50													// frequency of device snapshot generation (per x kmc steps)
+log_freq = 2													// frequency of device snapshot generation (per x kmc steps)
 
-output_freq = 10 												// frequency of printing the steps into the output file
+output_freq = 2 												// frequency of printing the steps into the output file
 
 verbose = 0							    						// this doesn't do anything yet
 
@@ -82,7 +82,7 @@ dissipation_constant = 70e-5 									// in [J/Ks] Tunable parameter
 small_step = 1e-16
 
 // Local thermal model
-delta_t = 1e-14                									// step time [s] (rejection free event time == delta_t)
+delta_t = 1e-13                									// step time [s] (rejection free event time == delta_t)
 delta = 1                    									// [a.u.]
 power_adjustment_term = 1 										// [a.u.]
 L_char = 3.5e-10               									// characteristic length [m]

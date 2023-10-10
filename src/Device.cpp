@@ -1044,11 +1044,11 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
         }
         else if (vacancy)
         {
-            alpha = 0.00010;
+            alpha = 0.10;
         }
         else
         {
-            alpha = 0.00020;
+            alpha = 0.20;
         }
 
         site_power[atom_ind[i]] = -1 * alpha * P_disp[i];
