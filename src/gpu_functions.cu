@@ -914,15 +914,6 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
             print(sel_event_type);
         }
 
-        // gpuErrchk( cudaMemcpy(&element_i_host, site_element + i_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
-        // gpuErrchk( cudaMemcpy(&element_j_host, site_element + j_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
-        // gpuErrchk( cudaMemcpy(&charge_i_host, site_charge + i_host, sizeof(int), cudaMemcpyDeviceToHost) );
-        // gpuErrchk( cudaMemcpy(&charge_j_host, site_charge + j_host, sizeof(int), cudaMemcpyDeviceToHost) );
-        // std::cout << "element i after: " << return_element(element_i_host) << "\n";
-        // std::cout << "element j after: " << return_element(element_j_host) << "\n";
-        // std::cout << "charge i after: " << charge_i_host << "\n";
-        // std::cout << "charge j after: " << charge_j_host << "\n";
-
         // Deactivate conflicting events
 
         EVENTTYPE null_event_host = NULL_EVENT;
