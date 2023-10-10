@@ -320,11 +320,13 @@ cusolverDnHandle_t CreateCusolverDnHandle(int device) {
   return handle;
 }
 
-static void CheckCusolverDnError(cusolverStatus_t const& status) {
-  if (status != CUSOLVER_STATUS_SUCCESS) {
-    throw std::runtime_error("cuSOLVER failed with error code: " +
-                             std::to_string(status));
-  }
+void CheckCusolverDnError(cusolverStatus_t const &status)
+{
+    if (status != CUSOLVER_STATUS_SUCCESS)
+    {
+        throw std::runtime_error("cuSOLVER failed with error code: " +
+                                 std::to_string(status));
+    }
 }
 
 void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info) {

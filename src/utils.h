@@ -98,10 +98,9 @@ void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<
 
 // CUDA/cuBLAS/CuSolver
 void CheckCublasError(cublasStatus_t const& status);
-static void CheckCusolverDnError(cusolverStatus_t const& status);
+void CheckCusolverDnError(cusolverStatus_t const &status);
 cublasHandle_t CreateCublasHandle(int device);
 cusolverDnHandle_t CreateCusolverDnHandle(int device);
-static void CheckCusolverDnError(cusolverStatus_t const& status);
 
 // GEMM
 void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int *k, double *alpha, double *A, int *lda, double *B, int *ldb, double *beta, double *C, int *ldc);

@@ -5,7 +5,9 @@
 #include <cassert>
 #include <cuda_runtime.h>
 #include <math_functions.h>
-
+#include <thrust/device_ptr.h>
+#include <thrust/fill.h>
+#include "gpu_buffers.h"
 #define NUM_THREADS 1024
 
 void get_gpu_info(char *gpu_string, int dev){
@@ -80,6 +82,179 @@ __device__ double v_solve_gpu(double r_dist, int charge, const double *sigma, co
 // ********************************************************
 // ******************** KERNELS ***************************
 // ********************************************************
+
+__global__ void set_potential(double *A, double *B, int N)
+{
+    int didx = blockIdx.x * blockDim.x + threadIdx.x;
+    for (auto i = didx; i < N; i += gridDim.x * blockDim.x)
+    {
+        A[i] = -B[i];
+    }
+}
+
+__global__ void set_diag_K(double *A, double *diag, int N)
+{
+    int didx = blockIdx.x * blockDim.x + threadIdx.x;
+    for (auto i = didx; i < N; i += gridDim.x * blockDim.x)
+    {
+        double tmp = A[i];
+        A[i] = tmp + diag[i];
+    }
+}
+
+template <int NTHREADS>
+__global__ void diagonal_sum_K(
+    double *A,
+    double *diag,
+    double *V,
+    int N, int NI, int NJ)
+{
+
+    int num_threads = blockDim.x;
+    int blocks_per_row = (NJ - 1) / num_threads + 1;
+    int block_id = blockIdx.x;
+
+    int row = block_id / blocks_per_row;
+    int scol = (block_id % blocks_per_row) * num_threads;
+    int lcol = min(NJ, scol + num_threads);
+
+    int tid = threadIdx.x;
+
+    __shared__ double buf[NTHREADS];
+
+    for (auto ridx = row; ridx < NI; ridx += gridDim.x)
+    {
+
+        buf[tid] = 0.0;
+        if (tid + scol < lcol)
+        {
+            buf[tid] = A[ridx * N + scol + tid] * V[tid + scol];
+            // if (ridx == 7039) {
+            //     printf("Thread %d (%d, %d) A=%E, V=%E, buf=%E\n", tid, ridx, tid + scol, A[ridx * N + tid + scol], V[tid + scol], buf[tid]);
+            // }
+        }
+
+        int width = num_threads / 2;
+        while (width != 0)
+        {
+            __syncthreads();
+            if (tid < width)
+            {
+                buf[tid] += buf[tid + width];
+            }
+            width /= 2;
+        }
+
+        if (tid == 0)
+        {
+            atomicAdd(diag + ridx, buf[0]);
+        }
+    }
+}
+
+__global__ void set_diag(double *A, double *diag, int N)
+{
+    int didx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (didx < N)
+    {
+        double tmp = A[didx * N + didx];
+        A[didx * N + didx] = 2 * tmp - diag[didx];
+    }
+}
+
+template <int NTHREADS>
+__global__ void diagonal_sum(double *A, double *diag, int N)
+{
+
+    int num_threads = blockDim.x;
+    int blocks_per_row = (N - 1) / num_threads + 1;
+    int block_id = blockIdx.x;
+
+    int tid = threadIdx.x;
+
+    __shared__ double buf[NTHREADS];
+
+    for (auto idx = block_id; idx < N * blocks_per_row; idx += gridDim.x)
+    {
+
+        int ridx = idx / blocks_per_row;
+        int scol = (idx % blocks_per_row) * num_threads;
+        int lcol = min(N, scol + num_threads);
+
+        buf[tid] = 0.0;
+        if (tid + scol < lcol)
+        {
+            buf[tid] = A[ridx * N + scol + tid];
+        }
+
+        int width = num_threads / 2;
+        while (width != 0)
+        {
+            __syncthreads();
+            if (tid < width)
+            {
+                buf[tid] += buf[tid + width];
+            }
+            width /= 2;
+        }
+
+        if (tid == 0)
+        {
+            atomicAdd(diag + ridx, buf[0]);
+        }
+    }
+}
+
+__global__ void create_K(
+    double *X,
+    const double *posx, const double *posy, const double *posz,
+    const ELEMENT *metals, const ELEMENT *element, const int *site_charge,
+    double lattx, double latty, double lattz, bool pbc, double high_G, double low_G_1,
+    double nn_dist, int N, int num_metals)
+{
+    printf("inside diagonal_sum: %d\n", threadIdx.x);
+
+    int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
+    int num_threads_total = blockDim.x * gridDim.x;
+
+    for (auto idx = tid_total; idx < N * N; idx += num_threads_total)
+    {
+        int i = idx / N;
+        int j = idx % N;
+
+        if (threadIdx.x == 0)
+        {
+            printf("i: %d, j: %d, idx: %d, tid: %d, N: %d, num_threads: %d\n", i, j, idx, threadIdx.x, N, num_threads_total);
+        }
+
+        bool metal1 = is_in_array_gpu(metals, element[i], num_metals);
+        bool metal2 = is_in_array_gpu(metals, element[j], num_metals);
+        bool ischarged1 = site_charge[i] != 0;
+        bool ischarged2 = site_charge[j] != 0;
+        bool isVacancy1 = element[i] == VACANCY;
+        bool isVacancy2 = element[j] == VACANCY;
+        bool cvacancy1 = isVacancy1 && ischarged1;
+        bool cvacancy2 = isVacancy2 && ischarged2;
+        double dist = site_dist_gpu(posx[i], posy[i], posz[i], posx[j], posy[j], posz[j], lattx, latty, lattz, pbc);
+
+        bool neighbor = false;
+        if (dist < nn_dist && i != j)
+            neighbor = true;
+
+        // direct terms:
+        if (i != j && neighbor)
+        {
+            if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
+            {
+                X[N * (i) + (j)] = -high_G;
+            }
+            else
+            {
+                X[N * (i) + (j)] = -low_G_1;
+            }
+        }
+    }
+}
 
 // iterates over every pair of sites, and does an operation based on the distance
 // NOTE: There is an error in the case of block overflow in the input matrix!
@@ -321,12 +496,139 @@ void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const 
 
 }
 
-void background_potential_gpu(cusolverDnHandle_t handle, const int num_atoms_contact, const double Vd, const double *lattice,
-                              const double G_coeff, const double high_G, const double low_G, const int *site_is_metal){
+void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, int N, int N_left_tot, int N_right_tot,
+                              const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
+                              const int num_metals)
+{
+
+    std::cout << "inside background_potential_gpu\n";
+    int N_interface = N - (N_left_tot + N_right_tot);
+
+    double *VL, *VR;
+    cudaMalloc((void **)&VL, N_left_tot * sizeof(double));
+    cudaMalloc((void **)&VR, N_right_tot * sizeof(double));
+
+    double *gpu_k_sub, *gpu_k, *gpu_diag, *gpu_D;
+    cudaMalloc((void **)&gpu_k_sub, (N + 2) * sizeof(double));
+    cudaMalloc((void **)&gpu_k, N * N * sizeof(double));
+    cudaMalloc((void **)&gpu_diag, N * sizeof(double));
+    cudaMalloc((void **)&gpu_D, N_interface * N_interface * sizeof(double));
+
+    thrust::device_ptr<double> VL_ptr = thrust::device_pointer_cast(VL);
+    thrust::fill(VL_ptr, VL_ptr + N_left_tot, 0.0);
+    thrust::device_ptr<double> VR_ptr = thrust::device_pointer_cast(VR);
+    thrust::fill(VR_ptr, VR_ptr + N_right_tot, Vd);
+
+    cudaMemset(gpu_k, 0, N * N * sizeof(double));
+
+    cudaDeviceSynchronize();
+
+    printf("Before K\n");
+
+    // Create K
+    int num_threads = 64;
+    int blocks_per_row = (N - 1) / num_threads + 1;
+    int num_blocks = min(65535, blocks_per_row * N);
+
+    printf("Before K 2: %d, %d\n", num_blocks, num_threads);
+    create_K<<<num_blocks, num_threads>>>(
+        gpu_k, gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+        gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
+        gpubuf.lattice[0], gpubuf.lattice[1], gpubuf.lattice[2], pbc, d_high_G, d_low_G,
+        nn_dist, N, num_metals);
+    gpuErrchk(cudaPeekAtLastError());
+    cudaDeviceSynchronize();
+
+    std::cout << "created K"
+              << "\n";
+
+    // Diag K
+    cudaMemset(gpu_diag, 0, N * sizeof(double));
+    cudaDeviceSynchronize();
+    num_threads = 1024;
+    blocks_per_row = (N - 1) / num_threads + 1;
+    num_blocks = min(65535, blocks_per_row * N);
+    diagonal_sum<1024><<<num_blocks, num_threads, 1024 * sizeof(double)>>>(gpu_k, gpu_diag, N);
+    gpuErrchk(cudaPeekAtLastError());
+    cudaDeviceSynchronize();
+
+    num_blocks = min(65535, (N - 1) / num_threads + 1);
+    set_diag<<<num_blocks, num_threads>>>(gpu_k, gpu_diag, N);
+    gpuErrchk(cudaPeekAtLastError());
+    cudaDeviceSynchronize();
+
+    // Ksub
+    cudaMemset(gpu_diag, 0, N * sizeof(double));
+    cudaDeviceSynchronize();
+    // NOTE: Less threads?
+    num_threads = 1024;
+    blocks_per_row = (N_left_tot - 1) / num_threads + 1;
+    num_blocks = min(65535, blocks_per_row * N_interface);
+    diagonal_sum_K<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(&gpu_k[N_left_tot * N], gpu_diag, VL, N, N_interface, N_left_tot);
+    cudaDeviceSynchronize();
+    // num_blocks = min(65535, (N_interface - 1) / num_threads + 1);
+    // set_diag_K<<<blocks_per_row, num_threads>>>(gpu_m, gpu_diag, N_interface);
+    // cudaDeviceSynchronize();
+    // cudaMemset(gpu_diag, 0, N * sizeof(double));
+    // cudaDeviceSynchronize();
+    num_threads = 1024;
+    blocks_per_row = (N_right_tot - 1) / num_threads + 1;
+    num_blocks = min(65535, blocks_per_row * N_interface);
+    diagonal_sum_K<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(&gpu_k[N_left_tot * N + N - N_right_tot], gpu_diag, VR, N, N_interface, N_right_tot);
+    gpuErrchk(cudaPeekAtLastError());
+    cudaDeviceSynchronize();
+    num_blocks = min(65535, (N_interface - 1) / num_threads + 1);
+    set_diag_K<<<blocks_per_row, num_threads>>>(gpu_k_sub, gpu_diag, N_interface);
+    gpuErrchk(cudaPeekAtLastError());
+    cudaDeviceSynchronize();
+
+    // GESV
+    // Nfull = N + 2
+    // Nsub = N + 1
+    int lwork = 0;              /* size of workspace */
+    double *gpu_work = nullptr; /* device workspace for getrf */
+    int *gpu_info = nullptr;    /* error info */
+    int *gpu_ipiv;
+
+    cudaMalloc((void **)&gpu_ipiv, N_interface * sizeof(int));
+    cudaMalloc((void **)(&gpu_info), sizeof(int));
+    // NOTE: We probably don't need the copy here
+    cudaMemcpy2D(gpu_D, N_interface * sizeof(double), &gpu_k[N_left_tot * N + N_left_tot], N * sizeof(double), N_interface * sizeof(double), N_interface, cudaMemcpyDeviceToDevice);
+
+    CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle, N_interface, N_interface, gpu_D, N + 1, &lwork));
+    cudaMalloc((void **)(&gpu_work), sizeof(double) * lwork);
+    // cudaMalloc(reinterpret_cast<void **>(&gpu_work), sizeof(double) * lwork);
+
+    // Solve Ax=B through LU factorization
+    CheckCusolverDnError(cusolverDnDgetrf(handle, N_interface, N_interface, gpu_D, N_interface, gpu_work, gpu_ipiv, gpu_info));
+    // cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
+    // printf("info for cusolverDnDgetrf: %i \n", info);
+    cudaDeviceSynchronize();
+
+    CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, N_interface, 1, gpu_D, N_interface, gpu_ipiv, gpu_k_sub, N_interface, gpu_info));
+    // cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
+    // printf("info for cusolverDnDgetrs: %i \n", info);
+    cudaDeviceSynchronize();
+    // cudaMemcpy(host_ksub, gpu_diag, N_interface * sizeof(double), cudaMemcpyDeviceToHost);
+
+    num_threads = 1024;
+    num_blocks = min(65535, (N_interface - 1) / num_threads + 1);
+    set_potential<<<num_blocks, num_threads>>>(gpubuf.site_potential + N_left_tot, gpu_k_sub, N_interface);
+    cudaMemcpy(gpubuf.site_potential, VL, N_left_tot * sizeof(double), cudaMemcpyDeviceToDevice);
+    cudaMemcpy(gpubuf.site_potential + N_left_tot + N_interface, VR, N_right_tot * sizeof(double), cudaMemcpyDeviceToDevice);
+
+    cudaFree(gpu_D);
+    cudaFree(gpu_ipiv);
+    cudaFree(gpu_work);
+    cudaFree(gpu_info);
+    cudaFree(gpu_k_sub);
+    cudaFree(gpu_k);
+    cudaFree(gpu_diag);
+    cudaFree(VL);
+    cudaFree(VR);
 
     std::cout << "inside background_potential_gpu\n";
     std::cout << "still need to implement this!\n";
-
 }
 
 void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice, 
