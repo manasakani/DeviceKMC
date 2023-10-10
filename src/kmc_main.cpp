@@ -154,6 +154,7 @@ int main(int argc, char **argv)
                     gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 #else
                     std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
+                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
                     resultMap.insert(chargeMap.begin(), chargeMap.end());
 #endif
 
@@ -165,21 +166,21 @@ int main(int argc, char **argv)
 // #else
                     device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                         p.G_coeff, p.high_G, p.low_G, p.metals);
+                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
 // #endif
                 }
                 auto t_pot = std::chrono::steady_clock::now();
                 diff_pot = t_pot - t0;
 
                 // KMC update step
-// #ifdef USE_CUDA
-//                 gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
-//                 step_time = sim.executeKMCStep_gpu(gpubuf, device);
-//                 gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-//                 std::cout << "finished KMC step on GPU\n";
-// #else
+#ifdef USE_CUDA
+                gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                step_time = sim.executeKMCStep_gpu(gpubuf, device);
+                gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+#else
                 step_time = sim.executeKMCStep(device);
-                std::cout << "finished KMC step on host\n";
-// #endif
+                gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+#endif
 
                 double temperature_time = kmc_time;
                 kmc_time += step_time;
@@ -263,9 +264,9 @@ int main(int argc, char **argv)
                 // generate xyz snapshot
                 if (!(kmc_step_count % p.log_freq))
                 {
-#ifdef USE_CUDA
-                    gpubuf.sync_GPUToHost(device); 
-#endif
+// #ifdef USE_CUDA
+//                     gpubuf.sync_GPUToHost(device); 
+// #endif
                     std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
                     device.writeSnapshot(file_name, folder_name);
                 }

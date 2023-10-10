@@ -33,7 +33,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
                           const double *freq, const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz, 
                           const double *site_potential, const double *site_temperature,
-                          ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, int *neigh_idx_host);
+                          ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
 
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff);
 

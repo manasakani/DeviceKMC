@@ -40,7 +40,7 @@ void set_gpu(int dev){
 // *************** GPU HELPER FUNCTIONS *******************
 // ********************************************************
 
-// returns true if thing is present in the vector of things
+// returns true if thing is present in the array of things
 template <typename T>
 __device__ int is_in_array_gpu(const T *array, const T element, const int size) {
 
@@ -219,8 +219,6 @@ __global__ void update_charge(const ELEMENT *element,
             }
         }
     }
-     
-    // TODO: iterate over the site list again to extract the #vacancies and ions to output
 }
 
 //reduces the array into the value 
@@ -460,7 +458,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
                             const double *freq, const double *sigma, const double *k,
                             const double *posx, const double *posy, const double *posz, 
                             const double *site_potential, const double *site_temperature,
-                            ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, int *neigh_idx_host){
+                            ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host){
 
     // **************************
     // **** Build Event List ****
@@ -489,21 +487,6 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
     // **************************
     // ** Event Execution Loop **
     // **************************
-
-    // std::cout << "copying event prob back\n";
-    // double    *event_prob_host = new    double[N * nn];
-    // double    *event_type_host = new    double[N * nn];
-    // gpuErrchk( cudaMemcpy(event_prob_host, event_prob, N * nn * sizeof(double), cudaMemcpyDeviceToHost) );
-    // gpuErrchk( cudaMemcpy(event_type_host, event_type, N * nn * sizeof(EVENTTYPE), cudaMemcpyDeviceToHost) );
-    // std::cout << "copied\n";
-    // for (int p = 0; p < N*nn; p++){
-    //     if (event_prob_host[p] != 0){
-    //         std::cout << event_prob_host[p] << " " << event_type_host[p] << "\n";
-    //     }
-    //     if (event_type_host[p] < 0 || event_type_host[p] > 4){
-    //         std::cout << "found an illegal event"; exit(1);
-    //     }
-    // }
 
     // helper variables:
     // NOTE: INITIALIZE THESE ON GPU AND USE MEMCPY DEVICETODEVICE INSTEAD
@@ -553,11 +536,6 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
         gpuErrchk( cudaMemcpy(&element_j_host, site_element + j_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
         gpuErrchk( cudaMemcpy(&charge_i_host, site_charge + i_host, sizeof(int), cudaMemcpyDeviceToHost) );
         gpuErrchk( cudaMemcpy(&charge_j_host, site_charge + j_host, sizeof(int), cudaMemcpyDeviceToHost) );
-
-        // std::cout << "element i: " << return_element(element_i_host) << "\n";
-        // std::cout << "element j: " << return_element(element_j_host) << "\n";
-        // std::cout << "charge i: " << charge_i_host << "\n";
-        // std::cout << "charge j: " << charge_j_host << "\n";
 
         // Event execution loop
         switch (sel_event_type)
@@ -633,17 +611,16 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
             print(sel_event_type);
         }
 
-        gpuErrchk( cudaMemcpy(&element_i_host, site_element + i_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
-        gpuErrchk( cudaMemcpy(&element_j_host, site_element + j_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
-        gpuErrchk( cudaMemcpy(&charge_i_host, site_charge + i_host, sizeof(int), cudaMemcpyDeviceToHost) );
-        gpuErrchk( cudaMemcpy(&charge_j_host, site_charge + j_host, sizeof(int), cudaMemcpyDeviceToHost) );
-
+        // gpuErrchk( cudaMemcpy(&element_i_host, site_element + i_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
+        // gpuErrchk( cudaMemcpy(&element_j_host, site_element + j_host, sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
+        // gpuErrchk( cudaMemcpy(&charge_i_host, site_charge + i_host, sizeof(int), cudaMemcpyDeviceToHost) );
+        // gpuErrchk( cudaMemcpy(&charge_j_host, site_charge + j_host, sizeof(int), cudaMemcpyDeviceToHost) );
         // std::cout << "element i after: " << return_element(element_i_host) << "\n";
         // std::cout << "element j after: " << return_element(element_j_host) << "\n";
         // std::cout << "charge i after: " << charge_i_host << "\n";
         // std::cout << "charge j after: " << charge_j_host << "\n";
 
-        // deactivate conflicting events
+        // Deactivate conflicting events
 
         EVENTTYPE null_event_host = NULL_EVENT;
         double zero_double_host = 0.0;
@@ -658,8 +635,6 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
 
                 gpuErrchk( cudaMemcpy(event_type + idx, &null_event_host, 1 * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
                 gpuErrchk( cudaMemcpy(event_prob + idx, &zero_double_host, 1 * sizeof(double), cudaMemcpyHostToDevice) );
-                // event_type[idx] = NULL_EVENT;
-                // event_prob[idx] = 0.0;
             }
         }
 
