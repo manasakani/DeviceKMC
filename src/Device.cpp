@@ -744,16 +744,19 @@ void Device::updatePotential(cusolverDnHandle_t handle, int num_atoms_contact, d
     poisson_gridless(num_atoms_contact, lattice);
 }
 
-void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                             double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
+void Device::updatePotential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
+                                 double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
 {
-    background_potential_gpu(handle, num_atoms_contact, Vd, lattice.data(),
-                             G_coeff, high_G, low_G, gpubuf.site_is_metal);
-                             
-    poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
-                         gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
-                         gpubuf.site_charge, gpubuf.site_potential);
 
+    int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
+    int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
+
+    background_potential_gpu(handle, gpubuf, N, N_left_tot, N_right_tot,
+                             Vd, pbc, high_G, low_G, nn_dist, metals.size());
+
+    poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
+                         gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+                         gpubuf.site_charge, gpubuf.site_potential);
 }
 
 // update the power of each site
@@ -819,7 +822,10 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                 vacancy1 = atom_element[i] == VACANCY && site_charge[atom_ind[i]] != 0;
                 vacancy2 = atom_element[j] == VACANCY && site_charge[atom_ind[j]] != 0;
 
-                neighbor = is_neighbor(i, j);
+                double distNeighbor = site_dist(atom_x[i], atom_y[i], atom_z[i],
+                                                atom_x[j], atom_y[j], atom_z[j], lattice, pbc);
+
+                neighbor = abs(distNeighbor) < nn_dist && i != j;
 
                 // direct terms:
                 if (i != j && neighbor)
@@ -854,7 +860,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                         //T = exp(-2 * sqrt((2 * m_e * V0 * eV_to_J) / (h_bar_sq)) * dist);
                         double Vdiff = site_potential[atom_ind[j]]- site_potential[atom_ind[i]];
                         double xdiff = (1e-10) *(atom_x[j] - atom_x[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0
-                        double b = Vdiff/xdiff; 
+                        double b = Vdiff / xdiff;
                         double a = 1e18; // zero prob
                         if (abs(V0 - Vdiff) < 1e-18){
                             a = 2.0/3.0*sqrt(V0)*xdiff;
@@ -957,34 +963,46 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
             M[i] += std::abs(min_V);
         }
 
-// Collect the forward currents into I_neg
-#pragma omp for collapse(2)
+        // Collect the forward currents into I_neg
+#pragma omp for // collapse(2)
         for (i = 0; i < N_atom; i++)
         {
             for (j = 0; j < N_atom; j++)
             {
 
-                I_neg[i * N_atom + j] = 0;
-                I_cal = X[N_full * (i + 2) + (j + 2)] * (M[j + 2] - M[i + 2]);
+                double distNeighbor = site_dist(atom_x[i], atom_y[i], atom_z[i],
+                                                atom_x[j], atom_y[j], atom_z[j], lattice, pbc);
 
-                if (I_cal < 0 && Vd > 0)
+                double neighbor = abs(distNeighbor) < nn_dist && i != j;
+
+                I_neg[i * N_atom + j] = 0;
+                I_cal = X[N_full * (i + 2) + (j + 2)] * (M[i + 2] - M[j + 2]); // current flows from j to i
+
+                // if ((M[j + 2] - M[i + 2] < 0 && I_cal < 0))
+                // {
+                //     std::cout << "This loop should not be entered" << std::endl;
+                // }
+
+                if (X[N_full * (i + 2) + (j + 2)] > 0 && i != j && neighbor)
+                    std::cout << "The X should never be positive" << std::endl;
+
+                if (I_cal < 0 && Vd > 0 && i != j && neighbor)
                 {
                     I_neg[i * N_atom + j] = -I_cal;
                 }
-                else if (I_cal > 0 && Vd < 0)
-                {
-                    I_neg[i * N_atom + j] = -I_cal;
-                }
-                else if (I_cal < 0 && Vd > 0 && site_potential[j] - site_potential[i] < V0 && atom_x[j] > atom_x[i])
-                { // excluding Fozler Nordheim tunneling
-                    I_neg[i * N_atom + j] = -I_cal;
-                }
-                else if (I_cal > 0 && Vd < 0 && site_potential[j] - site_potential[i] > V0 && atom_x[j] > atom_x[i])
-                {
+
+                // else if (I_cal > 0 && Vd < 0 && neighbor)
+                // {
+                //     I_neg[i * N_atom + j] = -I_cal;
+                // }
+                else if (I_cal < 0 && Vd > 0 && (site_potential[j] - site_potential[i]) < V0 && atom_x[j] >= atom_x[i] && !neighbor)
+                { // excluding Fowler Nordheim tunneling
                     I_neg[i * N_atom + j] = -I_cal;
                 }
             }
         }
+
+// Check whether there a negative entries in the X matrix
 
 // diagonals of I_neg
 #pragma omp for
@@ -995,7 +1013,6 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                 if (i != j)
                 {
                     I_neg[i * N_atom + i] += -1 * I_neg[i * N_atom + j]; // sum row
-                    // I_neg[i*N_atom + i] += -1*I_neg[j*N_atom + i]; // sum col
                 }
             }
         }
@@ -1003,6 +1020,15 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 
     // dissipated power at each atom
     gemm(handle, &trans, &trans, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
+
+    for (i = 0; i < N_atom; i++)
+    {
+        P_disp[i] = 0;
+        for (j = 0; j < N_atom; j++)
+        {
+            P_disp[i] += I_neg[i * N_atom + j] * M[j + 2];
+        }
+    }
 
 #pragma omp parallel for
     for (i = num_source_inj; i < N_atom - num_source_inj; i++)
@@ -1028,6 +1054,14 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
         site_power[atom_ind[i]] = -1 * alpha * P_disp[i];
     }
 
+    // Calculate total dissipate power
+    double P_disp_tot = 0.0;
+#pragma omp parallel for reduction(+ : P_disp_tot)
+    for (i = 0; i < N; i++)
+    {
+        P_disp_tot += site_power[i];
+    }
+
     free(D_T);
     free(M);
     free(X);
@@ -1035,6 +1069,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     free(I_neg);
     free(ipiv_T);
 
+    result["Total dissipated power"] = P_disp_tot;
     result["Current in uA"] = I_macro * 1e6;
     result["Conductance in uS"] = Geq * 1e6;
     // To do: put alpha in the parameter file
@@ -1110,8 +1145,8 @@ std::map<std::string, double> Device::updateLocalTemperature(double background_t
 
     // Calculate constants
     double step_time = t * tau;                                                                                                       // [a.u.]                                                               // [a.u.]
-    const double p_transfer_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_interface) * (T_1 - background_temp));     // [a.u.]
-    const double p_transfer_non_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_vacancies) * (T_1 - background_temp)); // [a.u.]
+    const double p_transfer_vacancies = 1 / ((nn_dist * (1e-10) * k_th_interface) * (T_1 - background_temp));                         // [a.u.]
+    const double p_transfer_non_vacancies = 1 / ((nn_dist * (1e-10) * k_th_vacancies) * (T_1 - background_temp));                     // [a.u.]
 
 // Transform background temperatures
 #pragma omp parallel for
@@ -1176,7 +1211,6 @@ std::map<std::string, double> Device::updateLocalTemperature(double background_t
             T_tot += site_temperature[i];
         }
     }
-
     T_bg = T_tot / N;
     result["Global temperature in K"] = T_bg;
     free(T_vec);
@@ -1199,8 +1233,8 @@ std::map<std::string, double> Device::updateLocalTemperatureSteadyState(double b
 
     // Calculate constants
     double step_time = delta_t * tau;                                                                                                 // [a.u.]                                                               // [a.u.]
-    const double p_transfer_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_interface) * (T_1 - background_temp));     // [a.u.]
-    const double p_transfer_non_vacancies = power_adjustment_term / ((nn_dist * (1e-10) * k_th_vacancies) * (T_1 - background_temp)); // [a.u.]
+    const double p_transfer_vacancies = 1 / ((nn_dist * (1e-10) * k_th_interface) * (T_1 - background_temp));                         // [a.u.]
+    const double p_transfer_non_vacancies = 1 / ((nn_dist * (1e-10) * k_th_vacancies) * (T_1 - background_temp));                     // [a.u.]
 
     // Iterate through all the sites
 #pragma omp parallel for private(T_transf, index_i, index_j)

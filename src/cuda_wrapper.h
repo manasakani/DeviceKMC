@@ -1,5 +1,9 @@
 #include "utils.h"
 #include "random_num.h"
+// #include "gpu_buffers.h"
+
+// forward declaration of gpubuf class          
+class GPUBuffers;
 
 extern "C" {
 
@@ -18,14 +22,13 @@ void update_temperatureglobal_gpu(const double *site_power,
                                   const double number_steps, const double C_thermal, 
                                   const double small_step);
 
-void background_potential_gpu(cusolverDnHandle_t handle, const int num_atoms_contact, 
-                              const double Vd, const double *lattice,
-                              const double G_coeff, const double high_G, 
-                              const double low_G, const int *site_is_metal);
+void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, int N, int N_left_tot, int N_right_tot,
+                              const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
+                              const int num_metals);
 
 void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice,
                           const double *sigma, const double *k,
-                          const double *posx, const double *posy, const double *posz, 
+                          const double *posx, const double *posy, const double *posz,
                           const int *site_charge, double *site_potential);
 
 double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
