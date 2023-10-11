@@ -131,9 +131,9 @@ int main(int argc, char **argv)
             // ********************************************************
             // ***************** MAIN KMC LOOP ************************
             // ********************************************************
-// #ifdef USE_CUDA
-//         gpubuf.sync_HostToGPU(device);
-// #endif
+#ifdef USE_CUDA
+        gpubuf.sync_HostToGPU(device);
+#endif
             while (kmc_time < t)
             {
                 outputBuffer << "--------------\n";
@@ -150,27 +150,24 @@ int main(int argc, char **argv)
                 if (p.solve_potential)
                 {
 #ifdef USE_CUDA
-                    std::cout << "updating charge on gpu\n";
-                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+                    // gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
                     device.updateCharge_gpu(gpubuf);
-                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+                    // gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 #else
                     std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
-                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                    // gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
                     resultMap.insert(chargeMap.begin(), chargeMap.end());
 #endif
 
-
 #ifdef USE_CUDA
-                    std::cout << "updating potential on gpu\n";
-                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+                    // gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
                     device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
                                                p.G_coeff, p.high_G, p.low_G, p.metals);
-                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+                    // gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 #else
                     device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                            p.G_coeff, p.high_G, p.low_G, p.metals);
-                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                    // gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
 #endif
                 }
                 auto t_pot = std::chrono::steady_clock::now();
@@ -178,13 +175,12 @@ int main(int argc, char **argv)
 
                 // KMC update step
 #ifdef USE_CUDA
-                std::cout << "executing KMC step on gpu\n";
-                gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                // gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
                 step_time = sim.executeKMCStep_gpu(gpubuf, device);
-                gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+                // gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 #else
                 step_time = sim.executeKMCStep(device);
-                gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                // gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
 #endif
 
                 double temperature_time = kmc_time;
@@ -236,7 +232,7 @@ int main(int argc, char **argv)
                             // If they are not the same we have a problem
 
                             // Set a local vector to device.temperature
-                            std::cout << int(step_time / p.delta_t) << std::endl;
+                            // std::cout << int(step_time / p.delta_t) << std::endl;
 
                             for (int i = 0; i <= int(step_time / p.delta_t); ++i)
                             {
@@ -276,12 +272,12 @@ int main(int argc, char **argv)
                 // generate xyz snapshot
                 if (!(kmc_step_count % p.log_freq))
                 {
+#ifdef USE_CUDA
+                    gpubuf.sync_GPUToHost(device); // sync for plotting purposes
+#endif
                     std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
                     device.writeSnapshot(file_name, folder_name);
                 }
-
-                std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-                device.writeSnapshot(file_name, folder_name);
 
                 // Log timing info
                 auto t1 = std::chrono::steady_clock::now();
@@ -294,9 +290,9 @@ int main(int argc, char **argv)
                 outputBuffer << "Total KMC Step: " << diff.count() << "\n";
                 outputBuffer << "--------------------------------------";
             }
-// #ifdef USE_CUDA
-//             gpubuf.sync_GPUToHost(device);
-// #endif
+#ifdef USE_CUDA
+            gpubuf.sync_GPUToHost(device);
+#endif
             const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
             device.writeSnapshot(file_name, folder_name);
             vt_counter++;
@@ -313,15 +309,3 @@ int main(int argc, char **argv)
     outputFile.close();
     return 0;
 }
-
-                    // if (kmc_step_count == 1){
-                    //     std::ofstream fout("cpu_site_potential.txt");
-                    //     for(int i = 0; i< device.N; i++){
-                    //         if (device.site_potential[i] != 0){
-                    //             fout << device.site_potential[i]; 
-                    //             fout << ' ';
-                    //         }
-                    //     }
-                    //     std::cout << "exiting at KMC step " << kmc_step_count << "\n";
-                    //     exit(1);
-                    // }

@@ -37,6 +37,8 @@ public:
 
     // copy back just the site_power into the power vector
     void copy_power_fromGPU(std::vector<double> &power);
+
+    void copy_charge_toGPU(std::vector<int> &charge);
     
     // constructor allocates arrays in GPU memory
     GPUBuffers(std::vector<Layer> layers, std::vector<int> site_layer_in, double freq_in, int N,

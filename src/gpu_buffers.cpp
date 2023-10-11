@@ -35,6 +35,7 @@ void GPUBuffers::sync_GPUToHost(Device &device){
     gpuErrchk( cudaMemcpy(device.site_potential.data(), site_potential, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_temperature.data(), site_temperature, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(&device.T_bg, T_bg, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaGetLastError() ); 
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError()); 
 
@@ -45,6 +46,13 @@ void GPUBuffers::copy_power_fromGPU(std::vector<double> &power){
     power.resize(N_);
     gpuErrchk( cudaMemcpy(power.data(), site_power, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
 }
+
+
+void GPUBuffers::copy_charge_toGPU(std::vector<int> &charge){
+    charge.resize(N_);
+    gpuErrchk( cudaMemcpy(site_charge, charge.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
+}
+
 
 void GPUBuffers::freeGPUmemory(){
     cudaFree(site_element);

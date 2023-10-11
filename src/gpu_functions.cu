@@ -227,8 +227,8 @@ __global__ void create_K(
     double *X,
     const double *posx, const double *posy, const double *posz,
     const ELEMENT *metals, const ELEMENT *element, const int *site_charge,
-    double *lattice, bool pbc, double high_G, double low_G_1,
-    double nn_dist, int N, int num_metals)
+    const double *lattice, const bool pbc, const double high_G, const double low_G_1,
+    const double nn_dist, const int N, const int num_metals)
 {
 
     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
@@ -608,7 +608,6 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
                               const int num_metals)
 {
 
-    std::cout << "inside background_potential_gpu\n";
     int N_interface = N - (N_left_tot + N_right_tot);
 
     double *VL, *VR;
@@ -616,7 +615,8 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     gpuErrchk( cudaMalloc((void **)&VR, N_right_tot * sizeof(double)) );
 
     double *gpu_k_sub, *gpu_k, *gpu_diag, *gpu_D;
-    gpuErrchk( cudaMalloc((void **)&gpu_k_sub, (N + 2) * sizeof(double)) );
+    // gpuErrchk( cudaMalloc((void **)&gpu_k_sub, (N + 2) * sizeof(double)) );
+    gpuErrchk( cudaMalloc((void **)&gpu_k_sub, N_interface * sizeof(double)) ); // CHANGED
     gpuErrchk( cudaMalloc((void **)&gpu_k, N * N * sizeof(double)) );
     gpuErrchk( cudaMalloc((void **)&gpu_diag, N * sizeof(double)) );
     gpuErrchk( cudaMalloc((void **)&gpu_D, N_interface * N_interface * sizeof(double)) );
@@ -628,6 +628,8 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     thrust::fill(VR_ptr, VR_ptr + N_right_tot, Vd);
 
     gpuErrchk( cudaMemset(gpu_k, 0, N * N * sizeof(double)) );
+    // gpuErrchk( cudaMemset(gpu_k_sub, 0, (N + 2) * sizeof(double)) ); // ADDED
+    gpuErrchk( cudaMemset(gpu_k_sub, 0, N_interface * sizeof(double)) ); // ADDED
     gpuErrchk( cudaDeviceSynchronize() );
 
     // Create K (conductance matrix)
@@ -688,6 +690,19 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
+    //  // debug 
+    // std::cout << "N: " << N << "\n";
+    // std::vector<double> new_k(N +2);
+    // gpuErrchk( cudaMemcpy(new_k.data(), gpu_k_sub , (N +2) * sizeof(double), cudaMemcpyDeviceToHost) );
+    // std::ofstream fout("gpu_ksub.txt");
+    // for(int i = 0; i< (N+2); i++){
+    //     if (new_k[i] != 0){
+    //         fout << new_k[i]; 
+    //         fout << ' ';
+    //     }
+    // }
+    // fout.close();
+
     // GESV
     // Nfull = N + 2
     // Nsub = N + 1
@@ -727,26 +742,21 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     gpuErrchk( cudaMemcpy(gpubuf.site_potential, VL, N_left_tot * sizeof(double), cudaMemcpyDeviceToDevice) );
     gpuErrchk( cudaMemcpy(gpubuf.site_potential + N_left_tot + N_interface, VR, N_right_tot * sizeof(double), cudaMemcpyDeviceToDevice) );
 
-    // double *M = (double *)calloc(N, sizeof(double));
-    // gpuErrchk( cudaMemcpy(M, gpubuf.site_potential, N * sizeof(double), cudaMemcpyDeviceToHost) );
-    // free M!!!
-
     // std::cout << M[0] << "\n";
     // std::cout << M[N / 2] << "\n";
     // std::cout << M[N - 1] << "\n";
 
-    // debug
-    // std::vector<double> host_m(N * N);
-    // gpuErrchk( cudaMemcpy(host_k.data(), gpu_k , N * N * sizeof(double), cudaMemcpyDeviceToHost) );
-    // std::cout << "copied";
-    // std::ofstream fout("gpu_M.txt");
+    // // debug
+    // double *M = (double *)calloc(N, sizeof(double));
+    // gpuErrchk( cudaMemcpy(M, gpubuf.site_potential, N * sizeof(double), cudaMemcpyDeviceToHost) );
+    // std::cout << "copied\n";
+    // std::ofstream fout2("gpu_M.txt");
     // for(int i = 0; i< N; i++){
     //     if (M[i] != 0){
-    //         fout << M[i]; 
-    //         fout << ' ';
+    //         fout2 << M[i]; 
+    //         fout2 << ' ';
     //     }
     // }
-    // exit(1);
 
     cudaFree(gpu_D);
     cudaFree(gpu_ipiv);
@@ -770,7 +780,6 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     int num_blocks = blocks_per_row * N; // NOTE: fix the kernel for block overflow!
 
     calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential);
-                                                
 }
 
 double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
@@ -835,6 +844,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
         gpuErrchk( cudaMemcpy(&Psum_host, event_prob_cum + N * nn - 1, sizeof(double), cudaMemcpyDeviceToHost) );
         double number = rng.getRandomNumber() * Psum_host;
         int event_idx = thrust::upper_bound(thrust::device, event_prob_cum, event_prob_cum + N * nn, number) - event_prob_cum;
+        // std::cout << "selected event: " << event_idx << "\n";
 
         EVENTTYPE sel_event_type = NULL_EVENT;
         gpuErrchk( cudaMemcpy(&sel_event_type, event_type + event_idx, sizeof(EVENTTYPE), cudaMemcpyDeviceToHost) );
@@ -962,7 +972,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
         }
 
         event_time = -log(rng.getRandomNumber()) / Psum_host;
-        std::cout << "event time: " << event_time << "\n";
+        // std::cout << "event time: " << event_time << "\n";
     }
 
     gpuErrchk( cudaFree(event_prob_cum) );

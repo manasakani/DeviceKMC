@@ -744,29 +744,19 @@ void Device::updatePotential(cusolverDnHandle_t handle, int num_atoms_contact, d
     poisson_gridless(num_atoms_contact, lattice);
 }
 
-void Device::updatePotential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
+void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
                                  double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
 {
-
+    // STILL NEED TO PORT THESE TWO FUNCTIONS
     int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
     int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
-
-    std::cout << "num contacts: " << N_left_tot << " " << N_right_tot << "\n";
-
-    // gpubuf.sync_HostToGPU(*this);  // remove once full while loop is completed
 
     background_potential_gpu(handle, gpubuf, N, N_left_tot, N_right_tot,
                              Vd, pbc, high_G, low_G, nn_dist, metals.size());
 
-    // gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
-
-    // gpubuf.sync_HostToGPU(*this);  // remove once full while loop is completed
-
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                          gpubuf.site_charge, gpubuf.site_potential);
-    
-    // gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
 }
 
 // update the power of each site
