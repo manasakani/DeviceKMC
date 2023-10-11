@@ -699,19 +699,6 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
         }
     }
 
-    //debug:
-    // std::cout << site_potential[0] << "\n";
-    // std::cout << site_potential[N / 2] << "\n";
-    // std::cout << site_potential[N - 1] << "\n";
-    // std::ofstream fout("host_m.txt");
-    // for(int i = 0; i< N; i++){
-    //     if (site_potential[i] != 0){
-    //         fout << site_potential[i]; 
-    //         fout << ' ';
-    //     }
-    // }
-    // exit(1);
-
     free(K);
     free(D);
     free(VL);
@@ -764,12 +751,22 @@ void Device::updatePotential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gp
     int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
     int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
 
+    std::cout << "num contacts: " << N_left_tot << " " << N_right_tot << "\n";
+
+    // gpubuf.sync_HostToGPU(*this);  // remove once full while loop is completed
+
     background_potential_gpu(handle, gpubuf, N, N_left_tot, N_right_tot,
                              Vd, pbc, high_G, low_G, nn_dist, metals.size());
+
+    // gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
+
+    // gpubuf.sync_HostToGPU(*this);  // remove once full while loop is completed
 
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                          gpubuf.site_charge, gpubuf.site_potential);
+    
+    // gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
 }
 
 // update the power of each site

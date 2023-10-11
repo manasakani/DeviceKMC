@@ -131,9 +131,9 @@ int main(int argc, char **argv)
             // ********************************************************
             // ***************** MAIN KMC LOOP ************************
             // ********************************************************
-#ifdef USE_CUDA
-        gpubuf.sync_HostToGPU(device);
-#endif
+// #ifdef USE_CUDA
+//         gpubuf.sync_HostToGPU(device);
+// #endif
             while (kmc_time < t)
             {
                 outputBuffer << "--------------\n";
@@ -150,6 +150,7 @@ int main(int argc, char **argv)
                 if (p.solve_potential)
                 {
 #ifdef USE_CUDA
+                    std::cout << "updating charge on gpu\n";
                     gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
                     device.updateCharge_gpu(gpubuf);
                     gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
@@ -160,34 +161,24 @@ int main(int argc, char **argv)
 #endif
 
 
-// #ifdef USE_CUDA
+#ifdef USE_CUDA
+                    std::cout << "updating potential on gpu\n";
                     gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
                     device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
                                                p.G_coeff, p.high_G, p.low_G, p.metals);
                     gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-// #else
-                    // device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
-                    //                        p.G_coeff, p.high_G, p.low_G, p.metals);
-                    // gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
-// #endif
-
-                    // if (kmc_step_count == 5){
-                    //     std::ofstream fout("gpu_site_potential.txt");
-                    //     for(int i = 0; i< device.N; i++){
-                    //         if (device.site_potential[i] != 0){
-                    //             fout << device.site_potential[i]; 
-                    //             fout << ' ';
-                    //         }
-                    //     }
-                    //     exit(1);
-                    // }
-
+#else
+                    device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
+                                           p.G_coeff, p.high_G, p.low_G, p.metals);
+                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+#endif
                 }
                 auto t_pot = std::chrono::steady_clock::now();
                 diff_pot = t_pot - t0;
 
                 // KMC update step
 #ifdef USE_CUDA
+                std::cout << "executing KMC step on gpu\n";
                 gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
                 step_time = sim.executeKMCStep_gpu(gpubuf, device);
                 gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
@@ -322,3 +313,15 @@ int main(int argc, char **argv)
     outputFile.close();
     return 0;
 }
+
+                    // if (kmc_step_count == 1){
+                    //     std::ofstream fout("cpu_site_potential.txt");
+                    //     for(int i = 0; i< device.N; i++){
+                    //         if (device.site_potential[i] != 0){
+                    //             fout << device.site_potential[i]; 
+                    //             fout << ' ';
+                    //         }
+                    //     }
+                    //     std::cout << "exiting at KMC step " << kmc_step_count << "\n";
+                    //     exit(1);
+                    // }
