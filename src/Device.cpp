@@ -639,17 +639,6 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
             }
         }
 
-    // std::cout << "printing debug file\n";
-    // // debug - use floor() for i
-    // std::ofstream fout("cpu_k.txt");
-    // for(int i = 0; i< N*N; i++){
-    //     if ( K[i] != 0){
-    //         fout <<  K[i]; 
-    //         fout << ' ';
-    //     }
-    // }
-    // exit(1);
-
 // diagonals of K:
 #pragma omp for
         for (int i = 0; i < N; i++)

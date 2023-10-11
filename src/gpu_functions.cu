@@ -603,10 +603,7 @@ void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const 
 
 }
 
-// void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, int N, int N_left_tot, int N_right_tot,
-//                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
-//                               const int num_metals)
-void background_potential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int N, int N_left_tot, int N_right_tot,
+void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals)
 {

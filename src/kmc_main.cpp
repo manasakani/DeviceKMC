@@ -161,24 +161,26 @@ int main(int argc, char **argv)
 
 
 // #ifdef USE_CUDA
-//                     gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-//                     device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
-//                                                p.G_coeff, p.high_G, p.low_G, p.metals);
-//                     gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+                    device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
+                                               p.G_coeff, p.high_G, p.low_G, p.metals);
+                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 // #else
-                    device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
-                                           p.G_coeff, p.high_G, p.low_G, p.metals);
-                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                    // device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
+                    //                        p.G_coeff, p.high_G, p.low_G, p.metals);
+                    // gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
 // #endif
 
-                    // std::ofstream fout("gpu_site_potential.txt");
-                    // for(int i = 0; i< device.N; i++){
-                    //     if (device.site_potential[i] != 0){
-                    //         fout << device.site_potential[i]; 
-                    //         fout << ' ';
+                    // if (kmc_step_count == 5){
+                    //     std::ofstream fout("gpu_site_potential.txt");
+                    //     for(int i = 0; i< device.N; i++){
+                    //         if (device.site_potential[i] != 0){
+                    //             fout << device.site_potential[i]; 
+                    //             fout << ' ';
+                    //         }
                     //     }
+                    //     exit(1);
                     // }
-                    // exit(1);
 
                 }
                 auto t_pot = std::chrono::steady_clock::now();
@@ -301,9 +303,9 @@ int main(int argc, char **argv)
                 outputBuffer << "Total KMC Step: " << diff.count() << "\n";
                 outputBuffer << "--------------------------------------";
             }
-#ifdef USE_CUDA
-            gpubuf.sync_GPUToHost(device);
-#endif
+// #ifdef USE_CUDA
+//             gpubuf.sync_GPUToHost(device);
+// #endif
             const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
             device.writeSnapshot(file_name, folder_name);
             vt_counter++;
