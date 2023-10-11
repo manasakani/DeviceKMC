@@ -18,7 +18,6 @@ void GPUBuffers::sync_HostToGPU(Device &device){
     cudaDeviceSynchronize();
     gpuErrchk( cudaMemcpy(site_element, device.site_element.data(), N_ * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_charge, device.site_charge.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(site_is_metal, device.site_is_metal.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_power, device.site_power.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_potential, device.site_potential.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_temperature, device.site_temperature.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
@@ -32,13 +31,12 @@ void GPUBuffers::sync_GPUToHost(Device &device){
     cudaDeviceSynchronize();
     gpuErrchk( cudaMemcpy(device.site_element.data(), site_element, N_ * sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_charge.data(), site_charge, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(device.site_is_metal.data(), site_is_metal, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
-    // gpuErrchk( cudaMemcpy(device.site_power.data(), site_power, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.site_power.data(), site_power, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_potential.data(), site_potential, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_temperature.data(), site_temperature, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(&device.T_bg, T_bg, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
     cudaDeviceSynchronize();
-    gpuErrchk(cudaGetLastError());
+    gpuErrchk(cudaGetLastError()); 
 
 }
 
@@ -53,10 +51,17 @@ void GPUBuffers::freeGPUmemory(){
     cudaFree(site_x);
     cudaFree(site_y);
     cudaFree(site_z);
+    cudaFree(neigh_idx);
+    cudaFree(site_layer);
     cudaFree(site_charge);
-    cudaFree(site_is_metal);
     cudaFree(site_power);
     cudaFree(site_potential);
+    cudaFree(site_temperature);
     cudaFree(T_bg);
+    cudaFree(metal_types);
+    cudaFree(sigma);
+    cudaFree(k);
+    cudaFree(lattice);
+    cudaFree(freq);
     //... FREE THE REST OF THE MEMORY ...
 }
