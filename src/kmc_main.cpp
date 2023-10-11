@@ -159,6 +159,7 @@ int main(int argc, char **argv)
                     resultMap.insert(chargeMap.begin(), chargeMap.end());
 #endif
 
+
 // #ifdef USE_CUDA
 //                     gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
 //                     device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
@@ -169,6 +170,16 @@ int main(int argc, char **argv)
                                            p.G_coeff, p.high_G, p.low_G, p.metals);
                     gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
 // #endif
+
+                    // std::ofstream fout("gpu_site_potential.txt");
+                    // for(int i = 0; i< device.N; i++){
+                    //     if (device.site_potential[i] != 0){
+                    //         fout << device.site_potential[i]; 
+                    //         fout << ' ';
+                    //     }
+                    // }
+                    // exit(1);
+
                 }
                 auto t_pot = std::chrono::steady_clock::now();
                 diff_pot = t_pot - t0;

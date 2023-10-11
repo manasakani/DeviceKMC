@@ -639,6 +639,17 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
             }
         }
 
+    // std::cout << "printing debug file\n";
+    // // debug - use floor() for i
+    // std::ofstream fout("cpu_k.txt");
+    // for(int i = 0; i< N*N; i++){
+    //     if ( K[i] != 0){
+    //         fout <<  K[i]; 
+    //         fout << ' ';
+    //     }
+    // }
+    // exit(1);
+
 // diagonals of K:
 #pragma omp for
         for (int i = 0; i < N; i++)
@@ -698,6 +709,19 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
             site_potential[i] = VR[i - (N - N_right_tot)];
         }
     }
+
+    //debug:
+    // std::cout << site_potential[0] << "\n";
+    // std::cout << site_potential[N / 2] << "\n";
+    // std::cout << site_potential[N - 1] << "\n";
+    // std::ofstream fout("host_m.txt");
+    // for(int i = 0; i< N; i++){
+    //     if (site_potential[i] != 0){
+    //         fout << site_potential[i]; 
+    //         fout << ' ';
+    //     }
+    // }
+    // exit(1);
 
     free(K);
     free(D);

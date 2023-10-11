@@ -245,8 +245,10 @@ __global__ void create_K(
         bool ischarged2 = site_charge[j] != 0;
         bool isVacancy1 = element[i] == VACANCY;
         bool isVacancy2 = element[j] == VACANCY;
-        bool cvacancy1 = isVacancy1 && ischarged1;
-        bool cvacancy2 = isVacancy2 && ischarged2;
+        // bool cvacancy1 = isVacancy1 && ischarged1;
+        // bool cvacancy2 = isVacancy2 && ischarged2;
+        bool cvacancy1 = isVacancy1 && !ischarged1;
+        bool cvacancy2 = isVacancy2 && !ischarged2;
         double dist = site_dist_gpu(posx[i], posy[i], posz[i], posx[j], posy[j], posz[j], lattice[0], lattice[1], lattice[2], pbc);
 
         bool neighbor = false;
@@ -601,7 +603,10 @@ void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const 
 
 }
 
-void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, int N, int N_left_tot, int N_right_tot,
+// void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, int N, int N_left_tot, int N_right_tot,
+//                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
+//                               const int num_metals)
+void background_potential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int N, int N_left_tot, int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals)
 {
@@ -610,25 +615,24 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     int N_interface = N - (N_left_tot + N_right_tot);
 
     double *VL, *VR;
-    cudaMalloc((void **)&VL, N_left_tot * sizeof(double));
-    cudaMalloc((void **)&VR, N_right_tot * sizeof(double));
+    gpuErrchk( cudaMalloc((void **)&VL, N_left_tot * sizeof(double)) );
+    gpuErrchk( cudaMalloc((void **)&VR, N_right_tot * sizeof(double)) );
 
     double *gpu_k_sub, *gpu_k, *gpu_diag, *gpu_D;
-    cudaMalloc((void **)&gpu_k_sub, (N + 2) * sizeof(double));
-    cudaMalloc((void **)&gpu_k, N * N * sizeof(double));
-    cudaMalloc((void **)&gpu_diag, N * sizeof(double));
-    cudaMalloc((void **)&gpu_D, N_interface * N_interface * sizeof(double));
+    gpuErrchk( cudaMalloc((void **)&gpu_k_sub, (N + 2) * sizeof(double)) );
+    gpuErrchk( cudaMalloc((void **)&gpu_k, N * N * sizeof(double)) );
+    gpuErrchk( cudaMalloc((void **)&gpu_diag, N * sizeof(double)) );
+    gpuErrchk( cudaMalloc((void **)&gpu_D, N_interface * N_interface * sizeof(double)) );
 
     thrust::device_ptr<double> VL_ptr = thrust::device_pointer_cast(VL);
     thrust::fill(VL_ptr, VL_ptr + N_left_tot, 0.0);
     thrust::device_ptr<double> VR_ptr = thrust::device_pointer_cast(VR);
     thrust::fill(VR_ptr, VR_ptr + N_right_tot, Vd);
 
-    cudaMemset(gpu_k, 0, N * N * sizeof(double));
-
+    gpuErrchk( cudaMemset(gpu_k, 0, N * N * sizeof(double)) );
     cudaDeviceSynchronize();
 
-    printf("Before K\n");
+    // printf("Before K\n");
 
     // Create K
     int num_threads = 64;
@@ -643,8 +647,21 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     gpuErrchk(cudaPeekAtLastError());
     cudaDeviceSynchronize();
 
-    std::cout << "created K"
-              << "\n";
+    // std::cout << "created K"
+    //           << "\n";
+
+    // // debug - use floor() for i
+    // std::vector<double> new_k(N * N);
+    // gpuErrchk( cudaMemcpy(new_k.data(), gpu_k , N * N * sizeof(double), cudaMemcpyDeviceToHost) );
+    // std::cout << "copied";
+    // std::ofstream fout("new_k.txt");
+    // for(int i = 0; i< N*N; i++){
+    //     if (new_k[i] != 0){
+    //         fout << new_k[i]; 
+    //         fout << ' ';
+    //     }
+    // }
+    // exit(1);
 
     // Diag K
     cudaMemset(gpu_diag, 0, N * sizeof(double));
@@ -725,9 +742,22 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     double *M = (double *)calloc(N, sizeof(double));
     cudaMemcpy(M, gpubuf.site_potential, N * sizeof(double), cudaMemcpyDeviceToHost);
 
-    std::cout << M[0] << "\n";
-    std::cout << M[N / 2] << "\n";
-    std::cout << M[N - 1] << "\n";
+    // std::cout << M[0] << "\n";
+    // std::cout << M[N / 2] << "\n";
+    // std::cout << M[N - 1] << "\n";
+
+    // debug
+    // std::vector<double> host_m(N * N);
+    // gpuErrchk( cudaMemcpy(host_k.data(), gpu_k , N * N * sizeof(double), cudaMemcpyDeviceToHost) );
+    // std::cout << "copied";
+    // std::ofstream fout("gpu_M.txt");
+    // for(int i = 0; i< N; i++){
+    //     if (M[i] != 0){
+    //         fout << M[i]; 
+    //         fout << ' ';
+    //     }
+    // }
+    // exit(1);
 
     cudaFree(gpu_D);
     cudaFree(gpu_ipiv);
