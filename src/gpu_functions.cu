@@ -614,29 +614,25 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     gpuErrchk( cudaMalloc((void **)&VL, N_left_tot * sizeof(double)) );
     gpuErrchk( cudaMalloc((void **)&VR, N_right_tot * sizeof(double)) );
 
-    double *gpu_k_sub, *gpu_k, *gpu_diag, *gpu_D;
-    // gpuErrchk( cudaMalloc((void **)&gpu_k_sub, (N + 2) * sizeof(double)) );
-    gpuErrchk( cudaMalloc((void **)&gpu_k_sub, N_interface * sizeof(double)) ); // CHANGED
+    double *gpu_k;
+    double *gpu_diag;
     gpuErrchk( cudaMalloc((void **)&gpu_k, N * N * sizeof(double)) );
     gpuErrchk( cudaMalloc((void **)&gpu_diag, N * sizeof(double)) );
-    gpuErrchk( cudaMalloc((void **)&gpu_D, N_interface * N_interface * sizeof(double)) );
+    gpuErrchk( cudaMemset(gpu_k, 0, N * N * sizeof(double)) );
+    gpuErrchk( cudaDeviceSynchronize() );
 
-    // prepare contact potentials and initialize conductance matrix
+    // prepare contact potentials
     thrust::device_ptr<double> VL_ptr = thrust::device_pointer_cast(VL);
     thrust::fill(VL_ptr, VL_ptr + N_left_tot, 0.0);
     thrust::device_ptr<double> VR_ptr = thrust::device_pointer_cast(VR);
     thrust::fill(VR_ptr, VR_ptr + N_right_tot, Vd);
 
-    gpuErrchk( cudaMemset(gpu_k, 0, N * N * sizeof(double)) );
-    // gpuErrchk( cudaMemset(gpu_k_sub, 0, (N + 2) * sizeof(double)) ); // ADDED
-    gpuErrchk( cudaMemset(gpu_k_sub, 0, N_interface * sizeof(double)) ); // ADDED
-    gpuErrchk( cudaDeviceSynchronize() );
+    //  BUILDING THE CONDUCTIVITY MATRIX
 
-    // Create K (conductance matrix)
+    // compute the off-diagonal elements of K
     int num_threads = 64;
     int blocks_per_row = (N - 1) / num_threads + 1;
     int num_blocks = min(65535, blocks_per_row * N);
-
     create_K<<<num_blocks, num_threads>>>(
         gpu_k, gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
         gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
@@ -648,7 +644,7 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     // Update the diagonal of K
     gpuErrchk( cudaMemset(gpu_diag, 0, N * sizeof(double)) );
     gpuErrchk( cudaDeviceSynchronize() );
-    num_threads = 512;
+    num_threads = 256;// 512;
     blocks_per_row = (N - 1) / num_threads + 1;
     num_blocks = min(65535, blocks_per_row * N);
     diagonal_sum<512><<<num_blocks, num_threads, 512 * sizeof(double)>>>(gpu_k, gpu_diag, N);
@@ -660,111 +656,74 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
-    // Solve for Ksub (the negative internal potentials)
-
     gpuErrchk( cudaMemset(gpu_diag, 0, N * sizeof(double)) );
     gpuErrchk( cudaDeviceSynchronize() );
-    // NOTE: Less threads?
-    num_threads = 512;
+
+    num_threads = 256;// 512; // NOTE: Less threads?
     blocks_per_row = (N_left_tot - 1) / num_threads + 1;
     num_blocks = min(65535, blocks_per_row * N_interface);
     diagonal_sum_K<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(&gpu_k[N_left_tot * N], gpu_diag, VL, N, N_interface, N_left_tot);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
-    // num_blocks = min(65535, (N_interface - 1) / num_threads + 1);
-    // set_diag_K<<<blocks_per_row, num_threads>>>(gpu_m, gpu_diag, N_interface);
-    // cudaDeviceSynchronize();
-    // cudaMemset(gpu_diag, 0, N * sizeof(double));
-    // cudaDeviceSynchronize();
-    num_threads = 512;
+    num_threads = 256;// 512;
     blocks_per_row = (N_right_tot - 1) / num_threads + 1;
-
     num_blocks = min(65535, blocks_per_row * N_interface);
     diagonal_sum_K<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(&gpu_k[N_left_tot * N + N - N_right_tot], gpu_diag, VR, N, N_interface, N_right_tot);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
+    //  SOLVING FOR THE NEGATIVE INTERNAL POTENTIALS (KSUB)
+
+    double *gpu_k_sub;
+    gpuErrchk( cudaMalloc((void **)&gpu_k_sub, N_interface * sizeof(double)) ); 
+    gpuErrchk( cudaMemset(gpu_k_sub, 0, N_interface * sizeof(double)) );
     num_blocks = min(65535, (N_interface - 1) / num_threads + 1);
     set_diag_K<<<blocks_per_row, num_threads>>>(gpu_k_sub, gpu_diag, N_interface);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
+    cudaFree(gpu_diag);
 
-    //  // debug 
-    // std::cout << "N: " << N << "\n";
-    // std::vector<double> new_k(N +2);
-    // gpuErrchk( cudaMemcpy(new_k.data(), gpu_k_sub , (N +2) * sizeof(double), cudaMemcpyDeviceToHost) );
-    // std::ofstream fout("gpu_ksub.txt");
-    // for(int i = 0; i< (N+2); i++){
-    //     if (new_k[i] != 0){
-    //         fout << new_k[i]; 
-    //         fout << ' ';
-    //     }
-    // }
-    // fout.close();
 
-    // GESV
-    // Nfull = N + 2
-    // Nsub = N + 1
+     // ** Solve Ax=B through LU factorization **
+
     int lwork = 0;              /* size of workspace */
-    // int info; // added
     double *gpu_work = nullptr; /* device workspace for getrf */
     int *gpu_info = nullptr;    /* error info */
-    int *gpu_ipiv;
-
+    int *gpu_ipiv; // int info;
     gpuErrchk( cudaMalloc((void **)&gpu_ipiv, N_interface * sizeof(int)) ); 
     gpuErrchk( cudaMalloc((void **)(&gpu_info), sizeof(int)) );
-    // NOTE: We probably don't need the copy here
-    cudaMemcpy2D(gpu_D, N_interface * sizeof(double), &gpu_k[N_left_tot * N + N_left_tot], N * sizeof(double), N_interface * sizeof(double), N_interface, cudaMemcpyDeviceToDevice);
 
-    CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle, N_interface, N_interface, gpu_D, N + 1, &lwork));
+    // points to the start of Koxide inside K:
+    double* gpu_D = gpu_k + (N_left_tot * N) + N_left_tot;
+
+    CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle, N_interface, N_interface, gpu_D, N, &lwork));
+    gpuErrchk( cudaDeviceSynchronize() );
     gpuErrchk( cudaMalloc((void **)(&gpu_work), sizeof(double) * lwork) );
-    // cudaMalloc(reinterpret_cast<void **>(&gpu_work), sizeof(double) * lwork);
 
-    // Solve Ax=B through LU factorization
-    CheckCusolverDnError(cusolverDnDgetrf(handle, N_interface, N_interface, gpu_D, N_interface, gpu_work, gpu_ipiv, gpu_info));
-    // cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
-    // printf("info for cusolverDnDgetrf: %i \n", info);
+    CheckCusolverDnError(cusolverDnDgetrf(handle, N_interface, N_interface, gpu_D, N, gpu_work, gpu_ipiv, gpu_info));
+    // cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost); // printf("info for cusolverDnDgetrf: %i \n", info);
     gpuErrchk( cudaDeviceSynchronize() );
 
-    CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, N_interface, 1, gpu_D, N_interface, gpu_ipiv, gpu_k_sub, N_interface, gpu_info));
-    // cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
-    // printf("info for cusolverDnDgetrs: %i \n", info);
+    CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, N_interface, 1, gpu_D, N, gpu_ipiv, gpu_k_sub, N_interface, gpu_info));
+    // cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost); // printf("info for cusolverDnDgetrs: %i \n", info);
     gpuErrchk( cudaDeviceSynchronize() );
-    // cudaMemcpy(host_ksub, gpu_diag, N_interface * sizeof(double), cudaMemcpyDeviceToHost);
+
+    cudaFree(gpu_k);
 
     num_threads = 1024;
     num_blocks = min(65535, (N_interface - 1) / num_threads + 1);
     set_potential<<<num_blocks, num_threads>>>(gpubuf.site_potential + N_left_tot, gpu_k_sub, N_interface);
-    gpuErrchk( cudaPeekAtLastError() ); // added
-    gpuErrchk( cudaDeviceSynchronize() ); // added
+    gpuErrchk( cudaPeekAtLastError() ); 
+    gpuErrchk( cudaDeviceSynchronize() ); 
+    cudaFree(gpu_k_sub);
 
     gpuErrchk( cudaMemcpy(gpubuf.site_potential, VL, N_left_tot * sizeof(double), cudaMemcpyDeviceToDevice) );
     gpuErrchk( cudaMemcpy(gpubuf.site_potential + N_left_tot + N_interface, VR, N_right_tot * sizeof(double), cudaMemcpyDeviceToDevice) );
 
-    // std::cout << M[0] << "\n";
-    // std::cout << M[N / 2] << "\n";
-    // std::cout << M[N - 1] << "\n";
-
-    // // debug
-    // double *M = (double *)calloc(N, sizeof(double));
-    // gpuErrchk( cudaMemcpy(M, gpubuf.site_potential, N * sizeof(double), cudaMemcpyDeviceToHost) );
-    // std::cout << "copied\n";
-    // std::ofstream fout2("gpu_M.txt");
-    // for(int i = 0; i< N; i++){
-    //     if (M[i] != 0){
-    //         fout2 << M[i]; 
-    //         fout2 << ' ';
-    //     }
-    // }
-
-    cudaFree(gpu_D);
     cudaFree(gpu_ipiv);
     cudaFree(gpu_work);
     cudaFree(gpu_info);
-    cudaFree(gpu_k_sub);
-    cudaFree(gpu_k);
-    cudaFree(gpu_diag);
     cudaFree(VL);
     cudaFree(VR);
 
@@ -1010,3 +969,16 @@ void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std
     //     }
     // }
     // exit(1);
+
+
+    // // debug
+    // double *M = (double *)calloc(N, sizeof(double));
+    // gpuErrchk( cudaMemcpy(M, gpubuf.site_potential, N * sizeof(double), cudaMemcpyDeviceToHost) );
+    // std::cout << "copied\n";
+    // std::ofstream fout2("gpu_M.txt");
+    // for(int i = 0; i< N; i++){
+    //     if (M[i] != 0){
+    //         fout2 << M[i]; 
+    //         fout2 << ' ';
+    //     }
+    // }

@@ -150,24 +150,24 @@ int main(int argc, char **argv)
                 if (p.solve_potential)
                 {
 #ifdef USE_CUDA
-                    // gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
                     device.updateCharge_gpu(gpubuf);
-                    // gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 #else
                     std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
-                    // gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
                     resultMap.insert(chargeMap.begin(), chargeMap.end());
 #endif
 
 #ifdef USE_CUDA
-                    // gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
                     device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
                                                p.G_coeff, p.high_G, p.low_G, p.metals);
-                    // gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 #else
                     device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                            p.G_coeff, p.high_G, p.low_G, p.metals);
-                    // gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
 #endif
                 }
                 auto t_pot = std::chrono::steady_clock::now();
@@ -175,12 +175,12 @@ int main(int argc, char **argv)
 
                 // KMC update step
 #ifdef USE_CUDA
-                // gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
                 step_time = sim.executeKMCStep_gpu(gpubuf, device);
-                // gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+                gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 #else
                 step_time = sim.executeKMCStep(device);
-                // gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
 #endif
 
                 double temperature_time = kmc_time;
