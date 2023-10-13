@@ -12,9 +12,12 @@
 #include <thrust/binary_search.h>
 #include <thrust/device_ptr.h>
 #include <thrust/scan.h>
+#include <thrust/copy.h>
+#include <thrust/execution_policy.h>
+#include <thrust/sequence.h>
 
-// const double eV_to_J = 1.6e-19;
-// const double h_bar_sq = 4.3957e-67;      
+const double eV_to_J = 1.6e-19;
+const double h_bar_sq = 4.3957e-67;
 constexpr double kB = 8.617333262e-5;     
 #include <thrust/device_ptr.h>
 #include <thrust/fill.h>
@@ -42,6 +45,14 @@ void set_gpu(int dev){
 // *************** GPU HELPER FUNCTIONS *******************
 // ********************************************************
 
+struct is_defect
+{
+    __host__ __device__ bool operator()(const ELEMENT element)
+    {
+        return (element != DEFECT && element != OXYGEN_DEFECT);
+    }
+};
+
 // returns true if thing is present in the array of things
 template <typename T>
 __device__ int is_in_array_gpu(const T *array, const T element, const int size) {
@@ -53,6 +64,7 @@ __device__ int is_in_array_gpu(const T *array, const T element, const int size) 
     }
     return 0;
 }
+
 __device__ double site_dist_gpu(double pos1x, double pos1y, double pos1z,
                                 double pos2x, double pos2y, double pos2z,
                                 double lattx, double latty, double lattz, bool pbc)
@@ -207,6 +219,54 @@ __global__ void set_diag(double *A, double *diag, int N)
     }
 }
 
+__global__ void copy_pdisp(double *site_power, double *pdisp, int *atom_gpu_index, int N_atom)
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_threads = blockDim.x * gridDim.x;
+
+    for (int idx = tid; idx < N_atom; idx += total_threads)
+    {
+        site_power[atom_gpu_index[idx]] = pdisp[idx];
+    }
+}
+
+template <int NTHREADS>
+__global__ void get_imacro(const double *x, const double *m, double *imacro, double Vd, int N)
+{
+
+    int num_threads = blockDim.x;
+    int bid = blockIdx.x;
+    int tid = threadIdx.x;
+    int total_tid = bid * num_threads + tid;
+
+    __shared__ double buf[NTHREADS];
+
+    // total_tid >= 2 && total_tid < N
+
+    buf[tid] = 0.0;
+    double tmp = x[(N + 2) * (3) + (total_tid + 2)] * (m[total_tid + 2] - m[3]);
+    if ((total_tid > 1 && total_tid < N) && ((tmp > 0 && Vd > 0) || (tmp < 0 && Vd < 0)))
+    {
+        buf[tid] = tmp;
+    }
+
+    int width = num_threads / 2;
+    while (width != 0)
+    {
+        __syncthreads();
+        if (tid < width)
+        {
+            buf[tid] += buf[tid + width];
+        }
+        width /= 2;
+    }
+
+    if (tid == 0)
+    {
+        atomicAdd(imacro, buf[0]);
+    }
+}
+
 template <int NTHREADS>
 __global__ void diagonal_sum(double *A, double *diag, int N)
 {
@@ -297,6 +357,35 @@ __global__ void create_K(
     }
 }
 
+__global__ void set_ineg(double *ineg, const double *x, const double *m, double Vd, int N)
+{
+    // ineg is matrix N x N
+    // x is matrix (N+2) x (N+2)
+    // m is vector (N + 2)
+
+    int num_threads = blockDim.x;
+    int blocks_per_row = (N - 1) / num_threads + 1;
+
+    int block_id = blockIdx.x;
+    int tid = threadIdx.x;
+
+    int row = block_id / blocks_per_row;
+    int col = (block_id % blocks_per_row) * num_threads + tid;
+
+    if (row < N && col < N)
+    {
+        double ical = x[(N + 2) * (row + 2) + (col + 2)] * (m[col + 2] - m[row + 2]);
+        if ((ical < 0 && Vd > 0) || (ical > 0 && Vd < 0))
+        {
+            ineg[row * N + col] = -ical;
+        }
+        else
+        {
+            ineg[row * N + col] = 0.0;
+        }
+    }
+}
+
 // iterates over every pair of sites, and does an operation based on the distance
 // NOTE: There is an error in the case of block overflow in the input matrix! But this will never
 // be triggered because the number of blocks can reach 2^31.
@@ -373,6 +462,128 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
     //     }
     //     potential[tid] += V_temp;
     // }
+}
+
+__global__ void update_m(double *m, long minidx, int np2)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    // int bid = blockIdx.x;
+
+    if (idx < np2)
+    {
+        double minm = m[minidx];
+        m[idx] += abs(minm);
+    }
+}
+
+__global__ void create_X(
+    double *X,
+    const double *posx, const double *posy, const double *posz,
+    const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_potential,
+    const double *lattice, bool pbc, double high_G, double low_G_1,
+    double nn_dist, double m_e, double V0, int num_source_inj, int num_ground_ext, int N, int num_metals)
+{
+
+    int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
+    int num_threads_total = blockDim.x * gridDim.x;
+
+    int N_full = N + 2;
+
+    // TODO: Does it make sense to restructure for N_full * N_full threads?
+    for (auto idx = tid_total; idx < N * N; idx += num_threads_total)
+    {
+        int i = idx / N;
+        int j = idx % N;
+        // if (i < N && j < N) {
+
+        bool metal1 = is_in_array_gpu(metals, element[i], num_metals);
+        bool metal2 = is_in_array_gpu(metals, element[j], num_metals);
+        // bool cvacancy1 = is_vacant[i] && is_charged[i];
+        // bool cvacancy2 = is_vacant[j] && is_charged[i];
+        // bool vacancy1 = is_vacant[i] && !is_charged[i];
+        // bool vacancy2 = is_vacant[j] && !is_charged[i];
+
+        bool ischarged1 = atom_charge[i] != 0;
+        bool ischarged2 = atom_charge[j] != 0;
+        bool isVacancy1 = element[i] == VACANCY;
+        bool isVacancy2 = element[j] == VACANCY;
+        bool cvacancy1 = isVacancy1 && ischarged1;
+        bool cvacancy2 = isVacancy2 && ischarged2;
+        bool vacancy1 = isVacancy1 && !ischarged1;
+        bool vacancy2 = isVacancy2 && !ischarged2;
+        double dist = site_dist_gpu(posx[i], posy[i], posz[i], posx[j], posy[j], posz[j], lattice[0], lattice[1], lattice[2], pbc);
+
+        bool neighbor = false;
+        if (dist < nn_dist && i != j)
+            neighbor = true;
+
+        // direct terms:
+        if (i != j && neighbor)
+        {
+            if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
+            {
+                X[N_full * (i + 2) + (j + 2)] = -high_G;
+                // X[N_full * (j + 2) + (i + 2)] = -high_G;
+            }
+            else
+            {
+                X[N_full * (i + 2) + (j + 2)] = -low_G_1;
+                // X[N_full * (j + 2) + (i + 2)] = -low_G_1;
+            }
+        }
+
+        // tunneling terms
+        if (i != j && !neighbor)
+        {
+            bool V_V = (vacancy1 && vacancy2) || (vacancy2 && cvacancy1) || (vacancy1 && cvacancy2) || (cvacancy1 && cvacancy2);
+            // bool V_contact = (vacancy1 && metal2) || (vacancy2 && metal1) || (cvacancy1 && metal2) || (cvacancy2 && metal1);
+
+            if (V_V)
+            {
+                double Vdiff = atom_potential[j] - atom_potential[i];
+                double xdiff = (1e-10) * (posx[j] - posx[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0
+                double b = Vdiff / xdiff;
+                double a = 1e18; // zero prob
+                if (abs(V0 - Vdiff) < 1e-18)
+                {
+                    a = 2.0 / 3.0 * sqrt(V0) * xdiff;
+                }
+                else if (V0 - Vdiff > 0)
+                {                                                                     // if Vdiff < 0 then lower prob
+                    a = -2.0 / 3.0 * (1 / b) * (pow(V0 - Vdiff, 1.5) - pow(V0, 1.5)); // always +
+                }
+                else if (V0 - Vdiff < 0 && xdiff > 0)
+                {
+                    a = -2.0 / 3.0 * (1 / b) * (-1) * pow(V0, 3 / 2); // always +
+                }
+                double T = exp(-2 * sqrt((2 * m_e * eV_to_J) / (h_bar_sq)) * a);
+                double G = 2 * 3.8612e-5 * T;
+                X[N_full * (i + 2) + (j + 2)] = -G;
+            }
+        }
+
+        // NOTE: Is there a data race here?
+        // connect the source/ground nodes to the first/last contact layers
+        __syncthreads();
+        if (i < num_source_inj && j == 0)
+        {
+            X[1 * N_full + (i + 2)] = -high_G;
+            X[(i + 2) * N_full + 1] = -high_G;
+        }
+
+        if (i > (N - num_ground_ext) && j == 0)
+        {
+            X[0 * N_full + (i + 2)] = -high_G;
+            X[(i + 2) * N_full + 0] = -high_G;
+        }
+
+        __syncthreads();
+        if (i == 0 && j == 0)
+        {
+            X[0 * N_full + 1] = -high_G;
+            X[1 * N_full + 0] = -high_G;
+        }
+    }
 }
 
 __global__ void update_charge(const ELEMENT *element, 
@@ -775,23 +986,46 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
 
     std::cout << "inside update_power_gpu\n";
 
-    double *gpu_imacro, *gpu_m, *gpu_x, *gpu_ineg, *gpu_diag, *gpu_pdisp, *gpu_A;
-    cudaMalloc((void **)&gpu_imacro, sizeof(double));                // IMACRO
-    cudaMalloc((void **)&gpu_m, (N + 2) * sizeof(double));           // M
-    cudaMalloc((void **)&gpu_x, (N + 2) * (N + 2) * sizeof(double)); // X
-    cudaMalloc((void **)&gpu_ineg, N * N * sizeof(double));          // INEG
-    cudaMalloc((void **)&gpu_diag, (N + 2) * sizeof(double));        // DIAG
-    cudaMalloc((void **)&gpu_pdisp, N * sizeof(double));             // PDISP
-    cudaMalloc((void **)&gpu_A, (N + 1) * (N + 1) * sizeof(double)); // A
+    // use thrust sequenze
+    int *gpu_index;
+    cudaMalloc((void **)&gpu_index, N * sizeof(int)); // indices of the site array
+    int *atom_gpu_index;
+    cudaMalloc((void **)&atom_gpu_index, N * sizeof(int)); // indices of the atom array
+    thrust::device_ptr<int> gpu_index_ptr = thrust::device_pointer_cast(gpu_index);
+    thrust::sequence(gpu_index_ptr, gpu_index_ptr + N, 1);
 
-    cudaMemset(gpu_x, 0, (N + 2) * (N + 2) * sizeof(double));
+    int *index_test = (int *)calloc((N), sizeof(int));
+    cudaMemcpy(index_test, gpu_index, N * sizeof(double), cudaMemcpyDeviceToHost);
+    std::cout << "Test siteX: " << index_test[0] << " " << index_test[1] << " "
+              << "\n";
+
+    double *last_atom = thrust::copy_if(thrust::device, gpubuf.site_x, gpubuf.site_x + N, gpubuf.site_element, gpubuf.atom_x, is_defect());
+    int N_atom = last_atom - gpubuf.atom_x;
+    thrust::copy_if(thrust::device, gpubuf.site_y, gpubuf.site_y + N, gpubuf.site_element, gpubuf.atom_y, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + N, gpubuf.site_element, gpubuf.atom_z, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + N, gpubuf.site_element, gpubuf.atom_charge, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_potential, gpubuf.site_potential + N, gpubuf.site_element, gpubuf.atom_potential, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + N, gpubuf.site_element, gpubuf.atom_element, is_defect());
+    thrust::copy_if(thrust::device, gpu_index, gpu_index + N, gpubuf.site_element, atom_gpu_index, is_defect());
+    std::cout << "Printing N_atom: " << N_atom << "\n";
+
+    double *gpu_imacro, *gpu_m, *gpu_x, *gpu_ineg, *gpu_diag, *gpu_pdisp, *gpu_A;
+    cudaMalloc((void **)&gpu_imacro, 1 * sizeof(double));                      // IMACRO
+    cudaMalloc((void **)&gpu_m, (N_atom + 2) * sizeof(double));                // M
+    cudaMalloc((void **)&gpu_x, (N_atom + 2) * (N_atom + 2) * sizeof(double)); // X
+    cudaMalloc((void **)&gpu_ineg, N_atom * N_atom * sizeof(double));          // INEG
+    cudaMalloc((void **)&gpu_diag, (N_atom + 2) * sizeof(double));             // DIAG
+    cudaMalloc((void **)&gpu_pdisp, N_atom * sizeof(double));                  // PDISP
+    cudaMalloc((void **)&gpu_A, (N_atom + 1) * (N_atom + 1) * sizeof(double)); // A
+
+    cudaMemset(gpu_x, 0, (N_atom + 2) * (N_atom + 2) * sizeof(double));
     cudaDeviceSynchronize();
-    cudaMemset(gpu_m, 0, (N + 2) * sizeof(double));
+    cudaMemset(gpu_m, 0, (N_atom + 2) * sizeof(double));
     cudaDeviceSynchronize();
 
     // Make M matrix
-    double *M = (double *)calloc((N + 2) * (N + 2), sizeof(double));
-    cudaMemset(gpu_m, 0, (N + 2) * sizeof(double));
+    double *M = (double *)calloc((N_atom + 2) * (N_atom + 2), sizeof(double));
+    cudaMemset(gpu_m, 0, (N_atom + 2) * sizeof(double));
     cudaDeviceSynchronize();
 
     thrust::device_ptr<double> m_ptr = thrust::device_pointer_cast(gpu_m);
@@ -799,42 +1033,158 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     thrust::fill(m_ptr + 1, m_ptr + 2, high_G * Vd);
 
     // Copy gpu_m back into M ONLY FOR TESTING PURPOSES
-    cudaMemcpy(M, gpu_m, (N + 2) * sizeof(double), cudaMemcpyDeviceToHost);
-    std::cout << Vd << "\n";
+    cudaMemcpy(M, gpu_m, (N_atom + 2) * sizeof(double), cudaMemcpyDeviceToHost);
     std::cout << "Test M: " << M[0] << " " << M[1] << " " << M[2] << "\n";
 
     // Create X
     int num_threads = 128;
-    int blocks_per_row = (N - 1) / num_threads + 1;
+    int blocks_per_row = (N_atom - 1) / num_threads + 1;
     int num_blocks = min(65535, blocks_per_row * N);
-    int num_metal_types = 2; // TODO !!!!
+    int num_metals = 2; // TODO !!!!
 
-    std::cout << N << " try this";
-
-    remake_atom_list<<<1, 1>>>(N,
-                               gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                               gpubuf.metal_types, gpubuf.site_element,
-                               gpubuf.site_potential, gpubuf.site_power,
-                               gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
-                               gpubuf.atom_element, gpubuf.atom_potential,
-                               gpubuf.atom_power, gpubuf.Natom_);
+    create_X<<<num_blocks, num_threads>>>(
+        gpu_x, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+        gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_potential,
+        gpubuf.lattice, pbc, high_G, low_G,
+        nn_dist, m_e, V0, num_source_inj, num_ground_ext, N_atom, num_metals);
 
     cudaDeviceSynchronize();
 
-    // Copy back the Natoms
-    int Natoms = 0;
-    gpuErrchk(cudaMemcpy(&Natoms, gpubuf.Natom_, 1 * sizeof(int), cudaMemcpyDeviceToHost));
-    // // Copy bact atoms element
-    // ELEMENT *atom_element = (ELEMENT *)malloc(N * sizeof(ELEMENT));
-    // gpuErrchk(cudaMemcpy(atom_element, gpubuf.atom_element, N * sizeof(ELEMENT), cudaMemcpyDeviceToHost));
+    // Print X to see whether it makes sense
+    double *X = (double *)malloc((N_atom + 2) * (N_atom + 2) * sizeof(double));
+    gpuErrchk(cudaMemcpy(X, gpu_x, (N_atom + 2) * (N_atom + 2) * sizeof(double), cudaMemcpyDeviceToHost));
+    std::cout << "Test X: " << X[0] << " " << X[1000 * N_atom + 1000] << " " << X[1000 * N_atom + 1001] << "\n";
 
-    std::cout << "Natoms: " << Natoms << "\n";
-    // std::cout << "Test atom_element: " << atom_element[0] << " " << atom_element[1] << " " << atom_element[2] << "\n";
+    // Diag X
+    cudaMemset(gpu_diag, 0, (N_atom + 2) * sizeof(double));
+    cudaDeviceSynchronize();
+    num_threads = 1024;
+    blocks_per_row = (N_atom + 2 - 1) / num_threads + 1;
+    num_blocks = min(65535, blocks_per_row * (N + 2));
+    diagonal_sum<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_x, gpu_diag, N_atom + 2);
+    cudaDeviceSynchronize();
+    set_diag<<<blocks_per_row, num_threads>>>(gpu_x, gpu_diag, N_atom + 2);
+    cudaDeviceSynchronize();
 
-    // int num_threads = 512;
-    // int num_blocks = (N * nn - 1) / num_threads + 1;
+    // GESV
+    int lwork = 0;              /* size of workspace */
+    double *gpu_work = nullptr; /* device workspace for getrf */
+    int *gpu_info = nullptr;    /* error info */
+    int *gpu_ipiv;
 
-    // update_power<<<num_blocks, num_threads>>>(N, nn, neigh_idx, lattice, pbc, posx, posy, posz, site_potential, site_temperature, site_element, site_charge, site_power);
+    cudaMalloc((void **)&gpu_ipiv, (N_atom + 1) * sizeof(int));
+    cudaMalloc((void **)(&gpu_info), sizeof(int));
+    cudaMemcpy2D(gpu_A, (N_atom + 1) * sizeof(double), gpu_x, (N_atom + 2) * sizeof(double), (N_atom + 1) * sizeof(double), (N_atom + 1), cudaMemcpyDeviceToDevice);
+
+    CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle_cusolver, N_atom + 1, N_atom + 1, gpu_A, N_atom + 1, &lwork));
+    cudaMalloc((void **)(&gpu_work), sizeof(double) * lwork);
+
+    // Solve Ax=B through LU factorization
+    CheckCusolverDnError(cusolverDnDgetrf(handle_cusolver, N_atom + 1, N_atom + 1, gpu_A, N_atom + 1, gpu_work, gpu_ipiv, gpu_info));
+    // cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
+    // printf("info for cusolverDnDgetrf: %i \n", info);
+    cudaDeviceSynchronize();
+
+    CheckCusolverDnError(cusolverDnDgetrs(handle_cusolver, CUBLAS_OP_N, N_atom + 1, 1, gpu_A, N_atom + 1, gpu_ipiv, gpu_m, N_atom + 1, gpu_info));
+    // cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
+    // printf("info for cusolverDnDgetrs: %i \n", info);
+    cudaDeviceSynchronize();
+
+    // Compute I_macro
+    double host_imacro;
+    cudaMemset(gpu_imacro, 0, sizeof(double));
+    cudaDeviceSynchronize();
+    num_threads = 1024;
+    num_blocks = (N_atom - 1) / num_threads + 1;
+    num_blocks = min(65535, num_blocks);
+    get_imacro<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_x, gpu_m, gpu_imacro, Vd, N_atom);
+    cudaDeviceSynchronize();
+    cudaMemcpy(&host_imacro, gpu_imacro, sizeof(double), cudaMemcpyDeviceToHost);
+
+    cudaDeviceSynchronize();
+
+    // Find index of minimum element in m[2:N+2]
+    auto min_index = thrust::min_element(thrust::device, gpu_m + 2, gpu_m + N_atom + 2) - gpu_m;
+    num_threads = 2048;
+    blocks_per_row = (N_atom + 2 - 1) / num_threads + 1;
+    num_blocks = min(65535, blocks_per_row);
+    update_m<<<num_blocks, num_threads>>>(gpu_m, min_index, N_atom + 2);
+    cudaDeviceSynchronize();
+
+    // Compute I_neg
+    num_threads = NUM_THREADS;
+    blocks_per_row = (N_atom - 1) / num_threads + 1;
+    num_blocks = min(65535, blocks_per_row * N_atom);
+    // TODO: Make kernel work for N > 65535
+    set_ineg<<<num_blocks, num_threads>>>(gpu_ineg, gpu_x, gpu_m, Vd, N_atom);
+    cudaDeviceSynchronize();
+
+    // Update I_neg diagonal
+    cudaMemset(gpu_diag, 0, (N_atom + 2) * sizeof(double));
+    cudaDeviceSynchronize();
+    diagonal_sum<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_ineg, gpu_diag, N_atom);
+    cudaDeviceSynchronize();
+    set_diag<<<blocks_per_row, num_threads>>>(gpu_ineg, gpu_diag, N_atom);
+    cudaDeviceSynchronize();
+
+    double alpha = 1.0, beta = 0.0;
+    double *gpu_alpha, *gpu_beta;
+    cudaMalloc((void **)&gpu_alpha, sizeof(double));
+    cudaMalloc((void **)&gpu_beta, sizeof(double));
+    cudaMemcpy(gpu_alpha, &alpha, sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(gpu_beta, &beta, sizeof(double), cudaMemcpyHostToDevice);
+
+    CheckCublasError(cublasDgemv(handle, CUBLAS_OP_N, N_atom, N_atom, gpu_alpha, gpu_ineg, N_atom, gpu_m + 2, 1, gpu_beta, gpu_pdisp, 1));
+    cudaDeviceSynchronize();
+
+    // Copy gpu_pdisp in the site_power array using a small kernel
+    num_threads = 1024;
+    num_blocks = (N_atom - 1) / num_threads + 1;
+    num_blocks = min(65535, num_blocks);
+    copy_pdisp<<<num_blocks, num_threads>>>(gpubuf.site_power, gpu_pdisp, atom_gpu_index, N_atom);
+
+    // Still need to copy back the dissipated power into the sites!!!
+    // cudaMemcpy(host_pdisp, gpu_pdisp, N_atom * sizeof(double), cudaMemcpyDeviceToHost);
+    double *P = (double *)calloc((N) * (N), sizeof(double));
+    cudaMemcpy(P, gpubuf.site_power, N * sizeof(double), cudaMemcpyDeviceToHost);
+
+    // Test atom list power
+    double *P_atom = (double *)calloc(1, sizeof(double));
+    double *P_site = (double *)calloc(1, sizeof(double));
+
+    double *P_tot_atom;
+    gpuErrchk(cudaMalloc((void **)&P_tot_atom, 1 * sizeof(double)));
+    gpuErrchk(cudaMemset(P_tot_atom, 0, 1 * sizeof(double)));
+    reduce<double, NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_pdisp, P_tot_atom, N_atom);
+    cudaMemcpy(P_atom, P_tot_atom, 1 * sizeof(double), cudaMemcpyDeviceToHost);
+
+    // Test the power
+    double *P_tot;
+    gpuErrchk(cudaMalloc((void **)&P_tot, 1 * sizeof(double)));
+    gpuErrchk(cudaMemset(P_tot, 0, 1 * sizeof(double)));
+    reduce<double, NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpubuf.site_power, P_tot, N);
+    cudaMemcpy(P_site, P_tot, 1 * sizeof(double), cudaMemcpyDeviceToHost);
+
+    // Compare P_tot_atom with P_tot
+    std::cout << "P_tot_atom: " << P_atom[0] << "\n";
+    std::cout << "P_tot: " << P_site[0] << "\n";
+
+    cudaFree(P_tot_atom);
+    cudaFree(P_tot);
+    cudaFree(gpu_ipiv);
+    cudaFree(gpu_work);
+    cudaFree(gpu_imacro);
+    cudaFree(gpu_m);
+    cudaFree(gpu_x);
+    cudaFree(gpu_ineg);
+    cudaFree(gpu_diag);
+    cudaFree(gpu_pdisp);
+    cudaFree(gpu_A);
+    cudaFree(gpu_info);
+    cudaFree(gpu_alpha);
+    cudaFree(gpu_beta);
+    cudaFree(gpu_index);
+    cudaFree(atom_gpu_index);
 }
 
 double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,

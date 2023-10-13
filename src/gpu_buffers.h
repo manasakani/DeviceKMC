@@ -14,6 +14,7 @@ public:
     double *site_power, *site_potential, *site_temperature = nullptr;
     double *T_bg = nullptr;
     double *atom_power, *atom_potential = nullptr;
+    int *atom_charge = nullptr;
     int *Natom_;
 
     // unchanging parameters:
@@ -94,6 +95,7 @@ public:
         gpuErrchk(cudaMalloc((void **)&atom_z, N_ * sizeof(double)));
         gpuErrchk(cudaMalloc((void **)&atom_power, N_ * sizeof(double)));
         gpuErrchk(cudaMalloc((void **)&atom_potential, N_ * sizeof(double)));
+        gpuErrchk(cudaMalloc((void **)&atom_charge, N_ * sizeof(int)));
 
         cudaDeviceSynchronize();
 
