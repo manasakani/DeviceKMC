@@ -83,6 +83,7 @@ int main(int argc, char **argv)
     outputBuffer << "**Calculation time for the laplacian:**\n";
     outputBuffer << "Laplacian update: " << diff_laplacian.count() << "\n";
 
+    std::cout << p.pristine << std::endl;
     if (p.pristine)
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
 
@@ -191,15 +192,15 @@ int main(int argc, char **argv)
                 // Power and Temperature
                 if (p.solve_current)
                 {
-// #ifdef USE_CUDA
-                    // device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
-                    //                        p.metals, p.m_e, p.V0);
+#ifdef USE_CUDA
+                    device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
+                                           p.metals, p.m_e, p.V0);
+#else
 
-// #else
                     std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                                                                                 p.metals, p.m_e, p.V0);
                     resultMap.insert(powerMap.begin(), powerMap.end());
-// #endif
+#endif
                     auto t_power = std::chrono::steady_clock::now();
                     diff_power = t_power - t_perturb;
 

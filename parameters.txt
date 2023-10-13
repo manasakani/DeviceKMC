@@ -6,8 +6,8 @@ rnd_seed = 2													// random number for KMCProcess
 restart = 1														// restart calculation
 restart_xyz_file = structure_files/snapshot_init.xyz			// restart filename
 
-//atom_xyz_file = structure_files/atoms.xyz						// if not restart, draws from the atom coordinates file
-//interstitial_xyz_file = structure_files/interstitials.xyz
+atom_xyz_file = structure_files/atoms.xyz						// if not restart, draws from the atom coordinates file
+interstitial_xyz_file = structure_files/interstitials.xyz
 lattice = 93.72586 26.914773122 26.6371955996 					// 1x1 device
 
 pristine = 0													// add initial vacancy concentration if starting from pristine
@@ -20,7 +20,7 @@ shifts = 0.0 0.5 0.5
 nn_dist = 3.5 													// [Angstrom] neighbor distance
 
 solve_potential = 1												// field solvers
-solve_current = 0
+solve_current = 1
 solve_heating_global = 0
 solve_heating_local = 0
 																// for potential solver:

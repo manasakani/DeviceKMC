@@ -13,10 +13,14 @@ public:
     int *site_charge = nullptr;
     double *site_power, *site_potential, *site_temperature = nullptr;
     double *T_bg = nullptr;
+    double *atom_power, *atom_potential = nullptr;
+    int *Natom_;
 
     // unchanging parameters:
-    ELEMENT *site_element = nullptr; 
+    ELEMENT *site_element = nullptr;
+    ELEMENT *atom_element = nullptr;
     double *site_x, *site_y, *site_z = nullptr;
+    double *atom_x, *atom_y, *atom_z = nullptr;
     ELEMENT *metal_types;
     double *sigma, *k, *lattice, *freq;
     int *neigh_idx, *site_layer = nullptr;
@@ -83,6 +87,13 @@ public:
         gpuErrchk( cudaMalloc((void**)&k, 1 * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&lattice, 3 * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&freq, 1 * sizeof(double)) );
+        gpuErrchk(cudaMalloc((void **)&Natom_, 1 * sizeof(int)));
+        gpuErrchk(cudaMalloc((void **)&atom_element, N_ * sizeof(ELEMENT)));
+        gpuErrchk(cudaMalloc((void **)&atom_x, N_ * sizeof(double)));
+        gpuErrchk(cudaMalloc((void **)&atom_y, N_ * sizeof(double)));
+        gpuErrchk(cudaMalloc((void **)&atom_z, N_ * sizeof(double)));
+        gpuErrchk(cudaMalloc((void **)&atom_power, N_ * sizeof(double)));
+        gpuErrchk(cudaMalloc((void **)&atom_potential, N_ * sizeof(double)));
 
         cudaDeviceSynchronize();
 
@@ -97,6 +108,10 @@ public:
         gpuErrchk( cudaMemcpy(freq, &freq_in, 1 * sizeof(double), cudaMemcpyHostToDevice) );
         gpuErrchk( cudaMemcpy(lattice, lattice_in.data(), 3 * sizeof(double), cudaMemcpyHostToDevice) );
         gpuErrchk( cudaMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
+
+        cudaDeviceSynchronize();
+
+        // gpuErrchk(cudaMemset(Natom_, 0, 1 * sizeof(int)));
 
         cudaDeviceSynchronize();
     }

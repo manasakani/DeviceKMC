@@ -135,8 +135,11 @@ public:
                          double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals);
 
     // update the power of each site
+    void updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int num_atoms_first_layer, const double Vd, const double high_G, const double low_G,
+                         std::vector<ELEMENT> metals, const double m_e, const double V0);
+
     std::map<std::string, double> updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
-                                              std::vector<ELEMENT> metals, double m_e, double V0);
+                                              std::vector<ELEMENT> metals, double m_e, const double V0);
 
     // update the temperature of each site
     std::map<std::string, double> updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,

@@ -53,7 +53,6 @@ __device__ int is_in_array_gpu(const T *array, const T element, const int size) 
     }
     return 0;
 }
-
 __device__ double site_dist_gpu(double pos1x, double pos1y, double pos1z,
                                 double pos2x, double pos2y, double pos2z,
                                 double lattx, double latty, double lattz, bool pbc)
@@ -100,6 +99,34 @@ __device__ double v_solve_gpu(double r_dist, int charge, const double *sigma, co
 // ********************************************************
 // ******************** KERNELS ***************************
 // ********************************************************
+
+__global__ void remake_atom_list(int N, double *site_x, double *site_y, double *site_z, ELEMENT *metals, const ELEMENT *element, double *site_potential, double *site_power,
+                                 double *atom_x, double *atom_y, double *atom_z, ELEMENT *atom_element, double *atom_potential,
+                                 double *atom_power, int *Natoms)
+{
+    // Removes defects sites from the site list
+    // One thread kernel at the moment
+    int atom_index = 0;
+
+    for (auto i = 0; i < N; i += 1)
+    {
+        if (element[i] == DEFECT || element[i] == OXYGEN_DEFECT)
+        {
+            // do nothing
+        }
+        else
+        {
+            atom_x[atom_index] = site_x[i];
+            atom_y[atom_index] = site_y[i];
+            atom_z[atom_index] = site_z[i];
+            atom_element[atom_index] = element[i];
+            atom_potential[atom_index] = site_potential[i];
+            atom_power[atom_index] = site_power[i];
+            ++atom_index;
+        }
+    }
+    Natoms[0] = atom_index;
+}
 
 __global__ void set_potential(double *A, double *B, int N)
 {
@@ -739,6 +766,75 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     int num_blocks = blocks_per_row * N; // NOTE: fix the kernel for block overflow!
 
     calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential);
+}
+
+void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int N, const int num_source_inj, const int num_ground_ext,
+                      const double Vd, const int pbc, const double high_G, const double low_G,
+                      const double nn_dist, const double m_e, const double V0)
+{
+
+    std::cout << "inside update_power_gpu\n";
+
+    double *gpu_imacro, *gpu_m, *gpu_x, *gpu_ineg, *gpu_diag, *gpu_pdisp, *gpu_A;
+    cudaMalloc((void **)&gpu_imacro, sizeof(double));                // IMACRO
+    cudaMalloc((void **)&gpu_m, (N + 2) * sizeof(double));           // M
+    cudaMalloc((void **)&gpu_x, (N + 2) * (N + 2) * sizeof(double)); // X
+    cudaMalloc((void **)&gpu_ineg, N * N * sizeof(double));          // INEG
+    cudaMalloc((void **)&gpu_diag, (N + 2) * sizeof(double));        // DIAG
+    cudaMalloc((void **)&gpu_pdisp, N * sizeof(double));             // PDISP
+    cudaMalloc((void **)&gpu_A, (N + 1) * (N + 1) * sizeof(double)); // A
+
+    cudaMemset(gpu_x, 0, (N + 2) * (N + 2) * sizeof(double));
+    cudaDeviceSynchronize();
+    cudaMemset(gpu_m, 0, (N + 2) * sizeof(double));
+    cudaDeviceSynchronize();
+
+    // Make M matrix
+    double *M = (double *)calloc((N + 2) * (N + 2), sizeof(double));
+    cudaMemset(gpu_m, 0, (N + 2) * sizeof(double));
+    cudaDeviceSynchronize();
+
+    thrust::device_ptr<double> m_ptr = thrust::device_pointer_cast(gpu_m);
+    thrust::fill(m_ptr, m_ptr + 1, -high_G * Vd);
+    thrust::fill(m_ptr + 1, m_ptr + 2, high_G * Vd);
+
+    // Copy gpu_m back into M ONLY FOR TESTING PURPOSES
+    cudaMemcpy(M, gpu_m, (N + 2) * sizeof(double), cudaMemcpyDeviceToHost);
+    std::cout << Vd << "\n";
+    std::cout << "Test M: " << M[0] << " " << M[1] << " " << M[2] << "\n";
+
+    // Create X
+    int num_threads = 128;
+    int blocks_per_row = (N - 1) / num_threads + 1;
+    int num_blocks = min(65535, blocks_per_row * N);
+    int num_metal_types = 2; // TODO !!!!
+
+    std::cout << N << " try this";
+
+    remake_atom_list<<<1, 1>>>(N,
+                               gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+                               gpubuf.metal_types, gpubuf.site_element,
+                               gpubuf.site_potential, gpubuf.site_power,
+                               gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+                               gpubuf.atom_element, gpubuf.atom_potential,
+                               gpubuf.atom_power, gpubuf.Natom_);
+
+    cudaDeviceSynchronize();
+
+    // Copy back the Natoms
+    int Natoms = 0;
+    gpuErrchk(cudaMemcpy(&Natoms, gpubuf.Natom_, 1 * sizeof(int), cudaMemcpyDeviceToHost));
+    // // Copy bact atoms element
+    // ELEMENT *atom_element = (ELEMENT *)malloc(N * sizeof(ELEMENT));
+    // gpuErrchk(cudaMemcpy(atom_element, gpubuf.atom_element, N * sizeof(ELEMENT), cudaMemcpyDeviceToHost));
+
+    std::cout << "Natoms: " << Natoms << "\n";
+    // std::cout << "Test atom_element: " << atom_element[0] << " " << atom_element[1] << " " << atom_element[2] << "\n";
+
+    // int num_threads = 512;
+    // int num_blocks = (N * nn - 1) / num_threads + 1;
+
+    // update_power<<<num_blocks, num_threads>>>(N, nn, neigh_idx, lattice, pbc, posx, posy, posz, site_potential, site_temperature, site_element, site_charge, site_power);
 }
 
 double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
