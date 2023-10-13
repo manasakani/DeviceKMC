@@ -409,9 +409,6 @@ bool Device::is_neighbor(int i, int j)
 
         std::vector<double> pos_i, pos_j;
         double dist, dist1, dist2;
-        // pos_i.push_back(site_x[i]); pos_i.push_back(site_y[i]); pos_i.push_back(site_z[i]);
-        // pos_j.push_back(site_x[j]); pos_j.push_back(site_y[j]); pos_j.push_back(site_z[j]);
-        // dist = site_dist(pos_i, pos_j, lattice, pbc);
 
         dist = site_dist(site_x[i], site_y[i], site_z[i], site_x[j], site_y[j], site_z[j], lattice, pbc);
         
@@ -477,7 +474,7 @@ void Device::makeSubstoichiometric(double vacancy_concentration)
     int num_O, num_V_add, loc;
     double random_num;
 
-    num_O = get_num_of_element(O);
+    num_O = get_num_of_element(O_EL);
     num_V_add = vacancy_concentration * num_O;
 
     std::cout << num_V_add << " oxygen atoms will be converted to vacancies" << std::endl;
@@ -485,7 +482,7 @@ void Device::makeSubstoichiometric(double vacancy_concentration)
     {
         random_num = random_generator.getRandomNumber();
         loc = random_num * N;
-        if (site_element[loc] == O)
+        if (site_element[loc] == O_EL)
         {
             site_element[loc] = VACANCY;
             num_V_add--;
@@ -861,14 +858,6 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 
                     if (V_V)
                     {
-                        //std::vector<double> pos_i, pos_j;
-                        //pos_i.push_back(atom_x[i]);
-                        //pos_i.push_back(atom_y[i]);
-                        //pos_i.push_back(atom_z[i]);
-                        //pos_j.push_back(atom_x[j]);
-                        //pos_j.push_back(atom_y[j]);
-                        //pos_j.push_back(atom_z[j]);
-                        //dist = (1e-10) * site_dist(pos_i, pos_j, lattice, pbc);
                         //T = exp(-2 * sqrt((2 * m_e * V0 * eV_to_J) / (h_bar_sq)) * dist);
                         double Vdiff = site_potential[atom_ind[j]]- site_potential[atom_ind[i]];
                         double xdiff = (1e-10) *(atom_x[j] - atom_x[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0

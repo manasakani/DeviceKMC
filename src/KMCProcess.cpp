@@ -72,7 +72,7 @@ double KMCProcess::executeKMCStep(Device &device)
                                                 device.site_x[j], device.site_y[j], device.site_z[j], device.lattice, device.pbc);
 
             // Generation
-            if (device.site_element[i] == DEFECT && device.site_element[j] == O)
+            if (device.site_element[i] == DEFECT && device.site_element[j] == O_EL)
             {
 
                 double E = 2 * (device.site_potential[i] - device.site_potential[j]);
@@ -100,7 +100,7 @@ double KMCProcess::executeKMCStep(Device &device)
             }
 
             // Vacancy diffusion
-            if (device.site_element[i] == VACANCY && device.site_element[j] == O)
+            if (device.site_element[i] == VACANCY && device.site_element[j] == O_EL)
             {
 
                 double self_int_V = 0.0;
@@ -174,7 +174,7 @@ double KMCProcess::executeKMCStep(Device &device)
         {
         case VACANCY_GENERATION:
         {
-            if (device.site_element[i] != DEFECT || device.site_element[j] != O)
+            if (device.site_element[i] != DEFECT || device.site_element[j] != O_EL)
             {
                 print("Wrong event type - VACANCY_GENERATION!");
                 print(return_element(device.site_element[i]) << " and " << return_element(device.site_element[j]));
@@ -203,14 +203,14 @@ double KMCProcess::executeKMCStep(Device &device)
             device.site_charge[i] = 0;
 
             // turn the vacancy (site_2) into an oxygen atom:
-            device.site_element[j] = O;
+            device.site_element[j] = O_EL;
             device.site_charge[j] = 0;
 
             break;
         }
         case VACANCY_DIFFUSION:
         {
-            if (device.site_element[i] != VACANCY || device.site_element[j] != O)
+            if (device.site_element[i] != VACANCY || device.site_element[j] != O_EL)
             {
                 print("Wrong event type - VACANCY_DIFFUSION!");
                 print(return_element(device.site_element[i]) << " and " << return_element(device.site_element[j]));
