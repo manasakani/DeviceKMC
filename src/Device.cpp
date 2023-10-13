@@ -759,7 +759,7 @@ void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, 
                          gpubuf.site_charge, gpubuf.site_potential);
 }
 
-void Device::updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int num_atoms_first_layer, const double Vd, const double high_G, const double low_G,
+void Device::updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int num_atoms_first_layer, const double Vd, const double high_G, const double low_G,
                              std::vector<ELEMENT> metals, const double m_e, const double V0)
 {
 
@@ -1030,17 +1030,13 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
         }
     }
 
-    // dissipated power at each atom
-    gemm(handle, &trans, &trans, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
-
-    for (i = 0; i < N_atom; i++)
+    for (int i = 0; i < N_atom; i++)
     {
         P_disp[i] = 0;
-        for (j = 0; j < N_atom; j++)
-        {
-            P_disp[i] += I_neg[i * N_atom + j] * M[j + 2];
-        }
     }
+
+    // dissipated power at each atom
+    gemm(handle, &trans, &trans, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
 
 #pragma omp parallel for
     for (i = num_source_inj; i < N_atom - num_source_inj; i++)

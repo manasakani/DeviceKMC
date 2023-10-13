@@ -303,7 +303,7 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
     //printf("lda, ldb, ldc = %d, %d, %d\n", *lda, *ldb, *ldc);
 
     // CheckCublasError(cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, gpu_alpha, A, *lda, B, *ldb, gpu_beta, C, *ldc));
-    CheckCublasError(cublasDgemv(handle, CUBLAS_OP_N, *m, *k, gpu_alpha, gpu_A, *lda, gpu_B, 1, gpu_beta, gpu_C, 1));
+    CheckCublasError(cublasDgemv(handle, CUBLAS_OP_T, *m, *k, gpu_alpha, gpu_A, *lda, gpu_B, 1, gpu_beta, gpu_C, 1));
     // cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, gpu_alpha, A, *k, B, *n, gpu_beta, C, *n);
     cudaDeviceSynchronize();
 
