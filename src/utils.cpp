@@ -368,20 +368,21 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
     cudaMalloc((void**)&gpu_ipiv, (*N) * sizeof(int));
     cudaMalloc((void **)(&gpu_info), sizeof(int));
 
-    cudaMemcpy(gpu_A, A, ((*N) * (*N)) * sizeof(double), cudaMemcpyHostToDevice);
+    // cudaMemcpy(gpu_A, A, ((*N) * (*N)) * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy2D(gpu_A,   (*N) * sizeof(double),   A,   (*lda) * sizeof(double),   (*N) * sizeof(double), (*N), cudaMemcpyHostToDevice);
+
     cudaMemcpy(gpu_B, B, ((*N) * (*nrhs)) * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(gpu_ipiv, ipiv, (*N) * sizeof(int), cudaMemcpyHostToDevice);
 
-    CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle, *N, *N, gpu_A, *lda, &lwork));
+    // CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle, *N, *N, gpu_A, *lda, &lwork));
+    CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle, *N, *N, gpu_A, *N, &lwork));
     cudaMalloc((void **)(&gpu_work), sizeof(double) * lwork);
 
-    // std::cout << "N_interface: " << *N << "\n";
-    // std::cout << "N: " << *lda << "\n";
-
     // Solve Ax=B through LU factorization
-    CheckCusolverDnError(cusolverDnDgetrf(handle, *N, *N, gpu_A, *lda, gpu_work, gpu_ipiv, gpu_info));
-    //cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
-    //printf("info for cusolverDnDgetrf: %i \n", info);
+    // CheckCusolverDnError(cusolverDnDgetrf(handle, *N, *N, gpu_A, *lda, gpu_work, gpu_ipiv, gpu_info));
+    CheckCusolverDnError(cusolverDnDgetrf(handle, *N, *N, gpu_A, *N, gpu_work, gpu_ipiv, gpu_info));
+    // cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
+    // printf("info for cusolverDnDgetrf: %i \n", info);
     cudaDeviceSynchronize();
 
     cudaMemcpy(info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
@@ -389,7 +390,8 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
         std::cout << "WARNING: info for cusolverDnDgetrf: " << *info << "\n";
     }
 
-    CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, *N, *nrhs, gpu_A, *lda, gpu_ipiv, gpu_B, *ldb, gpu_info));
+    // CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, *N, *nrhs, gpu_A, *lda, gpu_ipiv, gpu_B, *ldb, gpu_info));
+    CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, *N, *nrhs, gpu_A, *N, gpu_ipiv, gpu_B, *N, gpu_info));
 
     cudaMemcpy(info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
     if (*info != 0){
