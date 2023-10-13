@@ -681,18 +681,6 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 
     } // thread meetup
 
-
-    // dump K into a file:
-    // std::ofstream fout2("K.txt");
-    // for(int k = 0; k < N*N; k++){
-    //     if (K[k] != 0){
-    //         int i = k / N;
-    //         int j = k % N;
-    //         fout2 << i << " " << j << " " << K[k] << "\n"; 
-    //     }
-    // }
-    // exit(1);
-
     // double* D = K + (N_left_tot * N) + N_left_tot;
 
     // do Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub

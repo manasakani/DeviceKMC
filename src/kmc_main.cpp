@@ -227,7 +227,7 @@ int main(int argc, char **argv)
                         std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(step_time, p.small_step, p.dissipation_constant,
                                                                                                       p.background_temp, p.t_ox, p.A, p.c_p);
                         resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-// #endif
+#endif
                     }
                     if (p.solve_heating_local)
                     {
