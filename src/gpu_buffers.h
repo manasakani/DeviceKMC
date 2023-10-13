@@ -10,7 +10,7 @@ class GPUBuffers {
 
 public:
     // varying parameters
-    int *site_charge, *site_is_metal = nullptr;
+    int *site_charge = nullptr;
     double *site_power, *site_potential, *site_temperature = nullptr;
     double *T_bg = nullptr;
     double *atom_power, *atom_potential = nullptr;
@@ -41,6 +41,8 @@ public:
 
     // copy back just the site_power into the power vector
     void copy_power_fromGPU(std::vector<double> &power);
+
+    void copy_charge_toGPU(std::vector<int> &charge);
     
     // constructor allocates arrays in GPU memory
     GPUBuffers(std::vector<Layer> layers, std::vector<int> site_layer_in, double freq_in, int N,
@@ -61,17 +63,12 @@ public:
         }
         int num_layers = layers.size();
 
-        // the activation energies are stored in GPU global constant memory
-        // copytoConstMemory(E_gen_host.data(), E_rec_host.data(), E_Vdiff_host.data(), E_Odiff_host.data());
+        // variables to store in GPU global memory
         copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host);
 
         cudaDeviceSynchronize();
         
         // member variables of the KMCProcess 
-        // gpuErrchk( cudaMalloc((void**)&E_gen, num_layers  * sizeof(double)) );
-        // gpuErrchk( cudaMalloc((void**)&E_rec, num_layers * sizeof(double)) );
-        // gpuErrchk( cudaMalloc((void**)&E_Vdiff, num_layers * sizeof(double)) );
-        // gpuErrchk( cudaMalloc((void**)&E_Odiff, num_layers * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_layer, N_ * sizeof(int)) );
 
         // member variables of the Device
@@ -84,7 +81,6 @@ public:
         gpuErrchk( cudaMalloc((void**)&site_potential, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_temperature, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_charge, N_ * sizeof(int)) );
-        gpuErrchk( cudaMalloc((void**)&site_is_metal, N_* sizeof(int)) );
         gpuErrchk( cudaMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );
         gpuErrchk( cudaMalloc((void**)&T_bg, 1 * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&sigma, 1 * sizeof(double)) );
@@ -102,10 +98,6 @@ public:
         cudaDeviceSynchronize();
 
         // fixed parameters which can be copied from the beginning:
-        // gpuErrchk( cudaMemcpy(E_gen, E_gen_host.data(), num_layers * sizeof(double), cudaMemcpyHostToDevice) );
-        // gpuErrchk( cudaMemcpy(E_rec, E_rec_host.data(), num_layers * sizeof(double), cudaMemcpyHostToDevice) );
-        // gpuErrchk( cudaMemcpy(E_Vdiff, E_Vdiff_host.data(), num_layers * sizeof(double), cudaMemcpyHostToDevice) );
-        // gpuErrchk( cudaMemcpy(E_Odiff, E_Odiff_host.data(), num_layers * sizeof(double), cudaMemcpyHostToDevice) );
         gpuErrchk( cudaMemcpy(site_layer, site_layer_in.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
         gpuErrchk( cudaMemcpy(site_x, site_x_in.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
         gpuErrchk( cudaMemcpy(site_y, site_y_in.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );

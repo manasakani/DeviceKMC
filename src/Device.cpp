@@ -744,10 +744,10 @@ void Device::updatePotential(cusolverDnHandle_t handle, int num_atoms_contact, d
     poisson_gridless(num_atoms_contact, lattice);
 }
 
-void Device::updatePotential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
+void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
                                  double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
 {
-
+    // STILL NEED TO PORT THESE TWO FUNCTIONS
     int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
     int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
 

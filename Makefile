@@ -14,9 +14,10 @@ CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/
 
 # IIS - If compiling with GPU
 NVCC = nvcc
-NVCCFLAGS = -O3 -arch=sm_60 -ccbin "/usr/sepp/bin/g++"
+NVCCFLAGS = -O3 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" #-G -lineinfo # Last two are for the visual profiler
 LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver
 CXXFLAGS += -DUSE_CUDA
+# To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 
 
 # *** Piz Daint *** 
 #CXX = gcc

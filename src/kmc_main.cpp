@@ -160,18 +160,17 @@ int main(int argc, char **argv)
                     resultMap.insert(chargeMap.begin(), chargeMap.end());
 #endif
 
-// #ifdef USE_CUDA
-//                     gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-//                     device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
-//                                                p.G_coeff, p.high_G, p.low_G, p.metals);
-//                     gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-// #else
+#ifdef USE_CUDA
+                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+                    device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
+                                               p.G_coeff, p.high_G, p.low_G, p.metals);
+                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+#else
                     device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                            p.G_coeff, p.high_G, p.low_G, p.metals);
                     gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
-// #endif
+#endif
                 }
-
                 auto t_pot = std::chrono::steady_clock::now();
                 diff_pot = t_pot - t0;
 
@@ -207,16 +206,16 @@ int main(int argc, char **argv)
 
                     if (p.solve_heating_global)
                     {
-                        // #ifdef USE_CUDA
-                        //                   gpubuf.sync_HostToGPU(device); // remove eventually
-                        //                 device.updateTemperatureGlobal_gpu(gpubuf, step_time, p.small_step, p.dissipation_constant,
-                        //                                                  p.background_temp, p.t_ox, p.A, p.c_p);
-                        //             gpubuf.sync_GPUToHost(device); // remove eventually
-                        // #else
+// #ifdef USE_CUDA
+//                   gpubuf.sync_HostToGPU(device); // remove eventually
+//                   device.updateTemperatureGlobal_gpu(gpubuf, step_time, p.small_step, p.dissipation_constant,
+//                                                      p.background_temp, p.t_ox, p.A, p.c_p);
+//                   gpubuf.sync_GPUToHost(device); // remove eventually
+// #else
                         std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(step_time, p.small_step, p.dissipation_constant,
                                                                                                       p.background_temp, p.t_ox, p.A, p.c_p);
                         resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-                        // #endif
+// #endif
                     }
                     if (p.solve_heating_local)
                     {
@@ -234,7 +233,7 @@ int main(int argc, char **argv)
                             // If they are not the same we have a problem
 
                             // Set a local vector to device.temperature
-                            std::cout << int(step_time / p.delta_t) << std::endl;
+                            // std::cout << int(step_time / p.delta_t) << std::endl;
 
                             for (int i = 0; i <= int(step_time / p.delta_t); ++i)
                             {
@@ -274,15 +273,12 @@ int main(int argc, char **argv)
                 // generate xyz snapshot
                 if (!(kmc_step_count % p.log_freq))
                 {
-// #ifdef USE_CUDA
-//                     gpubuf.sync_GPUToHost(device); 
-// #endif
+#ifdef USE_CUDA
+                    gpubuf.sync_GPUToHost(device); // sync for plotting purposes
+#endif
                     std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
                     device.writeSnapshot(file_name, folder_name);
                 }
-
-                std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-                device.writeSnapshot(file_name, folder_name);
 
                 // Log timing info
                 auto t1 = std::chrono::steady_clock::now();
