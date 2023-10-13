@@ -22,7 +22,8 @@ ELEMENT update_element(std::string element_) {
     } else if (element_ == "Pt") {
         return Pt;
     } else {
-        std::cout << "Error: Unknown element type!" << std::endl;
+        std::cout << "Error: Unknown element type in update_element!: " << element_ << std::endl;
+        exit(1);
         return NULL_ELEMENT;
     }
 }
@@ -45,7 +46,8 @@ std::string return_element(ELEMENT element_) {
     } else if (element_ == Pt) {
         return "Pt";
     } else {
-        std::cout << "Error: Unknown element type!" << std::endl;
+        std::cout << "Error: Unknown element type in return_element()!: " << element_ << std::endl;
+        exit(1);
         return "";
     }
 }

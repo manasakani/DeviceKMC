@@ -150,9 +150,9 @@ int main(int argc, char **argv)
                 if (p.solve_potential)
                 {
 #ifdef USE_CUDA
-                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-                    device.updateCharge_gpu(gpubuf);
-                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+                   gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+                   device.updateCharge_gpu(gpubuf);
+                   gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 #else
                     std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                     gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
@@ -175,9 +175,9 @@ int main(int argc, char **argv)
 
                 // KMC update step
 #ifdef USE_CUDA
-                gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
-                step_time = sim.executeKMCStep_gpu(gpubuf, device);
-                gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+               gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+               step_time = sim.executeKMCStep_gpu(gpubuf, device);
+               gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 #else
                 step_time = sim.executeKMCStep(device);
                 gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
