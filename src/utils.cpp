@@ -12,15 +12,15 @@ ELEMENT update_element(std::string element_) {
     } else if (element_ == "V") {
         return VACANCY;
     } else if (element_ == "O") {
-        return O;
+        return O_EL;
     } else if (element_ == "Hf") {
-        return Hf;
+        return Hf_EL;
     } else if (element_ == "N") {
-        return N;
+        return N_EL;
     } else if (element_ == "Ti") {
-        return Ti;
+        return Ti_EL;
     } else if (element_ == "Pt") {
-        return Pt;
+        return Pt_EL;
     } else {
         std::cout << "Error: Unknown element type in update_element!: " << element_ << std::endl;
         exit(1);
@@ -35,15 +35,15 @@ std::string return_element(ELEMENT element_) {
         return "Od";
     } else if (element_ == VACANCY) {
         return "V";
-    } else if (element_ == O) {
+    } else if (element_ == O_EL) {
         return "O";
-    } else if (element_ == Hf) {
+    } else if (element_ == Hf_EL) {
         return "Hf";
-    } else if (element_ == N) {
+    } else if (element_ == N_EL) {
         return "N";
-    } else if (element_ == Ti) {
+    } else if (element_ == Ti_EL) {
         return "Ti";
-    } else if (element_ == Pt) {
+    } else if (element_ == Pt_EL) {
         return "Pt";
     } else {
         std::cout << "Error: Unknown element type in return_element()!: " << element_ << std::endl;

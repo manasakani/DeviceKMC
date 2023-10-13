@@ -489,7 +489,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                                                 lattice[0], lattice[1], lattice[2], pbc);
 
             // Generation
-            if (element[i] == DEFECT && element[j] == O)
+            if (element[i] == DEFECT && element[j] == O_EL)
             {
 
                 double E = 2 * (potential[i] - potential[j]);
@@ -517,7 +517,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
             }
 
             // Vacancy diffusion
-            if (element[i] == VACANCY && element[j] == O)
+            if (element[i] == VACANCY && element[j] == O_EL)
             {
 
                 double self_int_V = 0.0;
@@ -880,7 +880,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
     ELEMENT defect_element_host = DEFECT;
     ELEMENT O_defect_element_host = OXYGEN_DEFECT;
     ELEMENT vacancy_element_host = VACANCY;
-    ELEMENT O_element_host = O;
+    ELEMENT O_element_host = O_EL;
 
     double *event_prob_cum;
     gpuErrchk( cudaMalloc((void**)&event_prob_cum, N * nn * sizeof(double)) );
@@ -927,7 +927,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
         {
         case VACANCY_GENERATION:
         {
-            if (element_i_host != DEFECT || element_j_host != O)
+            if (element_i_host != DEFECT || element_j_host != O_EL)
             {
                 print("Wrong event type - VACANCY_GENERATION!");
                 print(return_element(element_i_host) << " and " << return_element(element_j_host));
@@ -961,7 +961,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
         }
         case VACANCY_DIFFUSION:
         {
-            if (element_i_host != VACANCY || element_j_host != O)
+            if (element_i_host != VACANCY || element_j_host != O_EL)
             {
                 print("Wrong event type - VACANCY_DIFFUSION!");
                 print(return_element(element_i_host) << " and " << return_element(element_j_host));

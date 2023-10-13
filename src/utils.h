@@ -39,7 +39,7 @@ enum ELEMENT //: int
     DEFECT,         // d - lattice interstitial site
     OXYGEN_DEFECT,  // Od - Oxygen defect/interstitial
     VACANCY,        // V - Lattice vacancy
-    O, Hf, Ni, Ti, Pt, N,
+    O_EL, Hf_EL, Ni_EL, Ti_EL, Pt_EL, N_EL,
     NULL_ELEMENT
 };
 
