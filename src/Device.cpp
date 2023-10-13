@@ -598,8 +598,6 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
     double *K = (double *)calloc(N * N, sizeof(double));
     double *VL = (double *)malloc(N_left_tot * sizeof(double));
     double *VR = (double *)malloc(N_right_tot * sizeof(double));
-    // double *D = (double *)malloc(N_interface * N_interface * sizeof(double));
-
     double *Ksub = (double *)calloc(N_interface, sizeof(double));
     int *ipiv = (int *)calloc(N_interface, sizeof(int));
 
@@ -670,22 +668,11 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
             }
         }
 
-// #pragma omp for collapse(2)
-//         for (int i = N_left_tot; i < N - N_right_tot; i++)
-//         {
-//             for (int j = N_left_tot; j < N - N_right_tot; j++)
-//             {
-//                 D[(i - N_left_tot) * N_interface + (j - N_left_tot)] = K[i * N + j];
-//             }
-//         }
-
     } // thread meetup
 
     double* D = K + (N_left_tot * N) + N_left_tot;
 
     // do Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub
-    // dgesv_(&N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
-    // gesv(handle, &N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
     gesv(handle, &N_interface, &one, D, &N, ipiv, Ksub, &N_interface, &info);
     // the negative internal voltages are now contained in Ksub
 
@@ -709,7 +696,6 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
     }
 
     free(K);
-    // free(D);
     free(VL);
     free(VR);
     free(Ksub);
@@ -1033,15 +1019,6 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 
     // dissipated power at each atom
     gemm(handle, &trans, &trans, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
-
-//    for (i = 0; i < N_atom; i++)
-//    {
-//        P_disp[i] = 0;
-//        for (j = 0; j < N_atom; j++)
-//        {
-//            P_disp[i] += I_neg[i * N_atom + j] * M[j + 2];
-//        }
-//    }
 
 #pragma omp parallel for
     for (i = num_source_inj; i < N_atom - num_source_inj; i++)

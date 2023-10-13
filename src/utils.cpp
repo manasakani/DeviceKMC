@@ -283,8 +283,6 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
 
 #ifdef USE_CUDA
 
-    printf("Executing GEMM on GPU ...\n");
-
     double *gpu_A, *gpu_B, *gpu_C, *gpu_alpha, *gpu_beta;
     cudaMalloc((void**)&gpu_A, ((*m) * (*k)) * sizeof(double));
     cudaMalloc((void**)&gpu_B, ((*k) * (*n)) * sizeof(double));

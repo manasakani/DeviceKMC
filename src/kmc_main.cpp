@@ -192,26 +192,18 @@ int main(int argc, char **argv)
                 // Power and Temperature
                 if (p.solve_current)
                 {
-#ifdef USE_CUDA
-                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-                    device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
-                                           p.metals, p.m_e, p.V0);
-                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-#else
+// #ifdef USE_CUDA
+//                     gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+//                     device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
+//                                            p.metals, p.m_e, p.V0);
+//                     gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+// #else
 
                     std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                                                                                 p.metals, p.m_e, p.V0);
                     resultMap.insert(powerMap.begin(), powerMap.end());
                     gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-#endif
-
-                    double P_tot = 0.0;
-                    for (int i = 0; i < device.N; i++)
-                    {
-                        P_tot += device.site_power[i];
-                    }
-                    std::cout << "P_tot: " << P_tot << std::endl;
-                    exit(0);
+// #endif
 
                     auto t_power = std::chrono::steady_clock::now();
                     diff_power = t_power - t_perturb;
@@ -244,9 +236,6 @@ int main(int argc, char **argv)
                             // Compare the local temperature vector with the device temperature vector
                             // If they are not the same we have a problem
 
-                            // Set a local vector to device.temperature
-                            // std::cout << int(step_time / p.delta_t) << std::endl;
-
                             for (int i = 0; i <= int(step_time / p.delta_t); ++i)
                             {
                                 std::map<std::string, double> localTemperatureMap = device.updateLocalTemperature(p.background_temp, p.delta_t, p.tau, p.power_adjustment_term, p.k_th_interface,
@@ -260,6 +249,7 @@ int main(int argc, char **argv)
                     auto t_temp = std::chrono::steady_clock::now();
                     diff_temp = t_temp - t_power;
                 }
+
 
                 // ********************************************************
                 // ******************** Log results ***********************
@@ -285,9 +275,6 @@ int main(int argc, char **argv)
                 // generate xyz snapshot
                 if (!(kmc_step_count % p.log_freq))
                 {
-#ifdef USE_CUDA
-                    gpubuf.sync_GPUToHost(device); // sync for plotting purposes
-#endif
                     std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
                     device.writeSnapshot(file_name, folder_name);
                 }
