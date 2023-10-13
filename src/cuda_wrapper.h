@@ -31,7 +31,7 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const double *posx, const double *posy, const double *posz,
                           const int *site_charge, double *site_potential);
 
-void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int N, const int num_source_inj, const int num_ground_ext,
+void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int N, const int num_source_inj, const int num_ground_ext,
                       const double Vd, const int pbc, const double high_G, const double low_G,
                       const double nn_dist, const double m_e, const double V0);
 

@@ -780,7 +780,7 @@ void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, 
                          gpubuf.site_charge, gpubuf.site_potential);
 }
 
-void Device::updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int num_atoms_first_layer, const double Vd, const double high_G, const double low_G,
+void Device::updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int num_atoms_first_layer, const double Vd, const double high_G, const double low_G,
                              std::vector<ELEMENT> metals, const double m_e, const double V0)
 {
 

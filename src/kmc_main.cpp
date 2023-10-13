@@ -192,15 +192,27 @@ int main(int argc, char **argv)
                 // Power and Temperature
                 if (p.solve_current)
                 {
-// #ifdef USE_CUDA
-//                     device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
-//                                            p.metals, p.m_e, p.V0);
-// #else
+#ifdef USE_CUDA
+                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+                    device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
+                                           p.metals, p.m_e, p.V0);
+                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+#else
 
                     std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                                                                                 p.metals, p.m_e, p.V0);
                     resultMap.insert(powerMap.begin(), powerMap.end());
-// #endif
+                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+#endif
+
+                    double P_tot = 0.0;
+                    for (int i = 0; i < device.N; i++)
+                    {
+                        P_tot += device.site_power[i];
+                    }
+                    std::cout << "P_tot: " << P_tot << std::endl;
+                    exit(0);
+
                     auto t_power = std::chrono::steady_clock::now();
                     diff_power = t_power - t_perturb;
 
@@ -215,7 +227,7 @@ int main(int argc, char **argv)
                         std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(step_time, p.small_step, p.dissipation_constant,
                                                                                                       p.background_temp, p.t_ox, p.A, p.c_p);
                         resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-#endif
+// #endif
                     }
                     if (p.solve_heating_local)
                     {
