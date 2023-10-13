@@ -206,16 +206,16 @@ int main(int argc, char **argv)
 
                     if (p.solve_heating_global)
                     {
-// #ifdef USE_CUDA
-//                   gpubuf.sync_HostToGPU(device); // remove eventually
-//                   device.updateTemperatureGlobal_gpu(gpubuf, step_time, p.small_step, p.dissipation_constant,
-//                                                      p.background_temp, p.t_ox, p.A, p.c_p);
-//                   gpubuf.sync_GPUToHost(device); // remove eventually
-// #else
+#ifdef USE_CUDA
+                  gpubuf.sync_HostToGPU(device); // remove eventually
+                  device.updateTemperatureGlobal_gpu(gpubuf, step_time, p.small_step, p.dissipation_constant,
+                                                     p.background_temp, p.t_ox, p.A, p.c_p);
+                  gpubuf.sync_GPUToHost(device); // remove eventually
+#else
                         std::map<std::string, double> temperatureMap = device.updateTemperatureGlobal(step_time, p.small_step, p.dissipation_constant,
                                                                                                       p.background_temp, p.t_ox, p.A, p.c_p);
                         resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-// #endif
+#endif
                     }
                     if (p.solve_heating_local)
                     {
