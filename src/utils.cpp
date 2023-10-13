@@ -283,7 +283,7 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
 
 #ifdef USE_CUDA
 
-    //printf("Executing GEMM on GPU ...\n");
+    printf("Executing GEMM on GPU ...\n");
 
     double *gpu_A, *gpu_B, *gpu_C, *gpu_alpha, *gpu_beta;
     cudaMalloc((void**)&gpu_A, ((*m) * (*k)) * sizeof(double));
@@ -305,7 +305,7 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
     //printf("lda, ldb, ldc = %d, %d, %d\n", *lda, *ldb, *ldc);
 
     // CheckCublasError(cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, gpu_alpha, A, *lda, B, *ldb, gpu_beta, C, *ldc));
-    CheckCublasError(cublasDgemv(handle, CUBLAS_OP_N, *m, *k, gpu_alpha, gpu_A, *lda, gpu_B, 1, gpu_beta, gpu_C, 1));
+    CheckCublasError(cublasDgemv(handle, CUBLAS_OP_T, *m, *k, gpu_alpha, gpu_A, *lda, gpu_B, 1, gpu_beta, gpu_C, 1));
     // cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, *m, *n, *k, gpu_alpha, A, *k, B, *n, gpu_beta, C, *n);
     cudaDeviceSynchronize();
 
@@ -355,7 +355,7 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
 #ifdef USE_CUDA
 
     // https://github.com/NVIDIA/CUDALibrarySamples/blob/master/cuSOLVER/getrf/cusolver_getrf_example.cu
-    //printf("Solving linear system on the GPU ...\n");
+    // printf("Solving linear system on the GPU ...\n");
 
     int lwork = 0;                /* size of workspace */
     double *gpu_work = nullptr;   /* device workspace for getrf */
@@ -375,15 +375,23 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
     CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle, *N, *N, gpu_A, *lda, &lwork));
     cudaMalloc((void **)(&gpu_work), sizeof(double) * lwork);
 
+    // std::cout << "N_interface: " << *N << "\n";
+    // std::cout << "N: " << *lda << "\n";
+
     // Solve Ax=B through LU factorization
     CheckCusolverDnError(cusolverDnDgetrf(handle, *N, *N, gpu_A, *lda, gpu_work, gpu_ipiv, gpu_info));
     //cudaMemcpy(&info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
     //printf("info for cusolverDnDgetrf: %i \n", info);
     cudaDeviceSynchronize();
 
-    CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, *N, *nrhs, gpu_A, *lda, gpu_ipiv, gpu_B, *ldb, gpu_info));
     cudaMemcpy(info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
+    if (*info != 0){
+        std::cout << "WARNING: info for cusolverDnDgetrf: " << *info << "\n";
+    }
 
+    CheckCusolverDnError(cusolverDnDgetrs(handle, CUBLAS_OP_N, *N, *nrhs, gpu_A, *lda, gpu_ipiv, gpu_B, *ldb, gpu_info));
+
+    cudaMemcpy(info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost);
     if (*info != 0){
         std::cout << "WARNING: info for cusolverDnDgetrs: " << *info << "\n";
     }

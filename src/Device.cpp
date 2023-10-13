@@ -66,6 +66,14 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     site_neighbors.initialize(N);
     constructSiteNeighborList();
 
+    // check neighbors:
+    for (int i = 0; i < N; i++)
+    {
+        if (site_neighbors.l[i].size() == 0){
+            std::cout << "ERROR: Site with zero neighbors found at index: " << i << " at " << site_x[i] << " " << site_y[i] << site_z[i] << "\n"; 
+        }
+    }
+
     // neighbor index for threads to use in the KMC step
     neigh_idx.resize(N * max_num_neighbors);
     #pragma omp parallel for
@@ -673,10 +681,26 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 
     } // thread meetup
 
+
+    // dump K into a file:
+    // std::ofstream fout2("K.txt");
+    // for(int k = 0; k < N*N; k++){
+    //     if (K[k] != 0){
+    //         int i = k / N;
+    //         int j = k % N;
+    //         fout2 << i << " " << j << " " << K[k] << "\n"; 
+    //     }
+    // }
+    // exit(1);
+
+    // double* D = K + (N_left_tot * N) + N_left_tot;
+
     // do Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub
     // dgesv_(&N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
     gesv(handle, &N_interface, &one, D, &N_interface, ipiv, Ksub, &N_interface, &info);
+    // gesv(handle, &N_interface, &one, D, &N, ipiv, Ksub, &N_interface, &info);
     // the negative internal voltages are now contained in Ksub
+
 
 // assign potentials to sites:
 #pragma omp parallel for
@@ -1022,14 +1046,14 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     // dissipated power at each atom
     gemm(handle, &trans, &trans, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
 
-    for (i = 0; i < N_atom; i++)
-    {
-        P_disp[i] = 0;
-        for (j = 0; j < N_atom; j++)
-        {
-            P_disp[i] += I_neg[i * N_atom + j] * M[j + 2];
-        }
-    }
+//    for (i = 0; i < N_atom; i++)
+//    {
+//        P_disp[i] = 0;
+//        for (j = 0; j < N_atom; j++)
+//        {
+//            P_disp[i] += I_neg[i * N_atom + j] * M[j + 2];
+//        }
+//    }
 
 #pragma omp parallel for
     for (i = num_source_inj; i < N_atom - num_source_inj; i++)

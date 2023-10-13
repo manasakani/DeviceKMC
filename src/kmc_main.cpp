@@ -83,7 +83,6 @@ int main(int argc, char **argv)
     outputBuffer << "**Calculation time for the laplacian:**\n";
     outputBuffer << "Laplacian update: " << diff_laplacian.count() << "\n";
 
-    std::cout << p.pristine << std::endl;
     if (p.pristine)
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
 
@@ -150,39 +149,40 @@ int main(int argc, char **argv)
                 auto t0 = std::chrono::steady_clock::now();
                 if (p.solve_potential)
                 {
-#ifdef USE_CUDA
-                   gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-                   device.updateCharge_gpu(gpubuf);
-                   gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-#else
+// #ifdef USE_CUDA
+//                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+//                    device.updateCharge_gpu(gpubuf);
+//                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+// #else
                     std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
                     gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
                     resultMap.insert(chargeMap.begin(), chargeMap.end());
-#endif
+// #endif
 
-#ifdef USE_CUDA
-                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-                    device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
-                                               p.G_coeff, p.high_G, p.low_G, p.metals);
-                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-#else
+// #ifdef USE_CUDA
+//                     gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+//                     device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
+//                                                p.G_coeff, p.high_G, p.low_G, p.metals);
+//                     gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+// #else
                     device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
                                            p.G_coeff, p.high_G, p.low_G, p.metals);
                     gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
-#endif
+// #endif
                 }
+
                 auto t_pot = std::chrono::steady_clock::now();
                 diff_pot = t_pot - t0;
 
                 // KMC update step
-#ifdef USE_CUDA
-               gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
-               step_time = sim.executeKMCStep_gpu(gpubuf, device);
-               gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-#else
+// #ifdef USE_CUDA
+//                gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+//                step_time = sim.executeKMCStep_gpu(gpubuf, device);
+//                gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+// #else
                 step_time = sim.executeKMCStep(device);
                 gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
-#endif
+// #endif
 
                 double temperature_time = kmc_time;
                 kmc_time += step_time;
@@ -192,15 +192,15 @@ int main(int argc, char **argv)
                 // Power and Temperature
                 if (p.solve_current)
                 {
-#ifdef USE_CUDA
-                    device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
-                                           p.metals, p.m_e, p.V0);
-#else
+// #ifdef USE_CUDA
+//                     device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
+//                                            p.metals, p.m_e, p.V0);
+// #else
 
                     std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                                                                                 p.metals, p.m_e, p.V0);
                     resultMap.insert(powerMap.begin(), powerMap.end());
-#endif
+// #endif
                     auto t_power = std::chrono::steady_clock::now();
                     diff_power = t_power - t_perturb;
 
