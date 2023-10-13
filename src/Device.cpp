@@ -487,7 +487,7 @@ void Device::makeSubstoichiometric(double vacancy_concentration)
         loc = random_num * N;
         if (site_element[loc] == O)
         {
-            site_element[loc] == VACANCY;
+            site_element[loc] = VACANCY;
             num_V_add--;
         }
     }
@@ -757,6 +757,18 @@ void Device::updatePotential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gp
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                          gpubuf.site_charge, gpubuf.site_potential);
+}
+
+void Device::updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int num_atoms_first_layer, const double Vd, const double high_G, const double low_G,
+                             std::vector<ELEMENT> metals, const double m_e, const double V0)
+{
+
+    int num_source_inj = num_atoms_first_layer;
+    int num_ground_ext = num_source_inj;
+
+    update_power_gpu(handle, handle_cusolver, gpubuf, N, num_source_inj, num_ground_ext,
+                     Vd, pbc, high_G, low_G,
+                     nn_dist, m_e, V0);
 }
 
 // update the power of each site
@@ -1048,7 +1060,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
         }
         else
         {
-            alpha = 0.20;
+            alpha = 0.10;
         }
 
         site_power[atom_ind[i]] = -1 * alpha * P_disp[i];

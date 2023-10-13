@@ -54,12 +54,15 @@ def main():
     power = []
     V = 'V'
     times = []
+    shift = 0
 
     with open(outfile, "rt") as myfile:
         for line in myfile:
             # new applied voltage found
-            if 'Applied' in line.split():
+            if 'Voltage' in line.split():
                 V = line.split()[-2]
+                
+                shift = times[len(times)-1]
             if 'Current' in line.split():
                 curr = float(line.split()[-1])
                 current.append(curr)
@@ -70,7 +73,8 @@ def main():
                 powerTemp = (1e9)*float(line.split()[-1])
                 power.append(powerTemp)
             if 'KMC' in line.split() and 'time' in line.split() and 'reached' not in line.split():
-                times.append(float(line.split()[-1]))
+                times.append(float(line.split()[-1]) + shift)
+                
 
     # plot the data for the last voltage
     plot_It(temperature, current, power, times, V)
