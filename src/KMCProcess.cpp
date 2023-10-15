@@ -34,6 +34,15 @@ KMCProcess::KMCProcess(Device *device, double _freq)
             if (layers[j].start_x <= device->site_x[i] && device->site_x[i] <= layers[j].end_x)
             {
                 layerID = j;
+
+                // // condition for Ti interface in large-device:
+                // if (layers[j].E_gen_0 == 1.66)
+                // {
+                //     if (device->site_y[i] < 13.4843 || device->site_y[i] > 38.8769) // HARDCODED
+                //     {
+                //         layerID = j-1;
+                //     }
+                // }
             }
         }
         if (layerID == 1000)

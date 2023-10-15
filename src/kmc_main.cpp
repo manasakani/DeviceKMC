@@ -131,9 +131,9 @@ int main(int argc, char **argv)
             // ********************************************************
             // ***************** MAIN KMC LOOP ************************
             // ********************************************************
-#ifdef USE_CUDA
-        gpubuf.sync_HostToGPU(device);
-#endif
+// #ifdef USE_CUDA
+//         gpubuf.sync_HostToGPU(device);
+// #endif
             while (kmc_time < t)
             {
                 outputBuffer << "--------------\n";
@@ -192,18 +192,18 @@ int main(int argc, char **argv)
                 // Power and Temperature
                 if (p.solve_current)
                 {
-// #ifdef USE_CUDA
-//                     gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-//                     device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
-//                                            p.metals, p.m_e, p.V0);
-//                     gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-// #else
+#ifdef USE_CUDA
+                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+                    device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
+                                           p.metals, p.m_e, p.V0);
+                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+#else
 
                     std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
                                                                                 p.metals, p.m_e, p.V0);
                     resultMap.insert(powerMap.begin(), powerMap.end());
                     gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-// #endif
+#endif
 
                     auto t_power = std::chrono::steady_clock::now();
                     diff_power = t_power - t_perturb;
@@ -290,17 +290,17 @@ int main(int argc, char **argv)
                 outputBuffer << "Total KMC Step: " << diff.count() << "\n";
                 outputBuffer << "--------------------------------------";
             }
-#ifdef USE_CUDA
-            gpubuf.sync_GPUToHost(device);
-#endif
+// #ifdef USE_CUDA
+//             gpubuf.sync_GPUToHost(device);
+// #endif
             const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
             device.writeSnapshot(file_name, folder_name);
             vt_counter++;
         }
 
-#ifdef USE_CUDA
-        gpubuf.freeGPUmemory();
-#endif
+// #ifdef USE_CUDA
+//         gpubuf.freeGPUmemory();
+// #endif
 
     CheckCublasError(cublasDestroy(handle));
 

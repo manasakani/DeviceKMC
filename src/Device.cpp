@@ -588,8 +588,8 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 {
 
     std::map<std::string, int> result;
-    int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
-    int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
+    int N_left_tot = 144; //(num_atoms_contact, "left");
+    int N_right_tot = 144; //get_num_in_contacts(num_atoms_contact, "right");
     int N_interface = N - N_left_tot - N_right_tot;
 
     int one = 1;
@@ -607,13 +607,13 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 #pragma omp for
         for (int i = 0; i < N_left_tot; i++)
         {
-            VL[i] = 0;
+            VL[i] = -Vd/2; // split voltage across contacts
         }
 
 #pragma omp for
         for (int i = 0; i < N_right_tot; i++)
         {
-            VR[i] = Vd;
+            VR[i] = Vd/2;
         }
 
 // construct parametrized conductivity matrix (populates the K array)
@@ -832,7 +832,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                 double distNeighbor = site_dist(atom_x[i], atom_y[i], atom_z[i],
                                                 atom_x[j], atom_y[j], atom_z[j], lattice, pbc);
 
-                neighbor = abs(distNeighbor) < nn_dist && i != j;
+                neighbor = distNeighbor < nn_dist && i != j;
 
                 // direct terms:
                 if (i != j && neighbor)
@@ -853,7 +853,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                 if (i != j && !neighbor)
                 {
                     V_V = (vacancy1 && vacancy2) || (vacancy2 && cvacancy1) || (vacancy1 && cvacancy2) || (cvacancy1 && cvacancy2);
-
+                    
                     if (V_V)
                     {
                         //T = exp(-2 * sqrt((2 * m_e * V0 * eV_to_J) / (h_bar_sq)) * dist);
@@ -1019,6 +1019,16 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 
     // dissipated power at each atom
     gemm(handle, &trans, &trans, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
+
+    //  // debug
+    // std::ofstream fout("P_cpu.txt");
+    // for(int i = 0; i< N_atom; i++){
+    //     fout << P_disp[i]; 
+    //     fout << ' ';
+    // }
+    // std::cout << "wrote cpu P";
+    // exit(1);
+
 
 #pragma omp parallel for
     for (i = num_source_inj; i < N_atom - num_source_inj; i++)
