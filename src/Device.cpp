@@ -763,7 +763,7 @@ void Device::updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cu
 
     update_power_gpu(handle, handle_cusolver, gpubuf, N, num_source_inj, num_ground_ext,
                      Vd, pbc, high_G, low_G,
-                     nn_dist, m_e, V0);
+                     nn_dist, m_e, V0, metals.size());
 }
 
 // update the power of each site
@@ -952,6 +952,8 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     double one_d = 1.0;
     double P_disp[N_atom];
     double min_V = *std::min_element(M + 2, M + N_full);
+    int min_V_test = std::min_element(M + 2, M + N_full) - M;
+    std::cout << min_V_test << std::endl;
 
 #pragma omp parallel private(I_cal, i, j)
     {
@@ -1044,11 +1046,11 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
         }
         else if (vacancy)
         {
-            alpha = 0.10;
+            alpha = 1;
         }
         else
         {
-            alpha = 0.10;
+            alpha = 1;
         }
 
         site_power[atom_ind[i]] = -1 * alpha * P_disp[i];
@@ -1073,6 +1075,59 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     result["Current in uA"] = I_macro * 1e6;
     result["Conductance in uS"] = Geq * 1e6;
     // To do: put alpha in the parameter file
+    return result;
+}
+
+// update the temperature at every site using the gpu
+void Device::updatetemperature_gpu(bool solve_heating_global, bool solve_heating_local, GPUBuffers gpubuf, double step_time, double small_step, double dissipation_constant,
+                                   double background_temp, double t_ox, double A, double c_p)
+{
+    if (solve_heating_global)
+    {
+        updateTemperatureGlobal_gpu(gpubuf, step_time, small_step, dissipation_constant, background_temp, t_ox, A, c_p);
+    }
+    else if (solve_heating_local)
+    {
+        std::cout << "This is not implemented on the GPU yet" << std::endl;
+    }
+}
+
+// update temperature on the CPU
+std::map<std::string, double> Device::updatetemperature(bool solve_heating_global, bool solve_heating_local,
+                                                        double step_time, double small_step, double dissipation_constant,
+                                                        double background_temp, double t_ox, double A, double c_p, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
+                                                        double k_th_vacancies, double num_atoms_contact, std::vector<ELEMENT> metals)
+{
+    std::map<std::string, double> result;
+    result["Global temperature in K"] = background_temp;
+
+    if (solve_heating_global)
+    {
+        return updateTemperatureGlobal(step_time, small_step, dissipation_constant,
+                                       background_temp, t_ox, A, c_p);
+    }
+    else if (solve_heating_local)
+    {
+        // use this to modify the rates
+        if (step_time > 1e4 * delta_t)
+        {
+            // use steady state solution
+            std::map<std::string, double> localTemperatureMap = updateLocalTemperatureSteadyState(background_temp, delta_t, tau, power_adjustment_term, k_th_interface,
+                                                                                                  k_th_vacancies, num_atoms_contact, metals);
+
+            return localTemperatureMap;
+        }
+        else
+        {
+            std::map<std::string, double> localTemperatureMap;
+            for (int i = 0; i <= int(step_time / delta_t); ++i)
+            {
+                localTemperatureMap = updateLocalTemperature(background_temp, delta_t, tau, power_adjustment_term, k_th_interface,
+                                                             k_th_vacancies, num_atoms_contact, metals);
+            }
+            return localTemperatureMap;
+        }
+    }
     return result;
 }
 
@@ -1300,6 +1355,6 @@ void Device::writeSnapshot(std::string filename, std::string foldername)
 
     for (int i = 0; i < N; i++)
     {
-        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential[i] << "   " << site_temperature[i] << "\n";
+        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_power[i] << "   " << site_temperature[i] << "\n";
     }
 }

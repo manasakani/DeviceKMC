@@ -144,8 +144,17 @@ public:
     // update the temperature of each site
     std::map<std::string, double> updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
                                                           double background_temp, double t_ox, double A, double c_p);
+
     void updateTemperatureGlobal_gpu(GPUBuffers gpubuf, double event_time, double small_step, double dissipation_constant,
                                                         double background_temp, double t_ox, double A, double c_p);
+
+    void updatetemperature_gpu(bool solve_heating_global, bool solve_heating_local, GPUBuffers gpubuf, double event_time, double small_step, double dissipation_constant,
+                               double background_temp, double t_ox, double A, double c_p);
+
+    std::map<std::string, double> updatetemperature(bool solve_heating_global, bool solve_heating_local,
+                                                    double step_time, double small_step, double dissipation_constant,
+                                                    double background_temp, double t_ox, double A, double c_p, double t, double tau, double power_adjustment_term, double k_th_interface,
+                                                    double k_th_vacancies, double num_atoms_contact, std::vector<ELEMENT> metals);
 
     // update the local and global temperature
     std::map<std::string, double> updateLocalTemperature(double background_temp, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
