@@ -173,16 +173,16 @@ int main(int argc, char **argv)
                 if (p.solve_current)
                 {
                     std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
-                                                                                p.metals, p.m_e, p.V0);
+                                                                                p.metals, p.m_e, p.V0, p.t_ox);
                     resultMap.insert(powerMap.begin(), powerMap.end());
 
-                    auto t_power = std::chrono::steady_clock::now();
-                    diff_power = t_power - t_perturb;
+                   auto t_power = std::chrono::steady_clock::now();
+                   diff_power = t_power - t_perturb;
 
                     // Temperature
                     if (p.solve_heating_global || p.solve_heating_local)
                     {
-                        std::map<std::string, double> temperatureMap = device.updatetemperature(p.solve_heating_global, p.solve_heating_local, gpubuf, step_time, p.small_step, p.dissipation_constant, p.background_temp, p.t_ox, p.A, p.c_p, p.delta_t, p.tau, p.power_adjustment_term, p.k_th_interface, p.k_th_vacancies, p.num_atoms_contact, p.metals);
+                        std::map<std::string, double> temperatureMap = device.updateTemperature(p.solve_heating_global, p.solve_heating_local, gpubuf, step_time, p.small_step, p.dissipation_constant, p.background_temp, p.t_ox, p.A, p.c_p, p.delta_t, p.tau, p.power_adjustment_term, p.k_th_interface, p.k_th_vacancies, p.num_atoms_contact, p.metals);
                         resultMap.insert(temperatureMap.begin(), temperatureMap.end());
                     }
 
@@ -190,45 +190,44 @@ int main(int argc, char **argv)
                     diff_temp = t_temp - t_power;
                 }
 
+               // ********************************************************
+               // ******************** Log results ***********************
+               // ********************************************************
 
-                // ********************************************************
-                // ******************** Log results ***********************
-                // ********************************************************
+               outputBuffer << "KMC time is: " << kmc_time << "\n";
 
-                outputBuffer << "KMC time is: " << kmc_time << "\n";
+               // load step results into print buffer
+               for (const auto &pair : resultMap)
+               {
+                   outputBuffer << pair.first << ": " << pair.second << std::endl;
+               }
+               resultMap.clear();
 
-                // load step results into print buffer
-                for (const auto &pair : resultMap)
-                {
-                    outputBuffer << pair.first << ": " << pair.second << std::endl;
-                }
-                resultMap.clear();
+               // dump print buffer into the output file
+               if (!(kmc_step_count % p.output_freq))
+               {
+                   outputFile << outputBuffer.str();
+                   outputBuffer.str(std::string());
+               }
+               kmc_step_count++;
 
-                // dump print buffer into the output file
-                if (!(kmc_step_count % p.output_freq))
-                {
-                    outputFile << outputBuffer.str();
-                    outputBuffer.str(std::string());
-                }
-                kmc_step_count++;
+               // generate xyz snapshot
+               if (!(kmc_step_count % p.log_freq))
+               {
+                   std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
+                   device.writeSnapshot(file_name, folder_name);
+               }
 
-                // generate xyz snapshot
-                if (!(kmc_step_count % p.log_freq))
-                {
-                    std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-                    device.writeSnapshot(file_name, folder_name);
-                }
-
-                // Log timing info
-                auto t1 = std::chrono::steady_clock::now();
-                diff = t1 - t0;
-                outputBuffer << "**Calculation times:**\n";
-                outputBuffer << "Potential update: " << diff_pot.count() << "\n";
-                outputBuffer << "Power update: " << diff_power.count() << "\n";
-                outputBuffer << "Temperature update: " << diff_temp.count() << "\n";
-                outputBuffer << "Structure perturbation: " << diff_perturb.count() << "\n";
-                outputBuffer << "Total KMC Step: " << diff.count() << "\n";
-                outputBuffer << "--------------------------------------";
+               // Log timing info
+               auto t1 = std::chrono::steady_clock::now();
+               diff = t1 - t0;
+               outputBuffer << "**Calculation times:**\n";
+               outputBuffer << "Potential update: " << diff_pot.count() << "\n";
+               outputBuffer << "Power update: " << diff_power.count() << "\n";
+               outputBuffer << "Temperature update: " << diff_temp.count() << "\n";
+               outputBuffer << "Structure perturbation: " << diff_perturb.count() << "\n";
+               outputBuffer << "Total KMC Step: " << diff.count() << "\n";
+               outputBuffer << "--------------------------------------";
             }
 #ifdef USE_CUDA
             gpubuf.sync_GPUToHost(device);

@@ -48,7 +48,7 @@ struct is_defect
 {
     __host__ __device__ bool operator()(const ELEMENT element)
     {
-        return (element != DEFECT && element != OXYGEN_DEFECT);
+        return (element != DEFECT);
     }
 };
 
@@ -362,7 +362,7 @@ __global__ void create_K(
 __global__ void set_ineg(double *ineg, const double *x,
                          const double *m, double Vd, int N, const double *posx, const double *posy, const double *posz,
                          const int pbc, const double *lattice, const double nn_dist,
-                         const double V0, const double *atom_potential)
+                         const double V0, const double *atom_potential, const double t_ox)
 {
     // ineg is matrix N x N
     // x is matrix (N+2) x (N+2)
@@ -376,6 +376,7 @@ __global__ void set_ineg(double *ineg, const double *x,
         int i = idx / N;
         int j = idx % N;
 
+        double xdiff = (1e-10) * (posx[j] - posx[i]);
         double dist = site_dist_gpu(posx[i], posy[i], posz[i], posx[j], posy[j], posz[j], lattice[0], lattice[1], lattice[2], pbc);
         bool neighbor = false;
         if (dist < nn_dist && i != j)
@@ -387,7 +388,7 @@ __global__ void set_ineg(double *ineg, const double *x,
         {
             ineg[i * N + j] = -ical;
         }
-        else if (ical < 0 && Vd > 0 && (atom_potential[j] - atom_potential[i]) < V0 && posx[j] >= posx[i] && !neighbor)
+        else if (ical < 0 && Vd > 0 && xdiff < t_ox * V0 && xdiff > 0 && !neighbor)
         { // excluding Fowler Nordheim tunneling
             ineg[i * N + j] = -ical;
         }
@@ -489,7 +490,7 @@ __global__ void create_X(
     const double *posx, const double *posy, const double *posz,
     const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_potential,
     const double *lattice, bool pbc, double high_G, double low_G_1,
-    double nn_dist, double m_e, double V0, int num_source_inj, int num_ground_ext, int N, int num_metals)
+    double nn_dist, double m_e, double V0, int num_source_inj, int num_ground_ext, int N, int num_metals, const double t_ox, const double Vd)
 {
 
     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
@@ -552,19 +553,19 @@ __global__ void create_X(
 
             if (V_V)
             {
-                double Vdiff = atom_potential[j] - atom_potential[i];
+                double Vdiff = Vd;
                 double xdiff = (1e-10) * (posx[j] - posx[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0
-                double b = Vdiff / xdiff;
+                double b = Vdiff / t_ox;
                 double a = 1e18; // zero prob
-                if (abs(V0 - Vdiff) < 1e-18)
+                if (abs(V0 / b - xdiff) < 1e-18 && xdiff > 0)
                 {
                     a = 2.0 / 3.0 * sqrt(V0) * xdiff;
                 }
-                else if (V0 - Vdiff > 0)
+                else if (xdiff < V0 / b && xdiff > 0)
                 {                                                                     // if Vdiff < 0 then lower prob
-                    a = -2.0 / 3.0 * (1 / b) * (pow(V0 - Vdiff, 1.5) - pow(V0, 1.5)); // always +
+                    a = -2.0 / 3.0 * (1 / b) * (pow(V0 - b * xdiff, 1.5) - pow(V0, 1.5)); // always +
                 }
-                else if (V0 - Vdiff < 0 && xdiff > 0)
+                else if (xdiff > V0 / b < 0 && xdiff > 0)
                 {
                     a = -2.0 / 3.0 * (1 / b) * (-1) * pow(V0, 3 / 2); // always +
                 }
@@ -994,7 +995,7 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
 
 void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int N, const int num_source_inj, const int num_ground_ext,
                       const double Vd, const int pbc, const double high_G, const double low_G,
-                      const double nn_dist, const double m_e, const double V0, int num_metals)
+                      const double nn_dist, const double m_e, const double V0, int num_metals, const double t_ox)
 {
     int *gpu_index;
     cudaMalloc((void **)&gpu_index, N * sizeof(int)); // indices of the site array
@@ -1044,7 +1045,7 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
         gpu_x, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
         gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_potential,
         gpubuf.lattice, pbc, high_G, low_G,
-        nn_dist, m_e, V0, num_source_inj, num_ground_ext, N_atom, num_metals);
+        nn_dist, m_e, V0, num_source_inj, num_ground_ext, N_atom, num_metals, t_ox, Vd);
     cudaDeviceSynchronize();
 
     // Diag X
@@ -1112,7 +1113,7 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     set_ineg<<<num_blocks, num_threads>>>(gpu_ineg, gpu_x, gpu_m, Vd, N_atom,
                                           gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
                                           pbc, gpubuf.lattice, nn_dist,
-                                          V0, gpubuf.atom_potential);
+                                          V0, gpubuf.atom_potential, t_ox);
     cudaDeviceSynchronize();
 
 

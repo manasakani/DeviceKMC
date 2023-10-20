@@ -72,7 +72,7 @@ def make_image(names, positions, potential, temperature, structure_folder, imnam
     ax = fig.add_subplot(3, 1, 2)
     ax.grid(True)
     ax.scatter(x, potential, c=y, s=2, alpha=0.5, cmap='coolwarm')
-    ax.set_ylim(ymin=np.min(potential)-2, ymax = np.max(potential)+2)
+    # ax.set_ylim(ymin=np.min(potential)-2, ymax = np.max(potential)+2)
     ax.set_xlabel("x position(s) (A)")
     ax.set_ylabel("Potential (V)")
     

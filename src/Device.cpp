@@ -172,7 +172,7 @@ void Device::updateAtomLists()
             }
         }
     }
-    
+
     this->N_atom = atom_count;
 }
 
@@ -760,44 +760,9 @@ void Device::updatePotential(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int 
 #endif
 }
 
-// void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
-//                                  double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
-// {
-//     // STILL NEED TO PORT THESE TWO FUNCTIONS
-//     int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
-//     int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
-
-//     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
-
-//     background_potential_gpu(handle, gpubuf, N, N_left_tot, N_right_tot,
-//                              Vd, pbc, high_G, low_G, nn_dist, metals.size());
-
-//     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
-//                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-//                          gpubuf.site_charge, gpubuf.site_potential);
-
-//     gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
-// }
-
-// void Device::updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int num_atoms_first_layer, const double Vd, const double high_G, const double low_G,
-//                              std::vector<ELEMENT> metals, const double m_e, const double V0)
-// {
-
-//     int num_source_inj = num_atoms_first_layer;
-//     int num_ground_ext = num_source_inj;
-
-//     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
-
-//     update_power_gpu(handle, handle_cusolver, gpubuf, N, num_source_inj, num_ground_ext,
-//                      Vd, pbc, high_G, low_G,
-//                      nn_dist, m_e, V0, metals.size());
-
-//     gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
-// }
-
 // update the power of each site
 std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, int num_atoms_first_layer, double Vd, double high_G, double low_G,
-                                                  std::vector<ELEMENT> metals, double m_e, double V0)
+                                                  std::vector<ELEMENT> metals, double m_e, double V0, double t_ox)
 {
     // Map
     std::map<std::string, double> result;
@@ -811,7 +776,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 
     update_power_gpu(handle, handle_cusolver, gpubuf, N, num_source_inj, num_ground_ext,
                      Vd, pbc, high_G, low_G,
-                     nn_dist, m_e, V0, metals.size());
+                     nn_dist, m_e, V0, metals.size(), t_ox);
 
     gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
 
@@ -899,16 +864,21 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                     
                     if (V_V)
                     {
-                        //T = exp(-2 * sqrt((2 * m_e * V0 * eV_to_J) / (h_bar_sq)) * dist);
-                        double Vdiff = site_potential[atom_ind[j]]- site_potential[atom_ind[i]];
-                        double xdiff = (1e-10) *(atom_x[j] - atom_x[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0
-                        double b = Vdiff / xdiff;
+                        // T = exp(-2 * sqrt((2 * m_e * V0 * eV_to_J) / (h_bar_sq)) * dist);
+                        double Vdiff = Vd;
+                        double xdiff = (1e-10) * (atom_x[j] - atom_x[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0
+                        double b = Vdiff / t_ox;
                         double a = 1e18; // zero prob
-                        if (abs(V0 - Vdiff) < 1e-18){
+                        if (abs(V0 / b - xdiff) < 1e-18 && xdiff > 0)
+                        { // if it's zero
                             a = 2.0/3.0*sqrt(V0)*xdiff;
-                        } else if (V0-Vdiff>0){ // if Vdiff < 0 then lower prob
-                            a = -2.0/3.0*(1/b)*(pow(V0-Vdiff, 1.5)-pow(V0, 1.5)); // always +
-                        } else if (V0-Vdiff<0 && xdiff > 0) {
+                        }
+                        else if (xdiff < V0 / b && xdiff > 0)
+                        {                                                                         // if Vdiff < 0 then lower prob
+                            a = -2.0 / 3.0 * (1 / b) * (pow(V0 - b * xdiff, 1.5) - pow(V0, 1.5)); // always +
+                        }
+                        else if (xdiff > V0 / b < 0 && xdiff > 0)
+                        {
                             a = -2.0/3.0*(1/b)*(-1)*pow(V0, 3/2); // always +
                         }
                         T = exp(-2 *sqrt( (2*m_e*eV_to_J)/(h_bar_sq) ) * a);
@@ -997,52 +967,42 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     double min_V = *std::min_element(M + 2, M + N_full);
 
 #pragma omp parallel private(I_cal, i, j)
+{
+    // shifting the virtual potential by its minimum
+    #pragma omp for
+    for (i = 0; i < N_full; i++)
     {
-// shifting the virtual potential by its minimum
-#pragma omp for
-        for (i = 0; i < N_full; i++)
-        {
-            M[i] += std::abs(min_V);
-        }
+        M[i] += std::abs(min_V);
+    }
 
-        // Collect the forward currents into I_neg
-#pragma omp for // collapse(2)
-        for (i = 0; i < N_atom; i++)
+    // Collect the forward currents into I_neg
+    #pragma omp for // collapse(2)
+    for (i = 0; i < N_atom; i++)
+    {
+        int count = 0;
+        for (j = 0; j < N_atom; j++)
         {
-            for (j = 0; j < N_atom; j++)
+
+            double distNeighbor = site_dist(atom_x[i], atom_y[i], atom_z[i],
+                                            atom_x[j], atom_y[j], atom_z[j], lattice, pbc);
+
+            double neighbor = distNeighbor < nn_dist;
+            double xdiff = (1e-10) * (atom_x[j] - atom_x[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0
+
+            I_neg[i * N_atom + j] = 0;
+            I_cal = X[N_full * (i + 2) + (j + 2)] * (M[i + 2] - M[j + 2]); // current flows from j to i
+
+            if (I_cal < 0 && Vd > 0 && i != j && neighbor)
             {
+                I_neg[i * N_atom + j] = -I_cal;
+            }
 
-                double distNeighbor = site_dist(atom_x[i], atom_y[i], atom_z[i],
-                                                atom_x[j], atom_y[j], atom_z[j], lattice, pbc);
-
-                double neighbor = abs(distNeighbor) < nn_dist && i != j;
-
-                I_neg[i * N_atom + j] = 0;
-                I_cal = X[N_full * (i + 2) + (j + 2)] * (M[i + 2] - M[j + 2]); // current flows from j to i
-
-                // if ((M[j + 2] - M[i + 2] < 0 && I_cal < 0))
-                // {
-                //     std::cout << "This loop should not be entered" << std::endl;
-                // }
-
-                if (X[N_full * (i + 2) + (j + 2)] > 0 && i != j && neighbor)
-                    std::cout << "The X should never be positive" << std::endl;
-
-                if (I_cal < 0 && Vd > 0 && i != j && neighbor)
-                {
-                    I_neg[i * N_atom + j] = -I_cal;
-                }
-
-                // else if (I_cal > 0 && Vd < 0 && neighbor)
-                // {
-                //     I_neg[i * N_atom + j] = -I_cal;
-                // }
-                else if (I_cal < 0 && Vd > 0 && (site_potential[j] - site_potential[i]) < V0 && atom_x[j] >= atom_x[i] && !neighbor)
-                { // excluding Fowler Nordheim tunneling
-                    I_neg[i * N_atom + j] = -I_cal;
-                }
+            else if (I_cal < 0 && Vd > 0 && xdiff < t_ox * V0 / Vd && xdiff > 0 && !neighbor)
+            { // excluding Fowler Nordheim tunneling
+                I_neg[i * N_atom + j] = -I_cal;
             }
         }
+    }
 
 // Check whether there a negative entries in the X matrix
 
@@ -1065,15 +1025,14 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     char transb = 'N';
     gemm(handle, &transa, &transb, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
 
-    //  // debug
-    // std::ofstream fout("P_cpu.txt");
-    // for(int i = 0; i< N_atom; i++){
-    //     fout << P_disp[i]; 
-    //     fout << ' ';
-    // }
-    // std::cout << "wrote cpu P";
-    // exit(1);
-
+        //  // debug
+        // std::ofstream fout("P_cpu.txt");
+        // for(int i = 0; i< N_atom; i++){
+        //     fout << P_disp[i];
+        //     fout << ' ';
+        // }
+        // std::cout << "wrote cpu P";
+        // exit(1);
 
 #pragma omp parallel for
     for (i = num_source_inj; i < N_atom - num_source_inj; i++)
@@ -1124,26 +1083,8 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     return result;
 }
 
-// // update the temperature at every site using the gpu
-// void Device::updatetemperature_gpu(bool solve_heating_global, bool solve_heating_local, GPUBuffers gpubuf, double step_time, double small_step, double dissipation_constant,
-//                                    double background_temp, double t_ox, double A, double c_p)
-// {
-//     gpubuf.sync_HostToGPU(*this); // remove eventually
-
-//     if (solve_heating_global)
-//     {
-//         updateTemperatureGlobal_gpu(gpubuf, step_time, small_step, dissipation_constant, background_temp, t_ox, A, c_p);
-//     }
-//     else if (solve_heating_local)
-//     {
-//         std::cout << "This is not implemented on the GPU yet" << std::endl;
-//     }
-
-//     gpubuf.sync_GPUToHost(*this); // remove eventually
-// }
-
 // update temperature on the CPU
-std::map<std::string, double> Device::updatetemperature(bool solve_heating_global, bool solve_heating_local, GPUBuffers gpubuf,
+std::map<std::string, double> Device::updateTemperature(bool solve_heating_global, bool solve_heating_local, GPUBuffers gpubuf,
                                                         double step_time, double small_step, double dissipation_constant,
                                                         double background_temp, double t_ox, double A, double c_p, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
                                                         double k_th_vacancies, double num_atoms_contact, std::vector<ELEMENT> metals)
@@ -1156,7 +1097,6 @@ std::map<std::string, double> Device::updatetemperature(bool solve_heating_globa
 
     if (solve_heating_global)
     {
-        // updateTemperatureGlobal_gpu(gpubuf, step_time, small_step, dissipation_constant, background_temp, t_ox, A, c_p);
         double C_thermal = A * t_ox * c_p * (1e6); // [J/K]
         double number_steps = step_time / small_step;
         double a_coeff = -dissipation_constant*1/C_thermal*small_step + 1;
@@ -1184,7 +1124,7 @@ std::map<std::string, double> Device::updatetemperature(bool solve_heating_globa
     else if (solve_heating_local)
     {
         // use this to modify the rates
-        if (step_time > 1e4 * delta_t)
+        if (step_time > 1e3 * delta_t)
         {
             // use steady state solution
             std::map<std::string, double> localTemperatureMap = updateLocalTemperatureSteadyState(background_temp, delta_t, tau, power_adjustment_term, k_th_interface,
@@ -1207,22 +1147,6 @@ std::map<std::string, double> Device::updatetemperature(bool solve_heating_globa
 #endif
     return result;
 }
-
-// void Device::updateTemperatureGlobal_gpu(GPUBuffers gpubuf, double event_time, double small_step, double dissipation_constant,
-//                                          double background_temp, double t_ox, double A, double c_p){
-
-//     // expects that the device has already been copied to GPU memory
-//     assert(gpubuf.site_power != nullptr);
-//     assert(gpubuf.T_bg != nullptr);
-
-//     double C_thermal = A * t_ox * c_p * (1e6); // [J/K]
-//     double number_steps = event_time / small_step;
-//     double a_coeff = -dissipation_constant*1/C_thermal*small_step + 1;
-//     double b_coeff = dissipation_constant*1/C_thermal*small_step*background_temp; 
-
-//     // call CUDA implementation
-//     update_temperatureglobal_gpu(gpubuf.site_power, gpubuf.T_bg, gpubuf.N_, a_coeff, b_coeff, number_steps, C_thermal, small_step);
-// }
 
 // update the global temperature using the global temperature model
 // @param: step_time: time of the kmc time step
@@ -1432,6 +1356,6 @@ void Device::writeSnapshot(std::string filename, std::string foldername)
 
     for (int i = 0; i < N; i++)
     {
-        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential[i] << "   " << site_temperature[i] << "\n";
+        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_power[i] << "   " << site_temperature[i] << "\n";
     }
 }
