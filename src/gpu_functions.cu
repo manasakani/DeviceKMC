@@ -3,7 +3,6 @@
 #include <vector>
 #include <cassert>
 #include <cuda_runtime.h>
-// #include <math_functions.h>
 #include <cmath>
 #include <math.h>
 
@@ -324,7 +323,7 @@ __global__ void create_K(
     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
     int num_threads_total = blockDim.x * gridDim.x;
 
-    for (auto idx = tid_total; idx < N * N; idx += num_threads_total)
+    for (auto idx = tid_total; idx < (size_t) N * N; idx += num_threads_total)
     {
         int i = idx / N;
         int j = idx % N;
@@ -868,9 +867,9 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
 
     double *gpu_k;
     double *gpu_diag;
-    gpuErrchk( cudaMalloc((void **)&gpu_k, N * N * sizeof(double)) );
+    gpuErrchk( cudaMalloc((void **)&gpu_k, (size_t) N * N * sizeof(double)) );
     gpuErrchk( cudaMalloc((void **)&gpu_diag, N * sizeof(double)) );
-    gpuErrchk( cudaMemset(gpu_k, 0, N * N * sizeof(double)) );
+    gpuErrchk( cudaMemset(gpu_k, 0, (size_t) N * N * sizeof(double)) );
     gpuErrchk( cudaDeviceSynchronize() );
 
     // prepare contact potentials
@@ -997,7 +996,6 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
                       const double Vd, const int pbc, const double high_G, const double low_G,
                       const double nn_dist, const double m_e, const double V0, int num_metals)
 {
-
     int *gpu_index;
     cudaMalloc((void **)&gpu_index, N * sizeof(int)); // indices of the site array
     int *atom_gpu_index;
@@ -1018,13 +1016,13 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     double *gpu_imacro, *gpu_m, *gpu_x, *gpu_ineg, *gpu_diag, *gpu_pdisp, *gpu_A;
     cudaMalloc((void **)&gpu_imacro, 1 * sizeof(double));                      // IMACRO
     cudaMalloc((void **)&gpu_m, (N_atom + 2) * sizeof(double));                // M
-    cudaMalloc((void **)&gpu_x, (N_atom + 2) * (N_atom + 2) * sizeof(double)); // X
-    cudaMalloc((void **)&gpu_ineg, N_atom * N_atom * sizeof(double));          // INEG
+    cudaMalloc((void **)&gpu_x, (size_t) (N_atom + 2) * (N_atom + 2) * sizeof(double)); // X
+    cudaMalloc((void **)&gpu_ineg, (size_t) N_atom * N_atom * sizeof(double));          // INEG
     cudaMalloc((void **)&gpu_diag, (N_atom + 2) * sizeof(double));             // DIAG
     cudaMalloc((void **)&gpu_pdisp, N_atom * sizeof(double));                  // PDISP
-    cudaMalloc((void **)&gpu_A, (N_atom + 1) * (N_atom + 1) * sizeof(double)); // A
+    cudaMalloc((void **)&gpu_A, (size_t) (N_atom + 1) * (N_atom + 1) * sizeof(double)); // A
 
-    cudaMemset(gpu_x, 0, (N_atom + 2) * (N_atom + 2) * sizeof(double));
+    cudaMemset(gpu_x, 0, (size_t) (N_atom + 2) * (N_atom + 2) * sizeof(double));
     cudaDeviceSynchronize();
 
     cudaMemset(gpu_m, 0, (N_atom + 2) * sizeof(double));
@@ -1066,6 +1064,9 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     double *gpu_work = nullptr; /* device workspace for getrf */
     int *gpu_info = nullptr;    /* error info */
     int *gpu_ipiv;
+
+    // double *gpu_A = gpu_x + (N_atom + 2) + 1
+    //  double* gpu_D = gpu_k + (N_left_tot * N) + N_left_tot;
 
     cudaMalloc((void **)&gpu_ipiv, (N_atom + 1) * sizeof(int));
     cudaMalloc((void **)(&gpu_info), sizeof(int));
@@ -1114,6 +1115,7 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
                                           V0, gpubuf.atom_potential);
     cudaDeviceSynchronize();
 
+
     // Update I_neg diagonal
     cudaMemset(gpu_diag, 0, (N_atom + 2) * sizeof(double));
     cudaDeviceSynchronize();
@@ -1131,7 +1133,8 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     cudaMemcpy(gpu_alpha, &alpha, sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(gpu_beta, &beta, sizeof(double), cudaMemcpyHostToDevice);
 
-    CheckCublasError(cublasDgemv(handle, CUBLAS_OP_T, N_atom, N_atom, gpu_alpha, gpu_ineg, N_atom, gpu_m + 2, 1, gpu_beta, gpu_pdisp, 1));
+    cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+    CheckCublasError( cublasDgemv(handle, CUBLAS_OP_T, N_atom, N_atom, gpu_alpha, gpu_ineg, N_atom, gpu_m + 2, 1, gpu_beta, gpu_pdisp, 1) );
     cudaDeviceSynchronize();
 
     num_threads = 512;

@@ -3,11 +3,15 @@
 #include "KMCProcess.h"
 #include "structure_input.h"
 #include "Device.h"
-#include "cuda_wrapper.h"
 #include <iostream>
 #include <list>
 #include <algorithm>
 #include <numeric>
+
+#ifdef USE_CUDA
+    #include "cuda_wrapper.h"
+#endif
+
 
 KMCProcess::KMCProcess(Device *device, double _freq)
 {
@@ -54,8 +58,24 @@ KMCProcess::KMCProcess(Device *device, double _freq)
     }
 }
 
-double KMCProcess::executeKMCStep(Device &device)
+double KMCProcess::executeKMCStep(GPUBuffers gpubuf, Device &device)
 {
+
+#ifdef USE_CUDA
+
+    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+
+    double event_time = execute_kmc_step_gpu(device.N, device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
+                        gpubuf.lattice, device.pbc, gpubuf.T_bg, 
+                        gpubuf.freq, gpubuf.sigma, gpubuf.k,
+                        gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+                        gpubuf.site_potential, gpubuf.site_temperature,
+                        gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
+
+    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+
+#else
+
     // ** Build event list **
 
     int num_sites = device.N;
@@ -281,17 +301,8 @@ double KMCProcess::executeKMCStep(Device &device)
     delete[] event_type;
     delete[] event_prob;
     delete[] event_prob_cum;
-    return event_time;
-}
 
-double KMCProcess::executeKMCStep_gpu(GPUBuffers gpubuf, Device &device){
-
-    double event_time = execute_kmc_step_gpu(device.N, device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
-                        gpubuf.lattice, device.pbc, gpubuf.T_bg, 
-                        gpubuf.freq, gpubuf.sigma, gpubuf.k,
-                        gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
-                        gpubuf.site_potential, gpubuf.site_temperature,
-                        gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
+#endif
 
     return event_time;
 }

@@ -20,8 +20,8 @@ class KMCProcess{
 		KMCProcess(Device* device, double freq_); 
 
 		// executes one step on the device and returns the time taken for it
-		double executeKMCStep(Device &device);
-		double executeKMCStep_gpu(GPUBuffers gpubuf, Device &device);
+		double executeKMCStep(GPUBuffers gpubuf, Device &device);
+		// double executeKMCStep_gpu(GPUBuffers gpubuf, Device &device);
 		
 	private:
 		RandomNumberGenerator random_generator;							// random number generator object for this KMC process

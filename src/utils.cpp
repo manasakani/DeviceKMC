@@ -47,7 +47,7 @@ std::string return_element(ELEMENT element_) {
         return "Pt";
     } else {
         std::cout << "Error: Unknown element type in return_element()!: " << element_ << std::endl;
-        exit(1);
+        //exit(1);
         return "";
     }
 }
@@ -262,13 +262,17 @@ void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<
 // *****************************************************************
 
 void CheckCublasError(cublasStatus_t const& status) {
+
+#ifdef USE_CUDA
   if (status != CUBLAS_STATUS_SUCCESS) {
     throw std::runtime_error("cuBLAS failed with error code: " +
                              std::to_string(status));
   }
+#endif
 }
 
 cublasHandle_t CreateCublasHandle(int device) {
+#ifdef USE_CUDA
   if (device >= 0) {
     if (cudaSetDevice(device) != cudaSuccess) {
       throw std::runtime_error("Failed to set CUDA device.");
@@ -277,11 +281,13 @@ cublasHandle_t CreateCublasHandle(int device) {
   cublasHandle_t handle;
   CheckCublasError(cublasCreate(&handle));
   return handle;
+#endif
 }
 
 void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int *k, double *alpha, double *A, int *lda, double *B, int *ldb, double *beta, double *C, int *ldc) {
 
 #ifdef USE_CUDA
+    cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
 
     double *gpu_A, *gpu_B, *gpu_C, *gpu_alpha, *gpu_beta;
     cudaMalloc((void**)&gpu_A, ((*m) * (*k)) * sizeof(double));
@@ -331,21 +337,25 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
 // *****************************************************************
 
 cusolverDnHandle_t CreateCusolverDnHandle(int device) {
+#ifdef USE_CUDA
   if (cudaSetDevice(device) != cudaSuccess) {
     throw std::runtime_error("Failed to set CUDA device.");
   }
   cusolverDnHandle_t handle;
   CheckCusolverDnError(cusolverDnCreate(&handle));
   return handle;
+#endif
 }
 
 void CheckCusolverDnError(cusolverStatus_t const &status)
 {
+#ifdef USE_CUDA
     if (status != CUSOLVER_STATUS_SUCCESS)
     {
         throw std::runtime_error("cuSOLVER failed with error code: " +
                                  std::to_string(status));
     }
+#endif
 }
 
 void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info) {
@@ -355,6 +365,7 @@ void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int
     // https://github.com/NVIDIA/CUDALibrarySamples/blob/master/cuSOLVER/getrf/cusolver_getrf_example.cu
     // printf("Solving linear system on the GPU ...\n");
 
+    // cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
     int lwork = 0;                /* size of workspace */
     double *gpu_work = nullptr;   /* device workspace for getrf */
     int *gpu_info = nullptr;      /* error info */

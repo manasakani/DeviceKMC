@@ -1,6 +1,5 @@
 #include "utils.h"
 #include "random_num.h"
-// #include "gpu_buffers.h"
 
 // forward declaration of gpubuf class          
 class GPUBuffers;
