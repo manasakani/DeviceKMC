@@ -21,3 +21,7 @@ oldTemperature/
 output.txt
 run_job.sh
 Results_*/**
+
+# Ignore txt files
+*.txt
+*.mat
