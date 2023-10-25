@@ -228,7 +228,7 @@ __global__ void copy_pdisp(double *site_power, ELEMENT *element, const ELEMENT *
     {
         bool metal = is_in_array_gpu(metals, element[atom_gpu_index[idx]], num_metals);
         if (!metal)
-            site_power[atom_gpu_index[idx]] = -pdisp[idx];
+            site_power[atom_gpu_index[idx]] = -0.1 * pdisp[idx];
     }
 }
 
@@ -388,7 +388,7 @@ __global__ void set_ineg(double *ineg, const double *x,
         {
             ineg[i * N + j] = -ical;
         }
-        else if (ical < 0 && Vd > 0 && xdiff < t_ox * V0 && xdiff > 0 && !neighbor)
+        else if (ical < 0 && Vd > 0 && xdiff < t_ox * V0 && xdiff > nn_dist && !neighbor)
         { // excluding Fowler Nordheim tunneling
             ineg[i * N + j] = -ical;
         }
@@ -561,7 +561,7 @@ __global__ void create_X(
                 {
                     a = 2.0 / 3.0 * sqrt(V0) * xdiff;
                 }
-                else if (xdiff < V0 / b && xdiff > 0)
+                else if (xdiff < V0 / b && xdiff > nn_dist)
                 {                                                                     // if Vdiff < 0 then lower prob
                     a = -2.0 / 3.0 * (1 / b) * (pow(V0 - b * xdiff, 1.5) - pow(V0, 1.5)); // always +
                 }
@@ -986,7 +986,7 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
 
 void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int N, const int num_source_inj, const int num_ground_ext,
                       const double Vd, const int pbc, const double high_G, const double low_G,
-                      const double nn_dist, const double m_e, const double V0, int num_metals, const double t_ox)
+                      const double nn_dist, const double m_e, const double V0, int num_metals, const double t_ox, double *imacro)
 {
     int *gpu_index;
     cudaMalloc((void **)&gpu_index, N * sizeof(int)); // indices of the site array
@@ -1086,6 +1086,11 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     // num_blocks = min(65535, num_blocks);
     get_imacro<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_x, gpu_m, gpu_imacro, Vd, N_atom);
     cudaDeviceSynchronize();
+
+    // Copy back I_macro to the GPU
+    double i_macro = 0;
+    cudaMemcpy(&i_macro, gpu_imacro, sizeof(double), cudaMemcpyDeviceToHost);
+    *imacro = i_macro;
 
     // Find index of minimum element in m[2:N+2]
     auto min_index = thrust::min_element(thrust::device, gpu_m + 2, gpu_m + N_atom + 2) - gpu_m;

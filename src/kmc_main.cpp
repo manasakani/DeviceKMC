@@ -141,6 +141,7 @@ int main(int argc, char **argv)
             {
                 outputBuffer << "--------------\n";
                 outputBuffer << "KMC step count: " << kmc_step_count << "\n";
+                // std::cout << "Rs: " << p.Rs << "\n";
                 V_vcm = Vd - I_macro * p.Rs;
                 outputBuffer << "V_vcm: " << V_vcm << "\n";
 
@@ -179,12 +180,18 @@ int main(int argc, char **argv)
                    auto t_power = std::chrono::steady_clock::now();
                    diff_power = t_power - t_perturb;
 
-                    // Temperature
-                    if (p.solve_heating_global || p.solve_heating_local)
-                    {
-                        std::map<std::string, double> temperatureMap = device.updateTemperature(p.solve_heating_global, p.solve_heating_local, gpubuf, step_time, p.small_step, p.dissipation_constant, p.background_temp, p.t_ox, p.A, p.c_p, p.delta_t, p.tau, p.power_adjustment_term, p.k_th_interface, p.k_th_vacancies, p.num_atoms_contact, p.metals);
-                        resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-                    }
+                   // Temperature
+                   if (p.solve_heating_global || p.solve_heating_local)
+                   {
+                       // #ifdef use_CUDA
+                       //                        gpubuf.sync_HostToGPU(device); // remove eventually
+                       //                        device.updatetemperature_gpu(p.solve_heating_global, p.solve_heating_local, gpubuf, step_time, p.small_step, p.dissipation_constant, p.background_temp, p.t_ox, p.A, p.c_p);
+                       //                        gpubuf.sync_GPUToHost(device); // remove eventually
+                       // #else
+                       std::map<std::string, double> temperatureMap = device.updatetemperature(p.solve_heating_global, p.solve_heating_local, step_time, p.small_step, p.dissipation_constant, p.background_temp, p.t_ox, p.A, p.c_p, p.delta_t, p.tau, p.power_adjustment_term, p.k_th_interface, p.k_th_vacancies, p.num_atoms_contact, p.metals);
+                       resultMap.insert(temperatureMap.begin(), temperatureMap.end());
+                       // #endif
+                   }
 
                     auto t_temp = std::chrono::steady_clock::now();
                     diff_temp = t_temp - t_power;
@@ -203,6 +210,21 @@ int main(int argc, char **argv)
                }
                resultMap.clear();
 
+               // Load the macroscopic current in the output buffer
+               I_macro = device.imacro;
+               outputBuffer << "I_macro: " << I_macro << "\n";
+
+               // Compute the total dissipated power
+               double P_diss = 0;
+               for (int i = 0; i < device.N; i++)
+               {
+                   P_diss += device.site_power[i];
+               }
+               //    std::cout << "P_diss: " << P_diss << "\n";
+               //    std::cout << "I_macro: " << I_macro << "\n";
+               //    std::cout << "V_vcm: " << V_vcm << "\n";
+               outputBuffer << "P_diss: " << P_diss << "\n";
+
                // dump print buffer into the output file
                if (!(kmc_step_count % p.output_freq))
                {
@@ -216,6 +238,12 @@ int main(int argc, char **argv)
                {
                    std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
                    device.writeSnapshot(file_name, folder_name);
+               }
+
+               if (I_macro > p.Icc)
+               {
+                   outputBuffer << "I_macro > Icc, breaking out of loop\n";
+                   break;
                }
 
                // Log timing info

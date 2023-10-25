@@ -62,14 +62,14 @@ def main():
             if 'Voltage' in line.split():
                 V = line.split()[-2]
                 
-                shift = times[len(times)-1]
-            if 'Current' in line.split():
+                #shift = times[len(times)-1]
+            if 'I_macro:' in line.split():
                 curr = float(line.split()[-1])
                 current.append(curr)
-            if 'temperature' in line.split():
+            if 'Global' in line.split():
                 temp = float(line.split()[-1])
                 temperature.append(temp)
-            if 'power:' in line.split():
+            if 'P_diss:' in line.split():
                 powerTemp = (1e9)*float(line.split()[-1])
                 power.append(powerTemp)
             if 'KMC' in line.split() and 'time' in line.split() and 'reached' not in line.split():
