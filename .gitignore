@@ -1,6 +1,12 @@
 bin/
 obj/
 tests_old/
+test3_globalTemperature/
+test4_localTemperature/
+test2_localTemperature/
+test1_potential/
+oldTemperature/
+
 
 # Other standard ignores
 .vscode/

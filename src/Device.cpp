@@ -763,7 +763,7 @@ void Device::updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cu
 
     update_power_gpu(handle, handle_cusolver, gpubuf, N, num_source_inj, num_ground_ext,
                      Vd, pbc, high_G, low_G,
-                     nn_dist, m_e, V0, metals.size(), t_ox);
+                     nn_dist, m_e, V0, metals.size(), t_ox, &imacro);
 }
 
 // update the power of each site
@@ -861,11 +861,12 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                         double xdiff = (1e-10) * (atom_x[j] - atom_x[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0
                         double b = Vdiff / t_ox;
                         double a = 1e18; // zero prob
+
                         if (abs(V0 / b - xdiff) < 1e-18 && xdiff > 0)
                         { // if it's zero
-                            a = 2.0/3.0*sqrt(V0)*xdiff;
+                            a = 2.0 / 3.0 * sqrt(V0) * xdiff;
                         }
-                        else if (xdiff < V0 / b && xdiff > 0)
+                        else if (xdiff < V0 / b && xdiff > 0 && xdiff > nn_dist)
                         {                                                                         // if Vdiff < 0 then lower prob
                             a = -2.0 / 3.0 * (1 / b) * (pow(V0 - b * xdiff, 1.5) - pow(V0, 1.5)); // always +
                         }
@@ -991,7 +992,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                 I_neg[i * N_atom + j] = -I_cal;
             }
 
-            else if (I_cal < 0 && Vd > 0 && xdiff < t_ox * V0 / Vd && xdiff > 0 && !neighbor)
+            else if (I_cal < 0 && Vd > 0 && xdiff < t_ox * V0 / Vd && xdiff > nn_dist && !neighbor)
             { // excluding Fowler Nordheim tunneling
                 I_neg[i * N_atom + j] = -I_cal;
             }
@@ -1040,11 +1041,11 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
         }
         else if (vacancy)
         {
-            alpha = 1;
+            alpha = 0.1;
         }
         else
         {
-            alpha = 1;
+            alpha = 0.1;
         }
 
         site_power[atom_ind[i]] = -1 * alpha * P_disp[i];
