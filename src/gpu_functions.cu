@@ -825,7 +825,6 @@ void update_charge_gpu(ELEMENT *site_element,
 
     int num_threads = 512;
     int num_blocks = (N * nn - 1) / num_threads + 1;
-    // num_blocks = min(65535, num_blocks);
 
     update_charge<<<num_blocks, num_threads>>>(site_element, site_charge, neigh_idx, N, nn, metals, num_metals);
 }
@@ -834,7 +833,6 @@ void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const 
 
     int num_threads = 512;
     int num_blocks = (N - 1) / num_threads + 1;
-    // num_blocks = min(65535, num_blocks);
 
     double *P_tot;
     gpuErrchk( cudaMalloc((void**)&P_tot, 1 * sizeof(double)) );
@@ -880,11 +878,11 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     thrust::fill(VR_ptr, VR_ptr + N_right_tot, Vd/2);
 
     //  BUILDING THE CONDUCTIVITY MATRIX
+    int num_threads = 512;
+    int blocks_per_row = (N - 1) / num_threads + 1;
+    int num_blocks = blocks_per_row * N;
 
     // compute the off-diagonal elements of K
-    int num_threads = 64;
-    int blocks_per_row = (N - 1) / num_threads + 1;
-    int num_blocks = min(65535, blocks_per_row * N);
     create_K<<<num_blocks, num_threads>>>(
         gpu_k, gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
         gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
@@ -896,31 +894,26 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     // Update the diagonal of K
     gpuErrchk( cudaMemset(gpu_diag, 0, N * sizeof(double)) );
     gpuErrchk( cudaDeviceSynchronize() );
-    num_threads = 256;// 512;
-    blocks_per_row = (N - 1) / num_threads + 1;
-    num_blocks = min(65535, blocks_per_row * N);
-    diagonal_sum<512><<<num_blocks, num_threads, 512 * sizeof(double)>>>(gpu_k, gpu_diag, N);
+    diagonal_sum<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_k, gpu_diag, N);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
-    num_blocks = min(65535, (N - 1) / num_threads + 1);
+    num_blocks = (N - 1) / num_threads + 1;
     set_diag<<<num_blocks, num_threads>>>(gpu_k, gpu_diag, N);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
-
     gpuErrchk( cudaMemset(gpu_diag, 0, N * sizeof(double)) );
     gpuErrchk( cudaDeviceSynchronize() );
 
-    num_threads = 256;// 512; // NOTE: Less threads?
+    // 
     blocks_per_row = (N_left_tot - 1) / num_threads + 1;
-    num_blocks = min(65535, blocks_per_row * N_interface);
+    num_blocks = blocks_per_row * N_interface;
     diagonal_sum_K<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(&gpu_k[N_left_tot * N], gpu_diag, VL, N, N_interface, N_left_tot);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
-    num_threads = 256;// 512;
     blocks_per_row = (N_right_tot - 1) / num_threads + 1;
-    num_blocks = min(65535, blocks_per_row * N_interface);
+    num_blocks = blocks_per_row * N_interface;
     diagonal_sum_K<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(&gpu_k[N_left_tot * N + N - N_right_tot], gpu_diag, VR, N, N_interface, N_right_tot);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
@@ -930,12 +923,11 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     double *gpu_k_sub;
     gpuErrchk( cudaMalloc((void **)&gpu_k_sub, N_interface * sizeof(double)) ); 
     gpuErrchk( cudaMemset(gpu_k_sub, 0, N_interface * sizeof(double)) );
-    num_blocks = min(65535, (N_interface - 1) / num_threads + 1);
+    num_blocks = (N_interface - 1) / num_threads + 1;
     set_diag_K<<<blocks_per_row, num_threads>>>(gpu_k_sub, gpu_diag, N_interface);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
     cudaFree(gpu_diag);
-
 
      // ** Solve Ax=B through LU factorization **
 
@@ -963,8 +955,7 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
 
     cudaFree(gpu_k);
 
-    num_threads = 1024;
-    num_blocks = min(65535, (N_interface - 1) / num_threads + 1);
+    num_blocks = (N_interface - 1) / num_threads + 1;
     set_potential<<<num_blocks, num_threads>>>(gpubuf.site_potential + N_left_tot, gpu_k_sub, N_interface);
     gpuErrchk( cudaPeekAtLastError() ); 
     gpuErrchk( cudaDeviceSynchronize() ); 
