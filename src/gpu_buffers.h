@@ -1,6 +1,9 @@
 #pragma once
 #include "utils.h"
+
+#ifdef USE_CUDA
 #include "cuda_wrapper.h"
+#endif
 
 // forward declaration of device class
 class Device;
@@ -44,7 +47,10 @@ public:
     void copy_power_fromGPU(std::vector<double> &power);
 
     void copy_charge_toGPU(std::vector<int> &charge);
-    
+
+    // constructor allocates nothing:
+    GPUBuffers(){};
+
     // constructor allocates arrays in GPU memory
     GPUBuffers(std::vector<Layer> layers, std::vector<int> site_layer_in, double freq_in, int N,
                std::vector<double> site_x_in,  std::vector<double> site_y_in,  std::vector<double> site_z_in,
@@ -63,6 +69,8 @@ public:
             E_Odiff_host.push_back(l.E_diff_3);
         }
         int num_layers = layers.size();
+
+#ifdef USE_CUDA
 
         // variables to store in GPU global memory
         copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host);
@@ -88,14 +96,14 @@ public:
         gpuErrchk( cudaMalloc((void**)&k, 1 * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&lattice, 3 * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&freq, 1 * sizeof(double)) );
-        gpuErrchk(cudaMalloc((void **)&Natom_, 1 * sizeof(int)));
-        gpuErrchk(cudaMalloc((void **)&atom_element, N_ * sizeof(ELEMENT)));
-        gpuErrchk(cudaMalloc((void **)&atom_x, N_ * sizeof(double)));
-        gpuErrchk(cudaMalloc((void **)&atom_y, N_ * sizeof(double)));
-        gpuErrchk(cudaMalloc((void **)&atom_z, N_ * sizeof(double)));
-        gpuErrchk(cudaMalloc((void **)&atom_power, N_ * sizeof(double)));
-        gpuErrchk(cudaMalloc((void **)&atom_potential, N_ * sizeof(double)));
-        gpuErrchk(cudaMalloc((void **)&atom_charge, N_ * sizeof(int)));
+        gpuErrchk( cudaMalloc((void **)&Natom_, 1 * sizeof(int)));
+        gpuErrchk( cudaMalloc((void **)&atom_element, N_ * sizeof(ELEMENT)) );
+        gpuErrchk( cudaMalloc((void **)&atom_x, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void **)&atom_y, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void **)&atom_z, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void **)&atom_power, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void **)&atom_potential, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void **)&atom_charge, N_ * sizeof(int)) );
 
         cudaDeviceSynchronize();
 
@@ -112,10 +120,8 @@ public:
         gpuErrchk( cudaMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
 
         cudaDeviceSynchronize();
+#endif
 
-        // gpuErrchk(cudaMemset(Natom_, 0, 1 * sizeof(int)));
-
-        cudaDeviceSynchronize();
     }
 
     void freeGPUmemory();

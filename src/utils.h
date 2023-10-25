@@ -14,12 +14,12 @@
 #include <math.h>
 #include <omp.h>
 
+// #ifdef USE_CUDA
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cusolverDn.h>
+// #endif
 
-// #ifndef UTILS_H
-// #define UTILS_H
 
 #define print(x) std::cout << x << std::endl
 
@@ -133,6 +133,7 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
 void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info);
 
 // error checking for CUDA calls
+// #ifdef USE_CUDA
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
 inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
 {
@@ -142,5 +143,4 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
       if (abort) exit(code);
    }
 }
-
 // #endif

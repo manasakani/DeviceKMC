@@ -11,18 +11,19 @@
 #include "Device.h"
 #include "gpu_buffers.h"
 #include "input_parser.h"
+
+#ifdef USE_CUDA
 #include "cuda_wrapper.h"
+#endif
 
 // main function for KMC simulation
 int main(int argc, char **argv)
 {
-
     // parse inputs
     KMCParameters p(argv[1]);
 
     // set up logging
     std::ostringstream outputBuffer;
-    // remove output.txt and make new out
     std::remove("output.txt");
     std::ofstream outputFile("output.txt", std::ios_base::app);
     outputBuffer << "----------------------------\n";
@@ -30,17 +31,17 @@ int main(int argc, char **argv)
     outputBuffer << "----------------------------\n";
 
     // check for accelerators
+#ifdef USE_CUDA
     std::cout << "checking for an accelerator...\n";
     char gpu_string[1000];
     get_gpu_info(gpu_string, 0);
-#ifdef USE_CUDA
     printf("Will use this GPU: %s\n", gpu_string);
     set_gpu(0);
 #else
     std::cout << "Simulation will not use the GPU.\n";
 #endif
     cublasHandle_t handle = CreateCublasHandle(0);
-    cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
+    // cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
     cusolverDnHandle_t handle_cusolver = CreateCusolverDnHandle(0);
 
     // Initialize device
@@ -96,6 +97,8 @@ int main(int argc, char **argv)
                           device.N, device.site_x, device.site_y, device.site_z,
                           device.max_num_neighbors, device.sigma, device.k, 
                           device.lattice, device.neigh_idx, p.metals, p.metals.size());
+#else
+        GPUBuffers gpubuf;
 #endif
 
         // loop over V_switch and t_switch
@@ -131,9 +134,9 @@ int main(int argc, char **argv)
             // ********************************************************
             // ***************** MAIN KMC LOOP ************************
             // ********************************************************
-// #ifdef USE_CUDA
-//         gpubuf.sync_HostToGPU(device);
-// #endif
+#ifdef USE_CUDA
+        gpubuf.sync_HostToGPU(device);
+#endif
             while (kmc_time < t)
             {
                 outputBuffer << "--------------\n";
@@ -150,60 +153,29 @@ int main(int argc, char **argv)
                 auto t0 = std::chrono::steady_clock::now();
                 if (p.solve_potential)
                 {
-#ifdef USE_CUDA
-                    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-                    device.updateCharge_gpu(gpubuf);
-                    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-#else
-                    std::map<std::string, int> chargeMap = device.updateCharge(p.metals);
-                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
+                    std::map<std::string, int> chargeMap = device.updateCharge(gpubuf, p.metals);
                     resultMap.insert(chargeMap.begin(), chargeMap.end());
-#endif
 
-#ifdef USE_CUDA
-                   gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-                   device.updatePotential_gpu(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
-                                              p.G_coeff, p.high_G, p.low_G, p.metals);
-                   gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-#else
-                    device.updatePotential(handle_cusolver, p.num_atoms_contact, Vd, p.lattice,
+                    device.updatePotential(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
                                            p.G_coeff, p.high_G, p.low_G, p.metals);
-                    gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
-#endif
                 }
 
                 auto t_pot = std::chrono::steady_clock::now();
                 diff_pot = t_pot - t0;
 
                 // KMC update step
-#ifdef USE_CUDA
-                gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-                step_time = sim.executeKMCStep_gpu(gpubuf, device);
-                gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-#else
-                step_time = sim.executeKMCStep(device);
-                gpubuf.sync_HostToGPU(device);  // remove once full while loop is completed
-#endif
+                step_time = sim.executeKMCStep(gpubuf, device);
 
-               kmc_time += step_time;
-               auto t_perturb = std::chrono::steady_clock::now();
-               diff_perturb = t_perturb - t_pot;
+                kmc_time += step_time;
+                auto t_perturb = std::chrono::steady_clock::now();
+                diff_perturb = t_perturb - t_pot;
 
-               // Power and Temperature
-               if (p.solve_current)
-               {
-#ifdef USE_CUDA
-                   gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-                   device.updatePower_gpu(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
-                                          p.metals, p.m_e, p.V0, p.t_ox);
-                   gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
-#else
-
-                   std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
-                                                                               p.metals, p.m_e, p.V0, p.t_ox);
-                   resultMap.insert(powerMap.begin(), powerMap.end());
-                   gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
-#endif
+                // Power and Temperature
+                if (p.solve_current)
+                {
+                    std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
+                                                                                p.metals, p.m_e, p.V0, p.t_ox);
+                    resultMap.insert(powerMap.begin(), powerMap.end());
 
                    auto t_power = std::chrono::steady_clock::now();
                    diff_power = t_power - t_perturb;
@@ -221,9 +193,9 @@ int main(int argc, char **argv)
                        // #endif
                    }
 
-                   auto t_temp = std::chrono::steady_clock::now();
-                   diff_temp = t_temp - t_power;
-               }
+                    auto t_temp = std::chrono::steady_clock::now();
+                    diff_temp = t_temp - t_power;
+                }
 
                // ********************************************************
                // ******************** Log results ***********************
@@ -285,19 +257,18 @@ int main(int argc, char **argv)
                outputBuffer << "Total KMC Step: " << diff.count() << "\n";
                outputBuffer << "--------------------------------------";
             }
-// #ifdef USE_CUDA
-//             gpubuf.sync_GPUToHost(device);
-// #endif
+#ifdef USE_CUDA
+            gpubuf.sync_GPUToHost(device);
+#endif
             const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
             device.writeSnapshot(file_name, folder_name);
             vt_counter++;
         }
 
-// #ifdef USE_CUDA
-//         gpubuf.freeGPUmemory();
-// #endif
-
-    CheckCublasError(cublasDestroy(handle));
+#ifdef USE_CUDA
+        gpubuf.freeGPUmemory();
+        CheckCublasError(cublasDestroy(handle));
+#endif
 
     // close logger
     outputFile << outputBuffer.str();

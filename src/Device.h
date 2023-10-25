@@ -117,8 +117,7 @@ public:
     void updateAtomLists();
 
     // update the charge of each vacancy and ion
-    std::map<std::string, int> updateCharge(std::vector<ELEMENT> metals);
-    void updateCharge_gpu(GPUBuffers gpubuf);
+    std::map<std::string, int> updateCharge(GPUBuffers gpubuf, std::vector<ELEMENT> metals);
 
     // resistive-network solver for the background potential
     void background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
@@ -128,32 +127,18 @@ public:
     void poisson_gridless(int num_atoms_contact, std::vector<double> lattice);
 
     // update the potential of each site
-    void updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                             double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals);
-
-
-    void updatePotential(cusolverDnHandle_t handle, int num_atoms_contacts, double Vd, std::vector<double> lattice,
+    void updatePotential(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int num_atoms_contacts, double Vd, std::vector<double> lattice,
                          double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals);
 
     // update the power of each site
-    void updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int num_atoms_first_layer, const double Vd, const double high_G, const double low_G,
-                         std::vector<ELEMENT> metals, const double m_e, const double V0, const double t_ox);
-
-    // update the power of each site
-    std::map<std::string, double> updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
-                                              std::vector<ELEMENT> metals, double m_e, double V0, double t_ox);
+    std::map<std::string, double> updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
+                                              std::vector<ELEMENT> metals, double m_e, const double V0, const double t_ox);
 
     // update the temperature of each site
     std::map<std::string, double> updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
                                                           double background_temp, double t_ox, double A, double c_p);
 
-    void updateTemperatureGlobal_gpu(GPUBuffers gpubuf, double event_time, double small_step, double dissipation_constant,
-                                                        double background_temp, double t_ox, double A, double c_p);
-
-    void updatetemperature_gpu(bool solve_heating_global, bool solve_heating_local, GPUBuffers gpubuf, double event_time, double small_step, double dissipation_constant,
-                               double background_temp, double t_ox, double A, double c_p);
-
-    std::map<std::string, double> updatetemperature(bool solve_heating_global, bool solve_heating_local,
+    std::map<std::string, double> updateTemperature(bool solve_heating_global, bool solve_heating_local, GPUBuffers gpubuf,
                                                     double step_time, double small_step, double dissipation_constant,
                                                     double background_temp, double t_ox, double A, double c_p, double t, double tau, double power_adjustment_term, double k_th_interface,
                                                     double k_th_vacancies, double num_atoms_contact, std::vector<ELEMENT> metals);

@@ -1,7 +1,10 @@
 #include "Device.h"
 #include "gpu_buffers.h"
-#include "cuda_wrapper.h"
 #include <cassert>
+
+#ifdef USE_CUDA
+    #include "cuda_wrapper.h"
+#endif
 
 void Graph::printAdjList()
 {
@@ -499,8 +502,22 @@ void Device::makeSubstoichiometric(double vacancy_concentration)
 }
 
 // update the charge of each vacancy and ion
-std::map<std::string, int> Device::updateCharge(std::vector<ELEMENT> metals)
+std::map<std::string, int> Device::updateCharge(GPUBuffers gpubuf, std::vector<ELEMENT> metals)
 {
+    std::map<std::string, int> result;
+
+#ifdef USE_CUDA
+
+    gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
+
+    update_charge_gpu(gpubuf.site_element,
+                      gpubuf.site_charge,
+                      gpubuf.neigh_idx,
+                      gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_);
+
+    gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
+
+#else
     int Vnn;
     int uncharged_V_counter = 0;
     int V_counter = 0;
@@ -556,30 +573,13 @@ std::map<std::string, int> Device::updateCharge(std::vector<ELEMENT> metals)
         }
     }
 
-    std::map<std::string, int> result;
-
     result["Uncharged vacancies"] = uncharged_V_counter;
     result["Charged vacancies"] = V_counter - uncharged_V_counter;
     result["Uncharged oxygen ions"] = uncharged_Od_counter;
     result["Charged oxygen ions"] = Od_counter - uncharged_Od_counter;
 
+#endif
     return result;
-}
-
-void Device::updateCharge_gpu(GPUBuffers gpubuf){
-
-    // expects that the device has already been copied to GPU memory
-    assert(gpubuf.site_element != nullptr);
-    assert(gpubuf.site_x != nullptr);
-    assert(gpubuf.site_y != nullptr);
-    assert(gpubuf.site_z != nullptr);
-    assert(gpubuf.site_charge != nullptr);
-    assert(gpubuf.lattice != nullptr);
-
-    update_charge_gpu(gpubuf.site_element,
-                      gpubuf.site_charge,
-                      gpubuf.neigh_idx,
-                      gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_);
 }
 
 // update the potential of each site
@@ -588,12 +588,13 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 {
 
     std::map<std::string, int> result;
-    int N_left_tot = 144; //(num_atoms_contact, "left");
-    int N_right_tot = 144; //get_num_in_contacts(num_atoms_contact, "right");
+    int N_left_tot = get_num_in_contacts(num_atoms_contact, "left"); //144
+    int N_right_tot = get_num_in_contacts(num_atoms_contact, "right"); //144
     int N_interface = N - N_left_tot - N_right_tot;
 
     int one = 1;
     int info, cntr;
+
 
     double *K = (double *)calloc(N * N, sizeof(double));
     double *VL = (double *)malloc(N_left_tot * sizeof(double));
@@ -729,22 +730,17 @@ void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice
 }
 
 // update the potential of each site
-void Device::updatePotential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
+void Device::updatePotential(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
                              double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
 {
-    // circuit-model-based potential solver
-    background_potential(handle, num_atoms_contact, Vd, lattice, G_coeff, high_G, low_G, metals);
 
-    // gridless Poisson equation solver (using sum of gaussian charge distribution solutions)
-    poisson_gridless(num_atoms_contact, lattice);
-}
+#ifdef USE_CUDA
 
-void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                                 double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
-{
-    // STILL NEED TO PORT THESE TWO FUNCTIONS
+     // STILL NEED TO PORT THESE TWO FUNCTIONS
     int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
     int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
+
+    gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
 
     background_potential_gpu(handle, gpubuf, N, N_left_tot, N_right_tot,
                              Vd, pbc, high_G, low_G, nn_dist, metals.size());
@@ -752,26 +748,39 @@ void Device::updatePotential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, 
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                          gpubuf.site_charge, gpubuf.site_potential);
-}
 
-void Device::updatePower_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int num_atoms_first_layer, const double Vd, const double high_G, const double low_G,
-                             std::vector<ELEMENT> metals, const double m_e, const double V0, const double t_ox)
-{
+    gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
 
-    int num_source_inj = num_atoms_first_layer;
-    int num_ground_ext = num_source_inj;
+#else
+    // circuit-model-based potential solver
+    background_potential(handle, num_atoms_contact, Vd, lattice, G_coeff, high_G, low_G, metals);
 
-    update_power_gpu(handle, handle_cusolver, gpubuf, N, num_source_inj, num_ground_ext,
-                     Vd, pbc, high_G, low_G,
-                     nn_dist, m_e, V0, metals.size(), t_ox, &imacro);
+    // gridless Poisson equation solver (using sum of gaussian charge distribution solutions)
+    poisson_gridless(num_atoms_contact, lattice);
+#endif
 }
 
 // update the power of each site
-std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,
+std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, int num_atoms_first_layer, double Vd, double high_G, double low_G,
                                                   std::vector<ELEMENT> metals, double m_e, double V0, double t_ox)
 {
     // Map
     std::map<std::string, double> result;
+
+#ifdef USE_CUDA
+
+    int num_source_inj = num_atoms_first_layer;
+    int num_ground_ext = num_source_inj;
+
+    gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
+
+    update_power_gpu(handle, handle_cusolver, gpubuf, N, num_source_inj, num_ground_ext,
+                     Vd, pbc, high_G, low_G,
+                     nn_dist, m_e, V0, metals.size(), t_ox, &imacro);
+
+    gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
+
+#else
 
     // Re-identify the atomic sites (differentiate from the vacancy sites)
     updateAtomLists();
@@ -799,7 +808,6 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     int one = 1;
     double zero = 0.0;
     double dist, G, T;
-    char trans = 'N';
 
     M[0] = -high_G * Vd;
     M[1] = high_G * Vd;
@@ -844,8 +852,8 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                     }
                     else
                     {
-                        X[N_full * (i + 2) + (j + 2)] = -low_G_1;
-                        X[N_full * (j + 2) + (i + 2)] = -low_G_1;
+                        X[N_full * (i + 2) + (j + 2)] = -low_G;
+                        X[N_full * (j + 2) + (i + 2)] = -low_G;
                     }
                 }
 
@@ -958,20 +966,18 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     double one_d = 1.0;
     double P_disp[N_atom];
     double min_V = *std::min_element(M + 2, M + N_full);
-    int min_V_test = std::min_element(M + 2, M + N_full) - M;
-    std::cout << min_V_test << std::endl;
 
-    // pragma omp parallel private(I_cal, i, j)
-    //  {
+#pragma omp parallel private(I_cal, i, j)
+{
     // shifting the virtual potential by its minimum
-    // #pragma omp for
+    #pragma omp for
     for (i = 0; i < N_full; i++)
     {
         M[i] += std::abs(min_V);
     }
 
     // Collect the forward currents into I_neg
-    // #pragma omp for // collapse(2)
+    #pragma omp for // collapse(2)
     for (i = 0; i < N_atom; i++)
     {
         int count = 0;
@@ -1013,10 +1019,12 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                 }
             }
         }
-        //  }
+    }
 
-        // dissipated power at each atom
-        gemm(handle, &trans, &trans, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
+    // dissipated power at each atom
+    char transa = 'T';
+    char transb = 'N';
+    gemm(handle, &transa, &transb, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
 
         //  // debug
         // std::ofstream fout("P_cpu.txt");
@@ -1070,30 +1078,43 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     result["Current in uA"] = I_macro * 1e6;
     result["Conductance in uS"] = Geq * 1e6;
     // To do: put alpha in the parameter file
+
+#endif
+
     return result;
 }
 
-// update the temperature at every site using the gpu
-void Device::updatetemperature_gpu(bool solve_heating_global, bool solve_heating_local, GPUBuffers gpubuf, double step_time, double small_step, double dissipation_constant,
-                                   double background_temp, double t_ox, double A, double c_p)
-{
-    if (solve_heating_global)
-    {
-        updateTemperatureGlobal_gpu(gpubuf, step_time, small_step, dissipation_constant, background_temp, t_ox, A, c_p);
-    }
-    else if (solve_heating_local)
-    {
-        std::cout << "This is not implemented on the GPU yet" << std::endl;
-    }
-}
-
 // update temperature on the CPU
-std::map<std::string, double> Device::updatetemperature(bool solve_heating_global, bool solve_heating_local,
+std::map<std::string, double> Device::updateTemperature(bool solve_heating_global, bool solve_heating_local, GPUBuffers gpubuf,
                                                         double step_time, double small_step, double dissipation_constant,
                                                         double background_temp, double t_ox, double A, double c_p, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
                                                         double k_th_vacancies, double num_atoms_contact, std::vector<ELEMENT> metals)
 {
     std::map<std::string, double> result;
+
+#ifdef USE_CUDA
+
+    gpubuf.sync_HostToGPU(*this); // remove eventually
+
+    if (solve_heating_global)
+    {
+        double C_thermal = A * t_ox * c_p * (1e6); // [J/K]
+        double number_steps = step_time / small_step;
+        double a_coeff = -dissipation_constant*1/C_thermal*small_step + 1;
+        double b_coeff = dissipation_constant*1/C_thermal*small_step*background_temp; 
+
+        // call CUDA implementation
+        update_temperatureglobal_gpu(gpubuf.site_power, gpubuf.T_bg, gpubuf.N_, a_coeff, b_coeff, number_steps, C_thermal, small_step);
+    }
+    else if (solve_heating_local)
+    {
+        std::cout << "This is not implemented on the GPU yet" << std::endl;
+    }
+
+    gpubuf.sync_GPUToHost(*this); // remove eventually
+
+#else
+
     result["Global temperature in K"] = background_temp;
 
     if (solve_heating_global)
@@ -1123,23 +1144,9 @@ std::map<std::string, double> Device::updatetemperature(bool solve_heating_globa
             return localTemperatureMap;
         }
     }
+
+#endif
     return result;
-}
-
-void Device::updateTemperatureGlobal_gpu(GPUBuffers gpubuf, double event_time, double small_step, double dissipation_constant,
-                                         double background_temp, double t_ox, double A, double c_p){
-
-    // expects that the device has already been copied to GPU memory
-    assert(gpubuf.site_power != nullptr);
-    assert(gpubuf.T_bg != nullptr);
-
-    double C_thermal = A * t_ox * c_p * (1e6); // [J/K]
-    double number_steps = event_time / small_step;
-    double a_coeff = -dissipation_constant*1/C_thermal*small_step + 1;
-    double b_coeff = dissipation_constant*1/C_thermal*small_step*background_temp; 
-
-    // call CUDA implementation
-    update_temperatureglobal_gpu(gpubuf.site_power, gpubuf.T_bg, gpubuf.N_, a_coeff, b_coeff, number_steps, C_thermal, small_step);
 }
 
 // update the global temperature using the global temperature model

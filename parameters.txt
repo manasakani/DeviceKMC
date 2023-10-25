@@ -2,9 +2,9 @@
 //  Simulation Parameters
 //******************************
 
-rnd_seed = 2													// random number for KMCProcess
-restart = 0														// restart calculation
-restart_xyz_file = test_structures/snapshot_4620.xyz			// restart filename
+rnd_seed = 1													// random number for KMCProcess
+restart = 1														// restart calculation
+restart_xyz_file = structure_files/snapshot_init.xyz			// restart filename
 
 atom_xyz_file = structure_files/atoms.xyz						// if not restart, draws from the atom coordinates file
 interstitial_xyz_file = structure_files/interstitials.xyz
@@ -45,7 +45,7 @@ Icc = 6e-07 														// [A] enforced compliance current
 
 Rs = 1e-16 														// [Ohm] series resistance 
 
-log_freq = 2													// frequency of device snapshot generation (per x kmc steps)
+log_freq = 1													// frequency of device snapshot generation (per x kmc steps)
 
 output_freq = 10 												// frequency of printing the steps into the output file
 
