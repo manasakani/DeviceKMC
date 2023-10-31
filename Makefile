@@ -1,24 +1,24 @@
 # ***************************************************
 # *** IIS - Intel Compiler -- USE TO COMPILE CPU CODE
-CXX = /usr/sepp/bin/icc-2020-af 
-MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
-OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
-CUDA_ROOT = /usr/local/cuda
-CXXFLAGS = -O3 -std=c++11 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
+# CXX = /usr/sepp/bin/icc-2020-af 
+# MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
+# OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
+# CUDA_ROOT = /usr/local/cuda
+# CXXFLAGS = -O3 -std=c++11 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
 # ***************************************************
 
 # ***************************************************
 # *** IIS - GNU C++ compiler (with C++17) + nvcc *** -- USE TO COMPILE GPU CODE
-# CXX = /usr/sepp/bin/g++ 
-# MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
-# OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
-# CUDA_ROOT = /usr/local/cuda
-# CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
-# NVCC = nvcc
-# NVCCFLAGS = -O3 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" #-G -lineinfo # Last two are for the visual profiler. To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 
-# LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver
-# CXXFLAGS += -DUSE_CUDA # uncomment to compile cuda code
-# COMPILE_WITH_CUDA = -DCUDA # uncomment to compile cuda code
+CXX = /usr/sepp/bin/g++ 
+MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
+OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
+CUDA_ROOT = /usr/local/cuda
+CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
+NVCC = nvcc
+NVCCFLAGS = -O3 -std=c++17 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" --extended-lambda -lcusparse #-G -lineinfo # Last two are for the visual profiler. To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 
+LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver -lcusparse
+CXXFLAGS += -DUSE_CUDA # uncomment to compile cuda code
+COMPILE_WITH_CUDA = -DCUDA # uncomment to compile cuda code
 # ***************************************************
 
 # ***************************************************
