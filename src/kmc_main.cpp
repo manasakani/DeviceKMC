@@ -183,14 +183,11 @@ int main(int argc, char **argv)
                    // Temperature
                    if (p.solve_heating_global || p.solve_heating_local)
                    {
-                       // #ifdef use_CUDA
-                       //                        gpubuf.sync_HostToGPU(device); // remove eventually
-                       //                        device.updatetemperature_gpu(p.solve_heating_global, p.solve_heating_local, gpubuf, step_time, p.small_step, p.dissipation_constant, p.background_temp, p.t_ox, p.A, p.c_p);
-                       //                        gpubuf.sync_GPUToHost(device); // remove eventually
-                       // #else
-                       std::map<std::string, double> temperatureMap = device.updatetemperature(p.solve_heating_global, p.solve_heating_local, step_time, p.small_step, p.dissipation_constant, p.background_temp, p.t_ox, p.A, p.c_p, p.delta_t, p.tau, p.power_adjustment_term, p.k_th_interface, p.k_th_vacancies, p.num_atoms_contact, p.metals);
+                       std::map<std::string, double> temperatureMap = device.updateTemperature(p.solve_heating_global, p.solve_heating_local, gpubuf,
+                                                                                               step_time, p.small_step, p.dissipation_constant, 
+                                                                                               p.background_temp, p.t_ox, p.A, p.c_p, p.delta_t, p.tau, p.power_adjustment_term, p.k_th_interface, 
+                                                                                               p.k_th_vacancies, p.num_atoms_contact, p.metals);
                        resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-                       // #endif
                    }
 
                     auto t_temp = std::chrono::steady_clock::now();

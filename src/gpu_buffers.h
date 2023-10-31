@@ -72,7 +72,7 @@ public:
 
 #ifdef USE_CUDA
 
-        // variables to store in GPU global memory
+        // small lists and variables to store in GPU cache
         copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host);
 
         cudaDeviceSynchronize();

@@ -24,6 +24,10 @@ void update_temperatureglobal_gpu(const double *site_power,
 void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals);
+        
+void background_potential_gpu_sparse(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
+                              const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
+                              const int num_metals);
 
 void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice,
                           const double *sigma, const double *k,

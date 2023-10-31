@@ -18,6 +18,8 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cusolverDn.h>
+// #include <cusparse.h>
+#include <cusparse_v2.h>
 // #endif
 
 
@@ -29,6 +31,7 @@ extern "C"
     extern void dgesv_(int *, int *, double *, int *, int *, double *, int *, int *);
     extern void dgesvd_(char *, char *, int *, int *, double *, int *, double *, double *, int *, double *, int *, double *, int *, int *);
     extern void dgemm_(char *, char *, int *, int *, int *, double *, double *, int *, double *, int *, double *, double *, int *);
+    extern void dgemv_(char *, int *, int *, double *, double *, int *, double *, int *, double *, double *, int *);
     extern void dgetri_(int *, double *, int *, int *, double *, int *, int *);
     extern void dgetrf_(int *, int *, double *, int *, int *, int *);
 }
@@ -140,7 +143,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=t
    if (code != cudaSuccess) 
    {
       fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
-      if (abort) exit(code);
+    //   if (abort) exit(code);
    }
 }
 // #endif

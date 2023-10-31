@@ -326,7 +326,9 @@ void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int
 #else
 
     //printf("Executing GEMM on CPU ...\n");
-    dgemm_(transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+    //dgemm_(transa, transb, m, n, k, alpha, A, lda, B, ldb, beta, C, ldc);
+    int one = 1;
+    dgemv_(transa, m, k, alpha, A, lda, B, &one, beta, C, &one);
 
 #endif
 

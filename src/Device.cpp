@@ -742,7 +742,7 @@ void Device::updatePotential(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int 
 
     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
 
-    background_potential_gpu(handle, gpubuf, N, N_left_tot, N_right_tot,
+    background_potential_gpu_sparse(handle, gpubuf, N, N_left_tot, N_right_tot,
                              Vd, pbc, high_G, low_G, nn_dist, metals.size());
 
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
@@ -750,6 +750,12 @@ void Device::updatePotential(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int 
                          gpubuf.site_charge, gpubuf.site_potential);
 
     gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
+
+    // std::ofstream fout2("gpu_site_potential2.txt");
+    // for(int i = 0; i< N; i++){
+    //     fout2 << site_potential[i] << "\n"; 
+    // }
+    // exit(1);
 
 #else
     // circuit-model-based potential solver
@@ -937,7 +943,6 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     }
 
     // D_T(NsubxNsub) * x = M(Nsubx1) --> (solve for x)
-    // switch to cuSolver
     gesv(handle_cusolver, &Nsub, &one, D_T, &Nsub, ipiv_T, M, &Nsub, &info);
     // M now contains the virtual potentials
 
@@ -1025,6 +1030,8 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     char transa = 'T';
     char transb = 'N';
     gemm(handle, &transa, &transb, &N_atom, &one, &N_atom, &one_d, I_neg, &N_atom, &M[2], &N_atom, &zero, P_disp, &N_atom);
+    //char       *transa, *transb,      *m,   *n,      *k, *alpha,    *A,    *lda,    *B,    *ldb, *beta,     *C,    *ldc
+
 
         //  // debug
         // std::ofstream fout("P_cpu.txt");
@@ -1049,11 +1056,11 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
         }
         else if (vacancy)
         {
-            alpha = 0.1;
+            alpha = 1;//0.1;
         }
         else
         {
-            alpha = 0.1;
+            alpha = 1;//0.1;
         }
 
         site_power[atom_ind[i]] = -1 * alpha * P_disp[i];
@@ -1357,6 +1364,6 @@ void Device::writeSnapshot(std::string filename, std::string foldername)
 
     for (int i = 0; i < N; i++)
     {
-        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_power[i] << "   " << site_temperature[i] << "\n";
+        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential[i] << "   " << site_temperature[i] << "\n";
     }
 }
