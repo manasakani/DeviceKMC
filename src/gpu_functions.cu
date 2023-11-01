@@ -1074,16 +1074,16 @@ void sparse_system_solve_ILU(cublasHandle_t handle_cublas, cusparseHandle_t hand
     const cusparseOperation_t trans_U  = CUSPARSE_OPERATION_NON_TRANSPOSE;
 
     // constants:
-    const double alpha = 1.0;
-    const double nalpha = -1.0;
+    const double one = 1.0;
+    const double n_one = -1.0;
     const double zero = 0.0;
-    double *alpha_d, *nalpha_d, *beta_d;
-    gpuErrchk( cudaMalloc((void**)&alpha_d, sizeof(double)) );
-    gpuErrchk( cudaMemcpy(alpha_d, &alpha, sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMalloc((void**)&nalpha_d, sizeof(double)) );
-    gpuErrchk( cudaMemcpy(nalpha_d, &nalpha, sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMalloc((void**)&beta_d, sizeof(double)) );
-    gpuErrchk( cudaMemcpy(beta_d, &zero, sizeof(double), cudaMemcpyHostToDevice) );
+    double *one_d, *n_one_d, *zero_d;
+    gpuErrchk( cudaMalloc((void**)&one_d, sizeof(double)) );
+    gpuErrchk( cudaMemcpy(one_d, &one, sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMalloc((void**)&n_one_d, sizeof(double)) );
+    gpuErrchk( cudaMemcpy(n_one_d, &n_one, sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMalloc((void**)&zero_d, sizeof(double)) );
+    gpuErrchk( cudaMemcpy(zero_d, &zero, sizeof(double), cudaMemcpyHostToDevice) );
 
     // step 1: create descriptors
     cusparseCreateMatDescr(&descr_M);
@@ -1163,23 +1163,19 @@ void sparse_system_solve_ILU(cublasHandle_t handle_cublas, cusparseHandle_t hand
     //                     U*y = z 
     
     // step 6: solve L*z = x
-    status = cusparseDcsrsv2_solve(handle, trans_L, m, nnz, alpha_d, descr_L, 
+    status = cusparseDcsrsv2_solve(handle, trans_L, m, nnz, one_d, descr_L, 
                                 d_csrVal, d_csrRowPtr, d_csrColInd, info_L,
                                 d_x, d_z, policy_L, pBuffer); // replace with cusparseSpSV
     gpuErrchk( cudaDeviceSynchronize() );
-    if (status != CUSPARSE_STATUS_SUCCESS) {
-        const char* errorString = cusparseGetErrorString(status);
-        printf("CUSPARSE cusparseDcsrsv2_solve 1 failed with error: %s\n", errorString);
-    } 
 
     // step 7: solve U*y = z
-    status = cusparseDcsrsv2_solve(handle, trans_U, m, nnz, alpha_d, descr_U, // replace with cusparseSpSV
+    status = cusparseDcsrsv2_solve(handle, trans_U, m, nnz, one_d, descr_U, // replace with cusparseSpSV
                                    d_csrVal, d_csrRowPtr, d_csrColInd, info_U,
                                    d_z, d_y, policy_U, pBuffer);
     gpuErrchk( cudaDeviceSynchronize() );
     if (status != CUSPARSE_STATUS_SUCCESS) {
         const char* errorString = cusparseGetErrorString(status);
-        printf("CUSPARSE cusparseDcsrsv2_solve 2 failed with error: %s\n", errorString);
+        printf("CUSPARSE cusparseDcsrsv2_solve failed with error: %s\n", errorString);
     } 
 
     // *******************************
@@ -1196,9 +1192,8 @@ void sparse_system_solve_ILU(cublasHandle_t handle_cublas, cusparseHandle_t hand
     // for SpMV:
     cusparseSpMatDescr_t matA;
     cusparseDnVecDescr_t vecX, vecY, vecR, vecP, vectemp;
-    cusparseCreateMatDescr(&descr_X);
-    cusparseSetMatIndexBase(descr_X, CUSPARSE_INDEX_BASE_ZERO);
-    cusparseCreateCsr(&matA, m, m, nnz, d_csrRowPtr, d_csrColInd, d_csrVal, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
+    cusparseCreateCsr(&matA, m, m, nnz, d_csrRowPtr, d_csrColInd, d_csrVal, 
+                      CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
     cusparseCreateDnVec(&vecX, m, d_x, CUDA_R_64F);
     cusparseCreateDnVec(&vecY, m, d_y, CUDA_R_64F);
     cusparseCreateDnVec(&vecR, m, d_r, CUDA_R_64F);
@@ -1210,55 +1205,53 @@ void sparse_system_solve_ILU(cublasHandle_t handle_cublas, cusparseHandle_t hand
     
     // Initialize the residual and conjugate vectors
     // r = A*y - x & p = -r
-    status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, alpha_d, matA, 
-                          vecY, beta_d, vecR, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, pBuffer);       // r = A*y
+    status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                          vecY, zero_d, vecR, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, pBuffer);          // r = A*y
     gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError( cublasDscal(handle_cublas, m, &nalpha, d_x, 1) );                              // x = x * -1
+    CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -1 * x + r
     gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError( cublasDaxpy(handle_cublas, m, &alpha, d_x, 1, d_r, 1) );                       // r = x + r
+    CheckCublasError(cublasDcopy(handle_cublas, m, d_r, 1, d_p, 1));                                    // p = r
     gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError(cublasDcopy(handle_cublas, m, d_r, 1, d_p, 1));                                 // p = r
+    CheckCublasError(cublasDscal(handle_cublas, m, &n_one, d_p, 1));                                    // p = -p
     gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError(cublasDscal(handle_cublas, m, &nalpha, d_p, 1));                                // p = p * -1
 
     // calculate the error (norm of the residual)
     CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
     gpuErrchk( cudaDeviceSynchronize() );
-
+    std::cout << "norm initial: " << h_norm << "\n";
+    
     // Conjugate Gradient steps
     int counter = 0;
-    double t, tp, temp1, beta1;
+    double t, tnew, alpha, beta, alpha_temp;
     while (counter < 100){
 
-        // t:
-        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                        // t = rT * r
+        // 1. alpha = rT * r / (pT * A * p)
+        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                         // t = rT * r
+        gpuErrchk( cudaDeviceSynchronize() );
+        status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                              vecP, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, pBuffer);  // temp = A*p
+        gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( cublasDdot (handle_cublas, m, d_p, 1, d_temp, 1, &alpha_temp) );             // alpha = pT*temp = pT*A*p
+        gpuErrchk( cudaDeviceSynchronize() );
+        alpha = t / alpha_temp; 
+
+        // 2. y = y + alpha * p
+        CheckCublasError(cublasDaxpy(handle_cublas, m, &alpha, d_p, 1, d_y, 1));                       // y = y + alpha * p
         gpuErrchk( cudaDeviceSynchronize() );
 
-        // alphat = t * (pT * A * p)
-        status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, alpha_d, matA, 
-                              vecP, beta_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, pBuffer); // temp = A*p
-        gpuErrchk( cudaDeviceSynchronize() );
-        CheckCublasError( cublasDdot (handle_cublas, m, d_p, 1, d_temp, 1, &temp1) );                 // temp1 = pT*temp
-        gpuErrchk( cudaDeviceSynchronize() );
-        temp1 = t / temp1; // alpha = temp1
-
-        // y = y + alpha*p
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &temp1, d_p, 1, d_y, 1));                      // y = y + alpha * p
+        // 3. r = r + alpha * A * p 
+        CheckCublasError(cublasDaxpy(handle_cublas, m, &alpha, d_temp, 1, d_r, 1));                    // r = r + alpha * temp
         gpuErrchk( cudaDeviceSynchronize() );
 
-        // r = r + alpha * A * p = r + temp1 * vectemp
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &temp1, d_temp, 1, d_r, 1));                   // r = r + temp1 * vectemp
+        // 4. beta = (rT * r) / t
+        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &tnew) );                       // tnew = rT * r
         gpuErrchk( cudaDeviceSynchronize() );
+        beta = tnew / t;
 
-        // beta = (rT * r) / t
-        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &tp) );                        // t = rT * r
+        // 5. p = -r + beta * p
+        CheckCublasError(cublasDscal(handle_cublas, m, &beta, d_p, 1));                                  // p = p * beta
         gpuErrchk( cudaDeviceSynchronize() );
-        beta1 = tp / t;
-
-        // p = -r + beta*p
-        CheckCublasError(cublasDscal(handle_cublas, m, &beta1, d_p, 1));                                // p = p * beta
-        gpuErrchk( cudaDeviceSynchronize() );
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &nalpha, d_r, 1, d_p, 1));                       // p = p + -1*r
+        CheckCublasError(cublasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1));                         // p = p + r
         gpuErrchk( cudaDeviceSynchronize() );
 
         // calculate the error (norm of the residual)
@@ -1269,6 +1262,7 @@ void sparse_system_solve_ILU(cublasHandle_t handle_cublas, cusparseHandle_t hand
         counter++;
     }
     std::cout << "this doesn't work yet!\n";
+    exit(1);
 
     cudaFree(d_z);
     cudaFree(pBuffer);
@@ -1414,12 +1408,12 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     gpuErrchk( cudaMalloc((void **)&v_soln, N_interface * sizeof(double)) ); 
 
     // Iterative manual, using device pointers:
-    // sparse_system_solve_ILU(handle_cublas, cusparseHandle, d_csrRowPtr, d_csrColIndices, d_csrValues,
-    //                         nnz, N_interface, gpu_k_sub, v_soln);
+    sparse_system_solve_ILU(handle_cublas, cusparseHandle, d_csrRowPtr, d_csrColIndices, d_csrValues,
+                            nnz, N_interface, gpu_k_sub, v_soln);
 
     // Using CuSolver with host pointers
-    sparse_system_solve(handle, d_csrRowPtr, d_csrColIndices, d_csrValues,
-                        nnz, N_interface, v_soln, gpu_k_sub);
+    // sparse_system_solve(handle, d_csrRowPtr, d_csrColIndices, d_csrValues,
+    //                     nnz, N_interface, v_soln, gpu_k_sub);
 
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
@@ -1647,7 +1641,7 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     int *gpu_ipiv;
 
     // double *gpu_A = gpu_x + (N_atom + 2) + 1
-    //  double* gpu_D = gpu_k + (N_left_tot * N) + N_left_tot;
+    // double* gpu_D = gpu_k + (N_left_tot * N) + N_left_tot;
 
     cudaMalloc((void **)&gpu_ipiv, (N_atom + 1) * sizeof(int));
     cudaMalloc((void **)(&gpu_info), sizeof(int));

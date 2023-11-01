@@ -588,13 +588,12 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 {
 
     std::map<std::string, int> result;
-    int N_left_tot = get_num_in_contacts(num_atoms_contact, "left"); //144
-    int N_right_tot = get_num_in_contacts(num_atoms_contact, "right"); //144
+    int N_left_tot = 400;//get_num_in_contacts(num_atoms_contact, "left");  // 144
+    int N_right_tot = 400;//get_num_in_contacts(num_atoms_contact, "right"); 
     int N_interface = N - N_left_tot - N_right_tot;
 
     int one = 1;
     int info, cntr;
-
 
     double *K = (double *)calloc(N * N, sizeof(double));
     double *VL = (double *)malloc(N_left_tot * sizeof(double));
@@ -754,19 +753,18 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
 
     gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
 
-    // std::ofstream fout2("gpu_site_potential.txt");
-    // for(int i = 0; i < N; i++){
-    //     // std::cout << i << "/" << N << "\n";
-    //     fout2 << site_potential[i] << "\n"; 
-    // }
-    // exit(1); 
-
 #else
     // circuit-model-based potential solver
-    background_potential(handle, num_atoms_contact, Vd, lattice, G_coeff, high_G, low_G, metals);
+    background_potential(handle_cusolver, num_atoms_contact, Vd, lattice, G_coeff, high_G, low_G, metals);
 
     // gridless Poisson equation solver (using sum of gaussian charge distribution solutions)
-    poisson_gridless(num_atoms_contact, lattice);
+    // poisson_gridless(num_atoms_contact, lattice);
+    gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
+    poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
+                        gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+                        gpubuf.site_charge, gpubuf.site_potential);
+    gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
+
 #endif
 }
 
@@ -1103,28 +1101,28 @@ std::map<std::string, double> Device::updateTemperature(bool solve_heating_globa
 {
     std::map<std::string, double> result;
 
-#ifdef USE_CUDA
+// #ifdef USE_CUDA
 
-    gpubuf.sync_HostToGPU(*this); // remove eventually
+//     gpubuf.sync_HostToGPU(*this); // remove eventually
 
-    if (solve_heating_global)
-    {
-        double C_thermal = A * t_ox * c_p * (1e6); // [J/K]
-        double number_steps = step_time / small_step;
-        double a_coeff = -dissipation_constant*1/C_thermal*small_step + 1;
-        double b_coeff = dissipation_constant*1/C_thermal*small_step*background_temp; 
+//     if (solve_heating_global)
+//     {
+//         double C_thermal = A * t_ox * c_p * (1e6); // [J/K]
+//         double number_steps = step_time / small_step;
+//         double a_coeff = -dissipation_constant*1/C_thermal*small_step + 1;
+//         double b_coeff = dissipation_constant*1/C_thermal*small_step*background_temp; 
 
-        // call CUDA implementation
-        update_temperatureglobal_gpu(gpubuf.site_power, gpubuf.T_bg, gpubuf.N_, a_coeff, b_coeff, number_steps, C_thermal, small_step);
-    }
-    else if (solve_heating_local)
-    {
-        std::cout << "This is not implemented on the GPU yet" << std::endl;
-    }
+//         // call CUDA implementation
+//         update_temperatureglobal_gpu(gpubuf.site_power, gpubuf.T_bg, gpubuf.N_, a_coeff, b_coeff, number_steps, C_thermal, small_step);
+//     }
+//     else if (solve_heating_local)
+//     {
+//         std::cout << "This is not implemented on the GPU yet" << std::endl;
+//     }
 
-    gpubuf.sync_GPUToHost(*this); // remove eventually
+//     gpubuf.sync_GPUToHost(*this); // remove eventually
 
-#else
+// #else
 
     result["Global temperature in K"] = background_temp;
 
@@ -1156,7 +1154,7 @@ std::map<std::string, double> Device::updateTemperature(bool solve_heating_globa
         }
     }
 
-#endif
+// #endif
     return result;
 }
 
