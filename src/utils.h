@@ -18,7 +18,7 @@
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cusolverDn.h>
-// #include <cusparse.h>
+#include <cusolverSp.h>
 #include <cusparse_v2.h>
 // #endif
 

@@ -127,7 +127,7 @@ public:
     void poisson_gridless(int num_atoms_contact, std::vector<double> lattice);
 
     // update the potential of each site
-    void updatePotential(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int num_atoms_contacts, double Vd, std::vector<double> lattice,
+    void updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, int num_atoms_contacts, double Vd, std::vector<double> lattice,
                          double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals);
 
     // update the power of each site

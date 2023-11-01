@@ -156,12 +156,17 @@ int main(int argc, char **argv)
                     std::map<std::string, int> chargeMap = device.updateCharge(gpubuf, p.metals);
                     resultMap.insert(chargeMap.begin(), chargeMap.end());
 
-                    device.updatePotential(handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
+                    device.updatePotential(handle, handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
                                            p.G_coeff, p.high_G, p.low_G, p.metals);
                 }
 
                 auto t_pot = std::chrono::steady_clock::now();
                 diff_pot = t_pot - t0;
+
+                std::cout << "time to calculate potential: " << diff_pot.count() << "\n";
+                std::cout << "exiting after update potential in mai\n";
+                exit(1);
+
 
                 // KMC update step
                 step_time = sim.executeKMCStep(gpubuf, device);

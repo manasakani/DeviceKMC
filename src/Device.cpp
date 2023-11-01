@@ -730,7 +730,7 @@ void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice
 }
 
 // update the potential of each site
-void Device::updatePotential(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
+void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
                              double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
 {
 
@@ -742,8 +742,11 @@ void Device::updatePotential(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int 
 
     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
 
-    background_potential_gpu_sparse(handle, gpubuf, N, N_left_tot, N_right_tot,
-                             Vd, pbc, high_G, low_G, nn_dist, metals.size());
+    background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+                                    Vd, pbc, high_G, low_G, nn_dist, metals.size());
+    
+    // background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+    //                          Vd, pbc, high_G, low_G, nn_dist, metals.size());
 
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
@@ -751,11 +754,12 @@ void Device::updatePotential(cusolverDnHandle_t handle, GPUBuffers &gpubuf, int 
 
     gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
 
-    // std::ofstream fout2("gpu_site_potential2.txt");
-    // for(int i = 0; i< N; i++){
+    // std::ofstream fout2("gpu_site_potential.txt");
+    // for(int i = 0; i < N; i++){
+    //     // std::cout << i << "/" << N << "\n";
     //     fout2 << site_potential[i] << "\n"; 
     // }
-    // exit(1);
+    // exit(1); 
 
 #else
     // circuit-model-based potential solver
