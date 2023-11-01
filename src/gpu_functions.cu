@@ -1408,7 +1408,7 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     }
 
     // ************************************************************
-    // 2. Solve system of linear equations using LU factorization:
+    // 2. Solve system of linear equations 
 
     double *v_soln;
     gpuErrchk( cudaMalloc((void **)&v_soln, N_interface * sizeof(double)) ); 
