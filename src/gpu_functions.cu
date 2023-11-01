@@ -1408,12 +1408,12 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     gpuErrchk( cudaMalloc((void **)&v_soln, N_interface * sizeof(double)) ); 
 
     // Iterative manual, using device pointers:
-    sparse_system_solve_ILU(handle_cublas, cusparseHandle, d_csrRowPtr, d_csrColIndices, d_csrValues,
-                            nnz, N_interface, gpu_k_sub, v_soln);
+    // sparse_system_solve_ILU(handle_cublas, cusparseHandle, d_csrRowPtr, d_csrColIndices, d_csrValues,
+    //                         nnz, N_interface, gpu_k_sub, v_soln);
 
     // Using CuSolver with host pointers
-    // sparse_system_solve(handle, d_csrRowPtr, d_csrColIndices, d_csrValues,
-    //                     nnz, N_interface, v_soln, gpu_k_sub);
+    sparse_system_solve(handle, d_csrRowPtr, d_csrColIndices, d_csrValues,
+                        nnz, N_interface, v_soln, gpu_k_sub);
 
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
