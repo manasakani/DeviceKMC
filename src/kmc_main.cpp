@@ -1,3 +1,9 @@
+/*
+@author: Manasa Kaniselvan 
+@date: 2023-08
+Copyright 2023 ETH Zurich and the Computational Nanoelectronics Group. All rights reserved.
+*/
+
 #include <iostream>
 #include <vector>
 #include <cstdio>
