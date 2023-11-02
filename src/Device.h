@@ -128,7 +128,7 @@ public:
 
     // update the potential of each site
     void updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, int num_atoms_contacts, double Vd, std::vector<double> lattice,
-                         double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals);
+                         double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals, int kmc_step_count);
 
     // update the power of each site
     std::map<std::string, double> updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, int num_atoms_first_layer, double Vd, double high_G, double low_G_1,

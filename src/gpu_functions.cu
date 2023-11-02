@@ -982,6 +982,36 @@ void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRo
     }
 }
 
+// dump sparse matrix into a file
+void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices, double* d_csrValues, int kmc_step_count){
+
+    // Copy matrix back to host memory
+    double *h_csrValues = (double *)calloc(nnz, sizeof(double));
+    int *h_csrRowPtr = (int *)calloc((m + 1), sizeof(int));
+    int *h_csrColIndices = (int *)calloc(nnz, sizeof(int));
+    gpuErrchk( cudaMemcpy(h_csrValues, d_csrValues, nnz * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(h_csrRowPtr, d_csrRowPtr, (m + 1) * sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(h_csrColIndices, d_csrColIndices, nnz * sizeof(int), cudaMemcpyDeviceToHost) );
+
+    // print to file, tagged with the kmc step number
+    std::ofstream fout_val("csrValues_step#" + std::to_string(kmc_step_count) + ".txt");
+    for(int i = 0; i < nnz; i++){
+        fout_val << h_csrValues[i] << " "; 
+    }
+    std::ofstream fout_row("csrRowPtr_step#" + std::to_string(kmc_step_count) + ".txt");
+    for(int i = 0; i < (m + 1); i++){
+        fout_row << h_csrRowPtr[i] << " "; 
+    }
+    std::ofstream fout_col("csrColIndices_step#" + std::to_string(kmc_step_count) + ".txt");
+    for(int i = 0; i < nnz; i++){
+        fout_col << h_csrColIndices[i] << " "; 
+    }
+
+    free(h_csrValues);
+    free(h_csrRowPtr);
+    free(h_csrColIndices);
+}
+
 // Solution of A*x = y using cusolver in host pointer mode
 void sparse_system_solve(cusolverSpHandle_t handle, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal,
                          int nnz, int m, double *d_x, double *d_y){
@@ -1207,12 +1237,12 @@ void sparse_system_solve_ILU(cublasHandle_t handle_cublas, cusparseHandle_t hand
     status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
                           vecY, zero_d, vecR, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, pBuffer);          // r = A*y
     gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -1 * x + r
+    CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -x + r
     gpuErrchk( cudaDeviceSynchronize() );
     CheckCublasError(cublasDcopy(handle_cublas, m, d_r, 1, d_p, 1));                                    // p = r
     gpuErrchk( cudaDeviceSynchronize() );
-    // CheckCublasError(cublasDscal(handle_cublas, m, &n_one, d_p, 1));                                    // p = -p
-    // gpuErrchk( cudaDeviceSynchronize() );
+    CheckCublasError(cublasDscal(handle_cublas, m, &n_one, d_p, 1));                                    // p = -p
+    gpuErrchk( cudaDeviceSynchronize() );
 
     // calculate the error (norm of the residual)
     CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
@@ -1253,7 +1283,7 @@ void sparse_system_solve_ILU(cublasHandle_t handle_cublas, cusparseHandle_t hand
         // 5. p = -r + beta * p
         CheckCublasError(cublasDscal(handle_cublas, m, &beta, d_p, 1));                                  // p = p * beta
         gpuErrchk( cudaDeviceSynchronize() );
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1));                         // p = p + r
+        CheckCublasError(cublasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1));                         // p = p - r
         gpuErrchk( cudaDeviceSynchronize() );
 
         // 6. calculate the error (norm of the residual)
@@ -1279,7 +1309,7 @@ void sparse_system_solve_ILU(cublasHandle_t handle_cublas, cusparseHandle_t hand
 
 void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
-                              const int num_metals)
+                              const int num_metals, int kmc_step_count)
 {
     // prepare contact potentials and input size
     int N_interface = N - (N_left_tot + N_right_tot);
@@ -1403,6 +1433,10 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
         printf("CUSPARSE dense-to-sparse conversion failed!\n");
     }
 
+    /// Printing matrices @Alex Maeder ///
+    dump_csr_matrix_txt(N_interface, nnz, d_csrRowPtr, d_csrColIndices, d_csrValues, kmc_step_count);
+    /// Printing matrices @Alex Maeder ///
+
     // ************************************************************
     // 2. Solve system of linear equations 
 
@@ -1410,12 +1444,12 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     gpuErrchk( cudaMalloc((void **)&v_soln, N_interface * sizeof(double)) ); 
 
     // Iterative manual, using device pointers:
-    sparse_system_solve_ILU(handle_cublas, cusparseHandle, d_csrRowPtr, d_csrColIndices, d_csrValues,
-                            nnz, N_interface, gpu_k_sub, v_soln);
+    // sparse_system_solve_ILU(handle_cublas, cusparseHandle, d_csrRowPtr, d_csrColIndices, d_csrValues,
+    //                         nnz, N_interface, gpu_k_sub, v_soln);
 
     // Using CuSolver with host pointers
-    // sparse_system_solve(handle, d_csrRowPtr, d_csrColIndices, d_csrValues,
-    //                     nnz, N_interface, v_soln, gpu_k_sub);
+    sparse_system_solve(handle, d_csrRowPtr, d_csrColIndices, d_csrValues,
+                        nnz, N_interface, v_soln, gpu_k_sub);
 
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );

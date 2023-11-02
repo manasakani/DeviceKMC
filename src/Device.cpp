@@ -730,7 +730,7 @@ void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice
 
 // update the potential of each site
 void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                             double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
+                             double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals, int kmc_step_count)
 {
 
 #ifdef USE_CUDA
@@ -742,8 +742,8 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
 
     // Uncomment to use sparse system of linear equation solver:
-    // background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-    //                                 Vd, pbc, high_G, low_G, nn_dist, metals.size());
+    background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+                                    Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
     
     background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
                              Vd, pbc, high_G, low_G, nn_dist, metals.size());
