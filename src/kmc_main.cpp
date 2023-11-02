@@ -169,11 +169,7 @@ int main(int argc, char **argv)
                 auto t_pot = std::chrono::steady_clock::now();
                 diff_pot = t_pot - t0;
 
-                std::cout << "time to calculate potential: " << diff_pot.count() << "\n";
-                // std::cout << "exiting after update potential in mai\n";
-                // device.writeSnapshot("snapshot_pot.xyz", folder_name);
-                // exit(1);
-
+                std::cout << " time for updatePotential: " << diff_pot.count() << "\n"; 
 
                 // KMC update step
                 step_time = sim.executeKMCStep(gpubuf, device);
