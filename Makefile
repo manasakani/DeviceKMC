@@ -9,10 +9,13 @@
 
 # ***************************************************
 # *** IIS - GNU C++ compiler (with C++17) + nvcc *** -- USE TO COMPILE GPU CODE
-CXX = /usr/sepp/bin/g++ 
+CXX = /usr/sepp/bin/g++
+# CXX = /usr/ela/local/linux-local/mpich-3.4.2/gcc/bin/mpic++ 
 MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
 OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
 CUDA_ROOT = /usr/local/cuda
+MPI_ROOT = /usr/ela/local/linux-local/mpich-3.4.2/gcc
+
 CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
 NVCC = nvcc
 NVCCFLAGS = -O3 -std=c++17 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" --extended-lambda #-G -lineinfo # Last two are for the visual profiler. To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 

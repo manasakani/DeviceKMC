@@ -994,15 +994,15 @@ void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices,
     gpuErrchk( cudaMemcpy(h_csrColIndices, d_csrColIndices, nnz * sizeof(int), cudaMemcpyDeviceToHost) );
 
     // print to file, tagged with the kmc step number
-    std::ofstream fout_val("csrValues_step#" + std::to_string(kmc_step_count) + ".txt");
+    std::ofstream fout_val("/scratch/sem23f28/manasa_kmc/csrValues_step#" + std::to_string(kmc_step_count) + ".txt");
     for(int i = 0; i < nnz; i++){
         fout_val << h_csrValues[i] << " "; 
     }
-    std::ofstream fout_row("csrRowPtr_step#" + std::to_string(kmc_step_count) + ".txt");
+    std::ofstream fout_row("/scratch/sem23f28/manasa_kmc/csrRowPtr_step#" + std::to_string(kmc_step_count) + ".txt");
     for(int i = 0; i < (m + 1); i++){
         fout_row << h_csrRowPtr[i] << " "; 
     }
-    std::ofstream fout_col("csrColIndices_step#" + std::to_string(kmc_step_count) + ".txt");
+    std::ofstream fout_col("/scratch/sem23f28/manasa_kmc/csrColIndices_step#" + std::to_string(kmc_step_count) + ".txt");
     for(int i = 0; i < nnz; i++){
         fout_col << h_csrColIndices[i] << " "; 
     }
@@ -1332,6 +1332,25 @@ void sparse_system_solve_iterative(cublasHandle_t handle_cublas, cusparseHandle_
     
 }
 
+
+template <typename T>
+void writeArrayToFile(const T* array, int numElements, const std::string& filename) {
+    std::ofstream file(filename);
+    if (file.is_open()) {
+        for(int i = 0; i < numElements; i++){
+            file << array[i] << " "; 
+        }
+        file.close();
+        std::cout << "Array data written to file: " << filename << std::endl;
+    } else {
+        std::cerr << "Unable to open the file for writing." << std::endl;
+    }
+}
+
+
+// TODO maybe seperate cuda/MPI such that 
+// every .cpp is compiled with mpic++
+// and .cu with nvcc
 void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count)
@@ -1411,6 +1430,7 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
 
     // ************************************************************
     // 1. Convert dense D to CSR:
+    // TODO: this could include some errors
 
     cusolverSpHandle_t handle;
     cusolverSpCreate(&handle);
@@ -1448,6 +1468,13 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     cudaMalloc((void**)&d_csrValues, nnz * sizeof(double));
     cudaMemset(d_csrValues, 0, nnz * sizeof(double));
     gpuErrchk( cudaDeviceSynchronize() );
+
+
+    std::string filename = "/scratch/sem23f28/manasa_kmc/KD2S_" + std::to_string(kmc_step_count) + ".txt";
+    double* cpu_k = (double*)malloc(N * N * sizeof(double));
+    cudaMemcpy(cpu_k, gpu_k, N * N * sizeof(double), cudaMemcpyDeviceToHost);
+    writeArrayToFile<double>(cpu_k, N * N, filename);
+
 
     // fill in sparse representation
     status = cusparseDdense2csr(cusparseHandle, N_interface, N_interface,
@@ -1500,9 +1527,12 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     
 }
 
+
+
+
 void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
-                              const int num_metals)
+                              const int num_metals, int kmc_step_count)
 {
 
     int N_interface = N - (N_left_tot + N_right_tot);
@@ -1582,6 +1612,22 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     int *gpu_ipiv; // int info;
     gpuErrchk( cudaMalloc((void **)&gpu_ipiv, N_interface * sizeof(int)) ); 
     gpuErrchk( cudaMalloc((void **)(&gpu_info), sizeof(int)) );
+
+    printf("N_interface: %i \n", N_interface);
+    printf("N_left_tot: %i \n", N_left_tot);
+    printf("N_right_tot: %i \n", N_right_tot);
+    printf("N: %i \n", N);
+
+    std::string filename_A = "/scratch/sem23f28/manasa_kmc/K_" + std::to_string(kmc_step_count) + ".txt";
+    double* cpu_k = (double*)malloc(N * N * sizeof(double));
+    cudaMemcpy(cpu_k, gpu_k, N * N * sizeof(double), cudaMemcpyDeviceToHost);
+    writeArrayToFile<double>(cpu_k, N * N, filename_A);
+
+
+    std::string filename_rhs = "/scratch/sem23f28/manasa_kmc/test_matrices/rhs_" + std::to_string(kmc_step_count) + ".txt";
+    double* cpu_rhs = (double*) malloc(N_interface * sizeof(double));
+    cudaMemcpy(cpu_rhs, gpu_k_sub, N_interface * sizeof(double), cudaMemcpyDeviceToHost);
+    writeArrayToFile<double>(cpu_rhs, N_interface, filename_rhs);
 
     // points to the start of Koxide inside K:
     double* gpu_D = gpu_k + (N_left_tot * N) + N_left_tot;
