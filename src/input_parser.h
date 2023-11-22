@@ -317,6 +317,10 @@ KMCParameters::KMCParameters(std::string param_file){
 			delta_t = read_double(line);
 		}
 		
+		if (line.find("delta ") != std::string::npos) {
+			delta = read_double(line);
+		}
+		
 		if (line.find("power_adjustment_term ") != std::string::npos) {
 			power_adjustment_term = read_double(line);
 		}

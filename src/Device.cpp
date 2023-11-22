@@ -2,6 +2,9 @@
 #include "gpu_buffers.h"
 #include <cassert>
 
+//remove:
+#include <iomanip>
+
 #ifdef USE_CUDA
     #include "cuda_wrapper.h"
 #endif
@@ -582,9 +585,23 @@ std::map<std::string, int> Device::updateCharge(GPUBuffers gpubuf, std::vector<E
     return result;
 }
 
+template <typename T>
+void writeArrayToFile(const T* array, int numElements, const std::string& filename) {
+    std::ofstream file(filename);
+    if (file.is_open()) {
+        for(int i = 0; i < numElements; i++){
+            file << array[i] << " "; 
+        }
+        file.close();
+        std::cout << "Array data written to file: " << filename << std::endl;
+    } else {
+        std::cerr << "Unable to open the file for writing." << std::endl;
+    }
+}
+
 // update the potential of each site
 void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                                  double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
+                                  double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals, int kmc_step_num)
 {
 
     std::map<std::string, int> result;
@@ -641,6 +658,7 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
                 }
             }
         }
+    
 
 // diagonals of K:
 #pragma omp for
@@ -654,6 +672,12 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
                 }
             }
         }
+                
+    //@Alex Maeder: the matrix is D, which is indexed as above. To output D to a file:
+    //int N_sq = N*N;
+    //const std::string filename = "testK_wDiag.txt";
+    //writeArrayToFile(K, N_sq, filename);
+        
 
 #pragma omp for
         for (int i = N_left_tot; i < N - N_right_tot; i++)
@@ -675,7 +699,6 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
     // do Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub
     gesv(handle, &N_interface, &one, D, &N, ipiv, Ksub, &N_interface, &info);
     // the negative internal voltages are now contained in Ksub
-
 
 // assign potentials to sites:
 #pragma omp parallel for
@@ -737,19 +760,16 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
 
      // STILL NEED TO PORT THESE TWO FUNCTIONS 
      // - Do not remove sync_HostToGPU and sync_GPUToHost in this function until this is done
-    int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
-    int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
+    int N_left_tot = 144; //get_num_in_contacts(num_atoms_contact, "left");
+    int N_right_tot = 144; //get_num_in_contacts(num_atoms_contact, "right");
 
     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
 
     // Uncomment to use sparse system of linear equation solver:
-    if (kmc_step_count > 0){
-        background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-                                        Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
-    } else {
-        background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-                                Vd, pbc, high_G, low_G, nn_dist, metals.size());
-    }
+    background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+                                    Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
+    //background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+    //                         Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
 
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
@@ -759,16 +779,11 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
 
 #else
     // circuit-model-based potential solver
-    background_potential(handle_cusolver, num_atoms_contact, Vd, lattice, G_coeff, high_G, low_G, metals);
+    background_potential(handle_cusolver, num_atoms_contact, Vd, lattice, G_coeff, high_G, low_G, metals, kmc_step_count);
 
     // gridless Poisson equation solver (using sum of gaussian charge distribution solutions)
-    // poisson_gridless(num_atoms_contact, lattice);
-    gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
-    poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
-                        gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                        gpubuf.site_charge, gpubuf.site_potential);
-    gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
-
+    poisson_gridless(num_atoms_contact, lattice);
+    
 #endif
 }
 
