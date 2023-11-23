@@ -766,10 +766,10 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
 
     // Uncomment to use sparse system of linear equation solver:
-    background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-                                    Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
-    // background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-    //                         Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
+    //background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+    //                                Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
+     background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+                             Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
 
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
@@ -806,6 +806,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                      nn_dist, m_e, V0, metals.size(), t_ox, &imacro);
 
     gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
+    
 
 #else
 

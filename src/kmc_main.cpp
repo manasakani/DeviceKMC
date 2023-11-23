@@ -158,6 +158,7 @@ int main(int argc, char **argv)
 
                 // Charge and Potential
                 auto t0 = std::chrono::steady_clock::now();
+                
                 if (p.solve_potential)
                 {
                     std::map<std::string, int> chargeMap = device.updateCharge(gpubuf, p.metals);
@@ -170,7 +171,7 @@ int main(int argc, char **argv)
                 auto t_pot = std::chrono::steady_clock::now();
                 diff_pot = t_pot - t0;
 
-                // std::cout << " time for updatePotential: " << diff_pot.count() << "\n"; 
+                //std::cout << " time for updatePotential: " << diff_pot.count() << "\n"; 
 
                 // KMC update step
                 step_time = sim.executeKMCStep(gpubuf, device);

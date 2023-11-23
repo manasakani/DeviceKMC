@@ -999,9 +999,16 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     gpuErrchk( cudaMemcpy(gpubuf.site_potential, VL, N_left_tot * sizeof(double), cudaMemcpyDeviceToDevice) );
     gpuErrchk( cudaMemcpy(gpubuf.site_potential + N_left_tot + N_interface, VR, N_right_tot * sizeof(double), cudaMemcpyDeviceToDevice) );
 
+	cusparseDestroyDnMat(D_dense);
+	cusparseDestroySpMat(D_sparse);
     cusparseDestroy(cusparseHandle);
+    cudaFree(SDBuffer);
     cudaFree(gpu_k);
     cudaFree(gpu_k_sub);
+    cudaFree(gpu_diag);
+    cudaFree(d_csr_offsets);
+    cudaFree(d_csr_columns);
+    cudaFree(d_csr_values);
     cudaFree(VL);
     cudaFree(VR);
     cudaFree(v_soln);
