@@ -1,14 +1,14 @@
 # ***************************************************
 # *** IIS - Intel Compiler -- USE TO COMPILE CPU CODE
-# CXX = /usr/sepp/bin/icc-2020-af 
-# MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
-# OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
-# CUDA_ROOT = /usr/local/cuda
-# CXXFLAGS = -O3 -std=c++11 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
+#CXX = /usr/sepp/bin/icc-2020-af 
+#MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
+#OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
+#CUDA_ROOT = /usr/local/cuda
+#CXXFLAGS = -O3 -std=c++11 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
 # ***************************************************
 
 # ***************************************************
-# *** IIS - GNU C++ compiler (with C++17) + nvcc *** -- USE TO COMPILE GPU CODE
+# *** IIS - GNU C++ compiler (with C++17) + nvcc *** -- USE TO COMPILE GPU CODE, remember to make clean when switching
 CXX = /usr/sepp/bin/g++ 
 MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
 OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin

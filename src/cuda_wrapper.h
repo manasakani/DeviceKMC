@@ -1,10 +1,54 @@
+#pragma once
+
 #include "utils.h"
 #include "random_num.h"
+#include "gpu_buffers.h"
+
+#include <stdio.h>
+#include <vector>
+#include <cassert>
+#include <cuda_runtime.h>
+#include <cmath>
+#include <math.h>
+
+#include <thrust/reduce.h>
+#include <thrust/extrema.h>
+#include <thrust/binary_search.h>
+#include <thrust/device_ptr.h>
+#include <thrust/scan.h>
+#include <thrust/copy.h>
+#include <thrust/execution_policy.h>
+#include <thrust/sequence.h>
+#include <thrust/device_vector.h>
+#include <thrust/fill.h>
+#include <cusparse_v2.h>
 
 // forward declaration of gpubuf class          
 class GPUBuffers;
 
 extern "C" {
+
+//******************************
+// Matrix solvers / gpu_utils.cu
+//******************************
+
+// check that sparse and dense versions are the same
+void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal);
+
+// dump sparse matrix into a file
+void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices, double* d_csrValues, int kmc_step_count);
+
+// Solution of A*x = y on sparse representation of A using cusolver in host pointer mode
+void sparse_system_solve(cusolverSpHandle_t handle, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal,
+                         int nnz, int m, double *d_x, double *d_y);
+
+// Iterative sparse linear solver using CG steps
+void sparse_system_solve_iterative(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+								   cusparseSpMatDescr_t matA, int m, double *d_x, double *d_y);
+
+//*************************************
+// Field solver modules / gpu_Device.cu
+//*************************************
 
 void get_gpu_info(char *gpu_string, int dev);
 
