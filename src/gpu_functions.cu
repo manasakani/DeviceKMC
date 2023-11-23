@@ -1334,12 +1334,24 @@ void sparse_system_solve_iterative(cublasHandle_t handle_cublas, cusparseHandle_
 
 
 template <typename T>
-void writeArrayToFile(const T* array, int numElements, const std::string& filename) {
+void writeArrayToTxtFile(const T* array, int numElements, const std::string& filename) {
     std::ofstream file(filename);
     if (file.is_open()) {
         for(int i = 0; i < numElements; i++){
             file << array[i] << " "; 
         }
+        file.close();
+        std::cout << "Array data written to file: " << filename << std::endl;
+    } else {
+        std::cerr << "Unable to open the file for writing." << std::endl;
+    }
+}
+
+template <typename T>
+void writeArrayToBinFile(T* array, int numElements, const std::string& filename) {
+    std::ofstream file(filename, std::ios::binary);
+    if (file.is_open()) {
+        file.write(reinterpret_cast<char*>(array), numElements*sizeof(T));
         file.close();
         std::cout << "Array data written to file: " << filename << std::endl;
     } else {
@@ -1470,10 +1482,16 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     gpuErrchk( cudaDeviceSynchronize() );
 
 
-    std::string filename = "/scratch/sem23f28/manasa_kmc/KD2S_" + std::to_string(kmc_step_count) + ".txt";
+    // std::string filename = "/scratch/sem23f28/manasa_kmc/KD2S_" + std::to_string(kmc_step_count) + ".txt";
+    // double* cpu_k = (double*)malloc(N * N * sizeof(double));
+    // cudaMemcpy(cpu_k, gpu_k, N * N * sizeof(double), cudaMemcpyDeviceToHost);
+    // writeArrayToTxtFile<double>(cpu_k, N * N, filename);
+
+    std::string filename = "/usr/scratch/mont-fort17/almaeder/manasa_kmc_matrices/K_" + std::to_string(kmc_step_count) + ".bin";
     double* cpu_k = (double*)malloc(N * N * sizeof(double));
     cudaMemcpy(cpu_k, gpu_k, N * N * sizeof(double), cudaMemcpyDeviceToHost);
-    writeArrayToFile<double>(cpu_k, N * N, filename);
+    writeArrayToBinFile<double>(cpu_k, N * N, filename);
+
 
 
     // fill in sparse representation
@@ -1618,16 +1636,21 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
     printf("N_right_tot: %i \n", N_right_tot);
     printf("N: %i \n", N);
 
-    std::string filename_A = "/scratch/sem23f28/manasa_kmc/K_" + std::to_string(kmc_step_count) + ".txt";
+    // std::string filename_A = "/scratch/sem23f28/manasa_kmc/K_" + std::to_string(kmc_step_count) + ".txt";
+    // double* cpu_k = (double*)malloc(N * N * sizeof(double));
+    // cudaMemcpy(cpu_k, gpu_k, N * N * sizeof(double), cudaMemcpyDeviceToHost);
+    // writeArrayToTxtFile<double>(cpu_k, N * N, filename_A);
+
+    std::string filename_k = "/usr/scratch/mont-fort17/almaeder/manasa_kmc_matrices/K_" + std::to_string(kmc_step_count) + ".bin";
     double* cpu_k = (double*)malloc(N * N * sizeof(double));
     cudaMemcpy(cpu_k, gpu_k, N * N * sizeof(double), cudaMemcpyDeviceToHost);
-    writeArrayToFile<double>(cpu_k, N * N, filename_A);
+    writeArrayToBinFile<double>(cpu_k, N * N, filename_k);
 
 
-    std::string filename_rhs = "/scratch/sem23f28/manasa_kmc/test_matrices/rhs_" + std::to_string(kmc_step_count) + ".txt";
+    std::string filename_rhs = "/usr/scratch/mont-fort17/almaeder/manasa_kmc_matrices/rhs_" + std::to_string(kmc_step_count) + ".bin";
     double* cpu_rhs = (double*) malloc(N_interface * sizeof(double));
     cudaMemcpy(cpu_rhs, gpu_k_sub, N_interface * sizeof(double), cudaMemcpyDeviceToHost);
-    writeArrayToFile<double>(cpu_rhs, N_interface, filename_rhs);
+    writeArrayToBinFile<double>(cpu_k, N_interface, filename_rhs);
 
     // points to the start of Koxide inside K:
     double* gpu_D = gpu_k + (N_left_tot * N) + N_left_tot;

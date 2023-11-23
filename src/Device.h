@@ -121,7 +121,7 @@ public:
 
     // resistive-network solver for the background potential
     void background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                              double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals);
+                              double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals, int kmc_step_count);
 
     // n-body poisson solver for the charged atoms
     void poisson_gridless(int num_atoms_contact, std::vector<double> lattice);

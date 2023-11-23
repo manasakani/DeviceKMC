@@ -582,9 +582,25 @@ std::map<std::string, int> Device::updateCharge(GPUBuffers gpubuf, std::vector<E
     return result;
 }
 
+
+template <typename T>
+void writeArrayToFile(const T* array, int numElements, const std::string& filename) {
+    std::ofstream file(filename);
+    if (file.is_open()) {
+        for(int i = 0; i < numElements; i++){
+            file << array[i] << " "; 
+        }
+        file.close();
+        std::cout << "Array data written to file: " << filename << std::endl;
+    } else {
+        std::cerr << "Unable to open the file for writing." << std::endl;
+    }
+}
+
 // update the potential of each site
 void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                                  double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals)
+                                  double G_coeff, double high_G, double low_G,
+                                  std::vector<ELEMENT> metals, int kmc_step_count)
 {
 
     std::map<std::string, int> result;
@@ -670,6 +686,11 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 
     } // thread meetup
 
+    std::string filename = "/usr/scratch/mont-fort17/almaeder/manasa_kmc_matrices/K_cpu_" + std::to_string(kmc_step_count) + ".txt";
+    std::cout << kmc_step_count << std::endl;
+    writeArrayToFile<double>(K, N * N, filename);
+
+
     double* D = K + (N_left_tot * N) + N_left_tot;
 
     // do Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub
@@ -754,6 +775,8 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
     background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
                             Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
 
+
+
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                          gpubuf.site_charge, gpubuf.site_potential);
@@ -762,18 +785,20 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
 
 #else
     // circuit-model-based potential solver
-    background_potential(handle_cusolver, num_atoms_contact, Vd, lattice, G_coeff, high_G, low_G, metals);
+    background_potential(handle_cusolver, num_atoms_contact, Vd, lattice, G_coeff, high_G, low_G, metals, kmc_step_count);
 
     // gridless Poisson equation solver (using sum of gaussian charge distribution solutions)
-    // poisson_gridless(num_atoms_contact, lattice);
+    poisson_gridless(num_atoms_contact, lattice);
     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
-    poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
-                        gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                        gpubuf.site_charge, gpubuf.site_potential);
+    // poisson_gridless(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
+    //                     gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+    //                     gpubuf.site_charge, gpubuf.site_potential);
     gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
 
 #endif
 }
+
+
 
 // update the power of each site
 std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, int num_atoms_first_layer, double Vd, double high_G, double low_G,

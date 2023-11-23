@@ -4,7 +4,7 @@
 # MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
 # OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
 # CUDA_ROOT = /usr/local/cuda
-# CXXFLAGS = -O3 -std=c++11 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
+# CXXFLAGS = -O3 -std=c++11 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -L$(OMPROOT) -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
 # ***************************************************
 
 # ***************************************************
@@ -22,7 +22,7 @@ NVCCFLAGS = -O3 -std=c++17 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" --extended-lam
 LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver -lcusparse
 CXXFLAGS += -DUSE_CUDA # uncomment to compile cuda code
 COMPILE_WITH_CUDA = -DCUDA # uncomment to compile cuda code
-# ***************************************************
+# # ***************************************************
 
 # ***************************************************
 # *** Piz Daint *** 
