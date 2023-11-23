@@ -114,8 +114,9 @@ int main(int argc, char **argv)
         std::string file_name;
         std::chrono::duration<double> diff, diff_pot, diff_power, diff_temp, diff_perturb;
 
-        for (size_t vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
+        for (int vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
         {
+			
             Vd = p.V_switch[vt_counter];
             t = p.t_switch[vt_counter];
             V_vcm = Vd;
@@ -267,7 +268,6 @@ int main(int argc, char **argv)
 #endif
             const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
             device.writeSnapshot(file_name, folder_name);
-            vt_counter++;
         }
 
 #ifdef USE_CUDA

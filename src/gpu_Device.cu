@@ -1522,10 +1522,6 @@ void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std
     // printf("%i \n", tid);
     // #endif  
 
-
-        // std::cout << "created K"
-    //           << "\n";
-
     // // debug - use floor() for i
     // std::vector<double> new_k(N * N);
     // gpuErrchk( cudaMemcpy(new_k.data(), gpu_k , N * N * sizeof(double), cudaMemcpyDeviceToHost) );
@@ -1538,7 +1534,6 @@ void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std
     //     }
     // }
     // exit(1);
-
 
     // // debug
     // double *M = (double *)calloc(N, sizeof(double));
