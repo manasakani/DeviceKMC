@@ -37,9 +37,9 @@ background_temp = 300 											// [K] contact temperature
 
 pbc = 0															// toggle for periodic boundary conditions
 
-V_switch = 12.0000 													// [V] applied bias to right contact
+V_switch = 1 2 3 4 5 6 7 8 9 10 11 12 13 													// [V] applied bias to right contact
 
-t_switch = 2e-13 													// [s] timescale for switching
+t_switch = 2e-13 2e-13 2e-13 2e-13 2e-13 2e-13 2e-13 2e-13 2e-13						// [s] timescale for switching
 
 Icc = 6e-07 														// [A] enforced compliance current
 

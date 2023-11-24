@@ -768,7 +768,7 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
     // Uncomment to use sparse system of linear equation solver:
     //background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
     //                                Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
-     background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+    background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
                              Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
 
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
@@ -1289,15 +1289,15 @@ std::map<std::string, double> Device::updateLocalTemperature(double background_t
     } // i
 
     // Update the global temperature
-#pragma omp parallel
-    {
-#pragma omp for reduction(+ : T_tot)
-        for (int i = 0; i < N; i++)
+//#pragma omp parallel
+//    {
+//#pragma omp for reduction(+ : T_tot)
+        for (int i = num_atoms_contact; i < N - num_atoms_contact; i++)
         {
             T_tot += site_temperature[i];
         }
-    }
-    T_bg = T_tot / N;
+//    }
+    T_bg = T_tot / (N - 2*num_atoms_contact);
     result["Global temperature in K"] = T_bg;
     free(T_vec);
     return result;
@@ -1361,16 +1361,16 @@ std::map<std::string, double> Device::updateLocalTemperatureSteadyState(double b
     } // i
 
 // Update the global temperature
-#pragma omp parallel
-    {
-#pragma omp for reduction(+ : T_tot)
-        for (int i = 0; i < N; i++)
+//#pragma omp parallel
+//    {
+//#pragma omp for reduction(+ : T_tot)
+        for (int i = num_atoms_contact; i < N - num_atoms_contact; i++)
         {
             T_tot += site_temperature[i];
         }
-    }
+//    }
 
-    T_bg = T_tot / N;
+    T_bg = T_tot / (N - 2*num_atoms_contact);
     result["Global temperature in K"] = T_bg;
     return result;
 }

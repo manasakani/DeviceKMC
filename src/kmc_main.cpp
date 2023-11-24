@@ -158,7 +158,6 @@ int main(int argc, char **argv)
 
                 // Charge and Potential
                 auto t0 = std::chrono::steady_clock::now();
-                
                 if (p.solve_potential)
                 {
                     std::map<std::string, int> chargeMap = device.updateCharge(gpubuf, p.metals);

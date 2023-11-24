@@ -41,7 +41,6 @@ void GPUBuffers::sync_GPUToHost(Device &device){
     gpuErrchk( cudaMemcpy(device.site_potential.data(), site_potential, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_temperature.data(), site_temperature, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(&device.T_bg, T_bg, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaGetLastError() ); 
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError()); 
 #endif

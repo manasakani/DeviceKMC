@@ -1,12 +1,15 @@
 bin/
 obj/
 tests_old/
+tests/
 test3_globalTemperature/
 test4_localTemperature/
 test2_localTemperature/
 test1_potential/
 oldTemperature/
-
+postprocessing_scripts/__pycache__/
+runs/
+voro/
 
 # Other standard ignores
 .vscode/
