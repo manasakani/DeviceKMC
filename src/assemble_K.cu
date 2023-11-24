@@ -3,7 +3,7 @@
 #include "gpu_buffers.h"
 #include <iostream>
 #include <omp.h>
-
+#include <cub/cub.cuh>
 
 #define NUM_THREADS 512
 
@@ -255,7 +255,6 @@ double assemble_K_og(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
                               const int num_metals, int kmc_step_count,
                               double *K_h)
 {
-    int N_interface = N - (N_left_tot + N_right_tot);
 
     double *VL, *VR;
     gpuErrchk( cudaMalloc((void **)&VL, N_left_tot * sizeof(double)) );
@@ -363,6 +362,31 @@ void calc_nnz_per_row(
     }
 }
 
+__global__ void calc_nnz_per_row_gpu(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double *lattice_d, const bool pbc,
+    const double cutoff_radius,
+    int matrix_size,
+    int *nnz_per_row_d
+){
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    // TODO optimize this with a 2D grid instead of 1D
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){
+        int nnz_row = 0;
+        for(int j = 0; j < matrix_size; j++){
+            double dist = site_dist_gpu_og(posx_d[i], posy_d[i], posz_d[i],
+                                        posx_d[j], posy_d[j], posz_d[j],
+                                        lattice_d[0], lattice_d[1], lattice_d[2], pbc);
+            if(dist < cutoff_radius){
+                nnz_row++;
+            }
+        }
+        nnz_per_row_d[i] = nnz_row;
+    }
+
+}
+
 
 bool assert_nnz(
     double *matrix,
@@ -435,7 +459,6 @@ void modified_exclusive_scan(
 
 
 
-
 void assemble_K_indices(
     const double *posx, const double *posy, const double *posz,
     const double *lattice, const bool pbc,
@@ -461,6 +484,38 @@ void assemble_K_indices(
         }
     }
 }
+
+__global__ void assemble_K_indices_gpu(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double *lattice_d, const bool pbc,
+    const double cutoff_radius,
+    int matrix_size,
+    int *nnz_per_row_d,
+    int *row_ptr_d,
+    int *col_indices_d)
+{
+    // row ptr is already calculated
+    // exclusive scam of nnz_per_row
+
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    //TODO can be optimized with a 2D grid instead of 1D
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){
+        int nnz_row = 0;
+        for(int j = 0; j < matrix_size; j++){
+        
+            double dist = site_dist_gpu_og(posx_d[i], posy_d[i], posz_d[i],
+                                        posx_d[j], posy_d[j], posz_d[j],
+                                        lattice_d[0], lattice_d[1], lattice_d[2], pbc);
+            if(dist < cutoff_radius){
+                col_indices_d[row_ptr_d[i] + nnz_row] = j;
+                nnz_row++;
+            }
+        }
+    }
+}
+
+
 
 
 void calc_off_diagonal_K_cpu(
@@ -511,28 +566,28 @@ __global__ void calc_off_diagonal_K_gpu(
 {
     // parallelize over rows
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-    for(int j = row_ptr[idx]; j < row_ptr[idx+1]; j++){
-        if(idx != col_indices[j]){
-            bool metal1 = is_in_array_gpu_og(metals, element[idx], num_metals);
-            bool metal2 = is_in_array_gpu_og(metals, element[col_indices[j]], num_metals);
-            bool ischarged1 = site_charge[idx] != 0;
-            bool ischarged2 = site_charge[col_indices[j]] != 0;
-            bool isVacancy1 = element[idx] == VACANCY;
-            bool isVacancy2 = element[col_indices[j]] == VACANCY;
-            bool cvacancy1 = isVacancy1 && !ischarged1;
-            bool cvacancy2 = isVacancy2 && !ischarged2;
-            if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
-            {
-                data[j] = -d_high_G;
-            }
-            else
-            {
-                data[j] = -d_low_G;
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){
+        for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+            if(i != col_indices[j]){
+                bool metal1 = is_in_array_gpu_og(metals, element[i], num_metals);
+                bool metal2 = is_in_array_gpu_og(metals, element[col_indices[j]], num_metals);
+                bool ischarged1 = site_charge[i] != 0;
+                bool ischarged2 = site_charge[col_indices[j]] != 0;
+                bool isVacancy1 = element[i] == VACANCY;
+                bool isVacancy2 = element[col_indices[j]] == VACANCY;
+                bool cvacancy1 = isVacancy1 && !ischarged1;
+                bool cvacancy2 = isVacancy2 && !ischarged2;
+                if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
+                {
+                    data[j] = -d_high_G;
+                }
+                else
+                {
+                    data[j] = -d_low_G;
+                }
             }
         }
     }
-    
 }
 
 
@@ -570,21 +625,21 @@ __global__ void calc_diagonal_K_gpu(
 )
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-
-    //reduce the elements in the row
-    double tmp = 0.0;
-    for(int j = row_ptr[idx]; j < row_ptr[idx+1]; j++){
-        if(idx != col_indices[j]){
-            tmp += data[j];
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){
+        //reduce the elements in the row
+        double tmp = 0.0;
+        for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+            if(i != col_indices[j]){
+                tmp += data[j];
+            }
+        }
+        //write the diagonal element
+        for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+            if(i == col_indices[j]){
+                data[j] = -tmp;
+            }
         }
     }
-    //write the diagonal element
-    for(int j = row_ptr[idx]; j < row_ptr[idx+1]; j++){
-        if(idx == col_indices[j]){
-            data[j] = -tmp;
-        }
-    }
-    
 }
 
 
@@ -640,6 +695,98 @@ void assemble_K_gpu(
 }
 
 
+void indices_creation_cpu(
+    const double *site_posx, const double *site_posy, const double *site_posz,
+    const double *lattice, const bool pbc,
+    const double cutoff_radius,
+    const int matrix_size,
+    int **col_indices,
+    int **row_ptr,
+    int *nnz
+)
+{
+    int nnz_per_row[matrix_size];
+    *row_ptr = (int *)malloc((matrix_size + 1) * sizeof(int));
+
+    // calculate the nnz per row
+    calc_nnz_per_row(site_posx, site_posy, site_posz, lattice, pbc, cutoff_radius, matrix_size, nnz_per_row);
+    
+    // exclusive sum to get the row ptr
+    modified_exclusive_scan<int>(nnz_per_row, (*row_ptr), matrix_size);
+
+    // by convention the last element of the row ptr is the nnz
+    nnz[0] = (*row_ptr)[matrix_size];
+
+    *col_indices = (int *)malloc(nnz[0] * sizeof(int));
+    
+
+    // assemble the indices of K
+    assemble_K_indices(
+        site_posx, site_posy, site_posz,
+        lattice, pbc,
+        cutoff_radius,
+        matrix_size,
+        nnz_per_row,
+        (*row_ptr),
+        (*col_indices)
+    );
+}
+
+void indices_creation_gpu(
+    const double *site_posx_d, const double *site_posy_d, const double *site_posz_d,
+    const double *lattice_d, const bool pbc,
+    const double cutoff_radius,
+    const int matrix_size,
+    int **col_indices_d,
+    int **row_ptr_d,
+    int *nnz
+)
+{
+    // parallelize over rows
+    int threads = 512;
+    int blocks = (matrix_size + threads - 1) / threads;
+
+    int *nnz_per_row_d;
+    gpuErrchk( cudaMalloc((void **)row_ptr_d, (matrix_size + 1) * sizeof(int)) );
+    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
+    gpuErrchk(cudaMemset((*row_ptr_d), 0, (matrix_size + 1) * sizeof(int)) );
+
+    // calculate the nnz per row
+    calc_nnz_per_row_gpu<<<blocks, threads>>>(site_posx_d, site_posy_d, site_posz_d, lattice_d, pbc, cutoff_radius, matrix_size, nnz_per_row_d);
+
+    void     *temp_storage_d = NULL;
+    size_t   temp_storage_bytes = 0;
+    // determines temporary device storage requirements for inclusive prefix sum
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+    // Allocate temporary storage for inclusive prefix sum
+    gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
+    // Run inclusive prefix sum
+    // inclusive sum starting at second value to get the row ptr
+    // which is the same as inclusive sum starting at first value and last value filled with nnz
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+    
+    // nnz is the same as (*row_ptr_d)[matrix_size]
+    gpuErrchk( cudaMemcpy(nnz, (*row_ptr_d) + matrix_size, sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
+
+    // assemble the indices of K
+    assemble_K_indices_gpu<<<blocks, threads>>>(
+        site_posx_d, site_posy_d, site_posz_d,
+        lattice_d, pbc,
+        cutoff_radius,
+        matrix_size,
+        nnz_per_row_d,
+        (*row_ptr_d),
+        (*col_indices_d)
+    );
+
+    cudaFree(temp_storage_d);
+    cudaFree(nnz_per_row_d);
+}
+
+
+
+
 void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count)
@@ -685,18 +832,21 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
     int nnz = calc_nnz(site_posx, site_posy, site_posz, lattice, pbc, nn_dist, N);
 
     double *data_h = (double *)malloc(nnz * sizeof(double));
-    int *col_indices_h = (int *)malloc(nnz * sizeof(int));
-    int *row_ptr_h = (int *)malloc((N + 1) * sizeof(int));
-    int nnz_per_row[N];
-    // calculate the nnz per row
-    calc_nnz_per_row(site_posx, site_posy, site_posz, lattice, pbc, nn_dist, N, nnz_per_row);
-    // exclusive sum to get the row ptr
-    modified_exclusive_scan<int>(nnz_per_row, row_ptr_h, N);
 
-    // reduce the nnz per row to get the nnz for testing
-    int nnz_reduce = reduce_array<int>(nnz_per_row, N);
-    // by convention the last element of the row ptr is the nnz
-    int nnz_scan = row_ptr_h[N];
+    int nnz_cpu;
+    int *row_ptr_h = NULL;
+    int *col_indices_h = NULL;
+
+    indices_creation_cpu(
+        site_posx, site_posy, site_posz,
+        lattice, pbc,
+        nn_dist,
+        N,
+        &col_indices_h,
+        &row_ptr_h,
+        &nnz_cpu
+    );
+
 
     // nnz from counting
     if(nnz_og != nnz){
@@ -708,34 +858,15 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
         std::cout << "nnz match" << std::endl;
     }
     // nnz from reducing nnz per row
-    if(nnz_og != nnz_reduce){
-        std::cout << "nnz_reduce mismatch" << std::endl;
+    if(nnz_og != nnz_cpu){
+        std::cout << "nnz_cpu mismatch" << std::endl;
         std::cout << "nnz_og " << nnz_og << std::endl;
-        std::cout << "nnz_reduce " << nnz_reduce << std::endl;
+        std::cout << "nnz_cpu " << nnz_cpu << std::endl;
     }
     else{
-        std::cout << "nnz_reduce match" << std::endl;
-    }
-    // nnz from exclusive scan of nnz per row
-    if(nnz_og != nnz_scan){
-        std::cout << "nnz_scan mismatch" << std::endl;
-        std::cout << "nnz_og " << nnz_og << std::endl;
-        std::cout << "nnz_scan " << nnz_scan << std::endl;
-    }
-    else{
-        std::cout << "nnz_scan match" << std::endl;
+        std::cout << "nnz_cpu match" << std::endl;
     }
 
-    // assemble the indices of K
-    assemble_K_indices(
-        site_posx, site_posy, site_posz,
-        lattice, pbc,
-        nn_dist,
-        N,
-        nnz_per_row,
-        row_ptr_h,
-        col_indices_h
-    );
 
     // test if the indices are correct
     // i.e. that in the dense matrix onlz elements
@@ -752,7 +883,6 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
     else{
         std::cout << "indices match" << std::endl;
     }
-
 
 
     assemble_K_cpu(
@@ -773,7 +903,95 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
         std::cout << "K_sparse_cpu_assemble and K_og match" << std::endl;
     }
 
-    // assemble the data on the gpu
+    // assemble the indices on the gpu
+
+    int *col_indices_gpu_assemble_d;
+    int *row_ptr_gpu_assemble_d;
+    int nnz_gpu_assemble;
+
+    indices_creation_gpu(
+        gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+        gpubuf.lattice, pbc,
+        nn_dist,
+        N,
+        &col_indices_gpu_assemble_d,
+        &row_ptr_gpu_assemble_d,
+        &nnz_gpu_assemble
+    );
+
+
+
+
+
+    // gpuErrchk( cudaMalloc((void **)&row_ptr_gpu_assemble_d, (N + 1) * sizeof(int)) );
+    // gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, N * sizeof(int)) );
+    // gpuErrchk(cudaMemset(row_ptr_gpu_assemble_d, 0, (N + 1) * sizeof(int)) );
+
+    // // parallelize over rows
+    // int threads = 512;
+    // int blocks = (N + threads - 1) / threads;
+
+    // // calculate the nnz per row
+    // calc_nnz_per_row_gpu<<<blocks, threads>>>(gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, gpubuf.lattice, pbc, nn_dist, N, nnz_per_row_d);
+
+
+
+    // void     *temp_storage_d = NULL;
+    // size_t   temp_storage_bytes = 0;
+    // // determines temporary device storage requirements for inclusive prefix sum
+    // cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, row_ptr_gpu_assemble_d+1, N);
+    // // Allocate temporary storage for inclusive prefix sum
+    // gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
+    // // Run inclusive prefix sum
+    // // inclusive sum starting at second value to get the row ptr
+    // // which is the same as inclusive sum starting at first value and last value filled with nnz
+    // cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, row_ptr_gpu_assemble_d+1, N);
+    // cudaFree(temp_storage_d);
+    // // nnz is the same as row_ptr_gpu_assemble_d[N]
+    // int nnz_gpu_assemble = 0;
+    // gpuErrchk( cudaMemcpy(&nnz_gpu_assemble, row_ptr_gpu_assemble_d + N, sizeof(int), cudaMemcpyDeviceToHost) );
+
+    if(nnz_gpu_assemble != nnz){
+        std::cout << "nnz_gpu_assemble mismatch" << std::endl;
+        std::cout << "nnz_gpu_assemble " << nnz_gpu_assemble << std::endl;
+        std::cout << "nnz " << nnz << std::endl;
+    }
+    else{
+        std::cout << "nnz_gpu_assemble match" << std::endl;
+    }
+
+    // gpuErrchk( cudaMalloc((void **)&col_indices_gpu_assemble_d, nnz_gpu_assemble * sizeof(int)) );
+
+    // // assemble the indices of K
+    // assemble_K_indices_gpu<<<blocks, threads>>>(
+    //     gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+    //     gpubuf.lattice, pbc,
+    //     nn_dist,
+    //     N,
+    //     nnz_per_row_d,
+    //     row_ptr_gpu_assemble_d,
+    //     col_indices_gpu_assemble_d
+    // );
+
+    // unload the indices and test if they are the same
+    int col_indices_gpu_assemble_h[nnz];
+    int row_ptr_gpu_assemble_h[N + 1];
+    gpuErrchk( cudaMemcpy(col_indices_gpu_assemble_h, col_indices_gpu_assemble_d, nnz * sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(row_ptr_gpu_assemble_h, row_ptr_gpu_assemble_d, (N + 1) * sizeof(int), cudaMemcpyDeviceToHost) );
+
+
+    if(!assert_array_magnitude(col_indices_gpu_assemble_h, col_indices_h, abstol, reltol, nnz)){
+        std::cout << "col_indices_gpu_assemble_h and col_indices_h mismatch" << std::endl;
+    }
+    else{
+        std::cout << "col_indices_gpu_assemble_h and col_indices_h match" << std::endl;
+    }
+    if(!assert_array_magnitude(row_ptr_gpu_assemble_h, row_ptr_h, abstol, reltol, N + 1)){
+        std::cout << "row_ptr_gpu_assemble_h and row_ptr_h mismatch" << std::endl;
+    }
+    else{
+        std::cout << "row_ptr_gpu_assemble_h and row_ptr_h match" << std::endl;
+    }
 
 
     double *data_d;
@@ -783,6 +1001,7 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
     gpuErrchk( cudaMalloc((void **)&data_d, nnz * sizeof(double)) );
     gpuErrchk( cudaMalloc((void **)&col_indices_d, nnz * sizeof(int)) );
     gpuErrchk( cudaMalloc((void **)&row_ptr_d, (N + 1) * sizeof(int)) );
+
 
     // copy the nonzero elements of K to the gpu
     gpuErrchk( cudaMemcpy(col_indices_d, col_indices_h, nnz * sizeof(int), cudaMemcpyHostToDevice) );
@@ -862,6 +1081,9 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
     gpuErrchk( cudaFree(data_d) );
     gpuErrchk( cudaFree(col_indices_d) );
     gpuErrchk( cudaFree(row_ptr_d) );
+    gpuErrchk( cudaFree(col_indices_gpu_assemble_d) );
+    gpuErrchk( cudaFree(row_ptr_gpu_assemble_d) );
+    
 
     free(K_og);
     free(K_sparse_cpu_assemble);
