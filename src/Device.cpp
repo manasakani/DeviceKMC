@@ -4,7 +4,7 @@
 
 #ifdef USE_CUDA
     #include "cuda_wrapper.h"
-    #include "assemble_K.h"
+    #include "assemble_K_test.h"
 #endif
 
 void Graph::printAdjList()
