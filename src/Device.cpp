@@ -4,6 +4,7 @@
 
 #ifdef USE_CUDA
     #include "cuda_wrapper.h"
+    #include "assemble_K.h"
 #endif
 
 void Graph::printAdjList()
@@ -772,6 +773,10 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
     // }
     // background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
     //                                 Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);    
+    
+    test_assemble_K(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+                            Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
+
     background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
                             Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
 
