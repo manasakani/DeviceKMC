@@ -107,7 +107,7 @@ double KMCProcess::executeKMCStep(GPUBuffers gpubuf, Device &device)
                 double E = 2 * (device.site_potential[i] - device.site_potential[j]);
                 double zero_field_energy = layers[site_layer[j]].E_gen_0;
                 event_type_ = VACANCY_GENERATION;
-                double Ekin = kB * (device.site_temperature[j] - device.site_temperature[i]);
+                double Ekin = kB * (device.site_temperature[j] - device.T_bg); //double Ekin = kB * (device.site_temperature[j] - device.site_temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
             }
@@ -123,7 +123,7 @@ double KMCProcess::executeKMCStep(GPUBuffers gpubuf, Device &device)
                 double zero_field_energy = layers[site_layer[j]].E_rec_1;
 
                 event_type_ = VACANCY_RECOMBINATION;
-                double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
+                double Ekin = kB * (device.site_temperature[i] - device.T_bg); //double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
             }
@@ -141,7 +141,7 @@ double KMCProcess::executeKMCStep(GPUBuffers gpubuf, Device &device)
                 event_type_ = VACANCY_DIFFUSION;
                 double E = (device.site_charge[i] - device.site_charge[j]) * (device.site_potential[i] - device.site_potential[j] + self_int_V);
                 double zero_field_energy = layers[site_layer[i]].E_diff_2;
-                double Ekin = kB * (device.site_temperature[j] - device.site_temperature[i]);
+                double Ekin = kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[j] - device.site_temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
             }
@@ -160,7 +160,7 @@ double KMCProcess::executeKMCStep(GPUBuffers gpubuf, Device &device)
 
                 event_type_ = ION_DIFFUSION;
 
-                double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
+                double Ekin = kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[i] - device.site_temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
             }

@@ -720,7 +720,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 double E = 2 * (potential[i] - potential[j]);
                 double zero_field_energy = E_gen_const[layer[j]]; 
                 event_type_ = VACANCY_GENERATION;
-                double Ekin = kB * (temperature[j] - temperature[i]);
+                double Ekin = kB * (temperature[j] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
@@ -736,7 +736,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 double zero_field_energy = E_rec_const[layer[j]];
 
                 event_type_ = VACANCY_RECOMBINATION;
-                double Ekin = kB * (temperature[i] - temperature[j]);
+                double Ekin = kB * (temperature[i] - (*T_bg)); //kB * (temperature[i] - temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
@@ -754,7 +754,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 event_type_ = VACANCY_DIFFUSION;
                 double E = (charge[i] - charge[j]) * (potential[i] - potential[j] + self_int_V);
                 double zero_field_energy = E_Vdiff_const[layer[j]];  
-                double Ekin = kB * (temperature[j] - temperature[i]);
+                double Ekin = kB * (temperature[i] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
@@ -773,7 +773,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 double zero_field_energy = E_Odiff_const[layer[j]];
 
                 event_type_ = ION_DIFFUSION;
-                double Ekin = kB * (temperature[i] - temperature[j]);
+                double Ekin = kB * (temperature[i] - (*T_bg)); //kB * (temperature[i] - temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
