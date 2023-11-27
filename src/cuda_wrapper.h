@@ -28,8 +28,8 @@ class GPUBuffers;
 
 extern "C" {
 
-//******************************
-// Matrix solvers / gpu_utils.cu
+//**************************************
+// Matrix solver utilities / gpu_utils.cu
 //******************************
 
 // check that sparse and dense versions are the same
@@ -45,6 +45,14 @@ void sparse_system_solve(cusolverSpHandle_t handle, int* d_csrRowPtr, int* d_csr
 // Iterative sparse linear solver using CG steps
 void sparse_system_solve_iterative(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
 								   cusparseSpMatDescr_t matA, int m, double *d_x, double *d_y);
+
+// Initialize sparsity of the background potential solver
+void Assemble_K_sparsity(const double *posx, const double *posy, const double *posz,
+                         const double *lattice, const bool pbc, const double cutoff_radius,
+                         int system_size, int contact_left_size, int contact_right_size,
+                         int **A_row_ptr, int **A_col_indices, int *A_nnz, 
+                         int **contact_left_col_indices, int **contact_left_row_ptr, int *contact_left_nnz, 
+                         int **contact_right_col_indices, int **contact_right_row_ptr, int *contact_right_nnz);
 
 //*************************************
 // Field solver modules / gpu_Device.cu

@@ -16,7 +16,7 @@ CUDA_ROOT = /usr/local/cuda
 CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
 NVCC = nvcc
 NVCCFLAGS = -O3 -std=c++17 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" --extended-lambda #-G -lineinfo # Last two are for the visual profiler. To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 
-LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver -lcusparse
+LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver -lcusparse 
 CXXFLAGS += -DUSE_CUDA # uncomment to compile cuda code
 COMPILE_WITH_CUDA = -DCUDA # uncomment to compile cuda code
 # ***************************************************

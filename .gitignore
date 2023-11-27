@@ -1,13 +1,12 @@
 bin/
 obj/
-tests_old/
-tests/
+tests/contact1x1_device2x2/
 test3_globalTemperature/
 test4_localTemperature/
 test2_localTemperature/
-test1_potential/
-oldTemperature/
 postprocessing_scripts/__pycache__/
+tests/prod_2xstructure/
+tests/7-crossbar_selected/
 runs/
 voro/
 
@@ -23,7 +22,6 @@ voro/
 # Ignore files
 output.txt
 run_job.sh
-Results_*/**
 
 # Ignore txt files
 *.txt

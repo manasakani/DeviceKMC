@@ -120,6 +120,7 @@ public:
         gpuErrchk( cudaMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
 
         cudaDeviceSynchronize();
+        
 #endif
 
     }

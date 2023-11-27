@@ -46,7 +46,7 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     this->T_bg = background_temp;
 
     // sort and prepare the raw coordinates
-    sort_by_x(site_x, site_y, site_z, site_element, lattice);
+    // sort_by_x(site_x, site_y, site_z, site_element, lattice); // REMOVED
     if (shift)
         translate_cell(site_x, site_y, site_z, N, lattice, shifts);
 
@@ -76,7 +76,7 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     for (int i = 0; i < N; i++)
     {
         if (site_neighbors.l[i].size() == 0){
-            std::cout << "ERROR: Site with zero neighbors found at index: " << i << " at " << site_x[i] << " " << site_y[i] << site_z[i] << "\n"; 
+            std::cout << "ERROR: Site with zero neighbors found at index: " << i << " at " << site_x[i] << " " << site_y[i] << " " << site_z[i] << "\n"; 
         }
     }
 
@@ -605,8 +605,8 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 {
 
     std::map<std::string, int> result;
-    int N_left_tot = 400;//get_num_in_contacts(num_atoms_contact, "left");  // 144
-    int N_right_tot = 400;//get_num_in_contacts(num_atoms_contact, "right"); 
+    int N_left_tot = num_atoms_contact; // get_num_in_contacts(num_atoms_contact, "left");
+    int N_right_tot = num_atoms_contact; //get_num_in_contacts(num_atoms_contact, "right"); 
     int N_interface = N - N_left_tot - N_right_tot;
 
     int one = 1;
@@ -760,16 +760,16 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
 
      // STILL NEED TO PORT THESE TWO FUNCTIONS 
      // - Do not remove sync_HostToGPU and sync_GPUToHost in this function until this is done
-    int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
-    int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
+    int N_left_tot = num_atoms_contact; //get_num_in_contacts(num_atoms_contact, "left");
+    int N_right_tot = num_atoms_contact; //get_num_in_contacts(num_atoms_contact, "right");
 
     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
 
     // Uncomment to use sparse system of linear equation solver:
-    //background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-    //                                Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
-    background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-                             Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
+    background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+                                   Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
+    // background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+    //                          Vd, pbc, high_G, low_G, nn_dist, metals.size(), kmc_step_count);
 
     poisson_gridless_gpu(num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
