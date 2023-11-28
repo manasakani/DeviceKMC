@@ -24,5 +24,3 @@ output.txt
 run_job.sh
 
 # Ignore txt files
-*.txt
-*.mat
