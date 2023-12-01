@@ -707,6 +707,28 @@ __global__ void calc_diagonal_K_gpu(
     }
 }
 
+__global__ void reduce_K_gpu(
+    int *col_indices,
+    int *row_ptr,
+    double *data,
+    int matrix_size,
+    double *rows_reduced
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){
+        //reduce the elements in the row
+        double tmp = 0.0;
+        for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+            if(i != col_indices[j]){
+                tmp += data[j];
+            }
+        }
+        rows_reduced[i] = tmp;
+    }
+
+}
+
 
 void assemble_K_cpu(
     const ELEMENT *metals, const ELEMENT *element, const int *site_charge,
@@ -1039,6 +1061,21 @@ __global__ void add_vector_to_diagonal(
     }
 }
 
+__global__ void reduced_three_vectors(
+    const double * const vec1,
+    const double * const vec2,
+    const double * const vec3,
+    double *vec_out,
+    int size
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for(int i = idx; i < vec_out; i += blockDim.x * gridDim.x){
+        vec_out[i] = vec1[i] + vec2[i] + vec3[i];
+    }
+}
+
+
 void test_assemble_A(
     const double *posx, const double *posy, const double *posz,
     const double *lattice, const bool pbc,
@@ -1142,6 +1179,7 @@ void test_assemble_A(
         *K_right_reduced
     );
 
+
     // add left and right part of K to the diagonal of the data array
     add_vector_to_diagonal<<<blocks, threads>>>(
         *A_data,
@@ -1189,9 +1227,19 @@ void test_assemble_A_with_only_precomputing_indices(
     gpuErrchk(cudaMalloc((void **)K_right_reduced, system_size * sizeof(double)));
 
 
+    int number_of_measurements = 110;
+
     // parallelize over rows
     int threads = 512;
     int blocks = (system_size + threads - 1) / threads;
+
+    double *times_index_creation = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_off_diagonal = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_reduction_system = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_reduction_contact_left = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_reduction_contact_right = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_add_to_diagonal = (double *)malloc(number_of_measurements * sizeof(double));
+
 
     // shift site position to the device
     // reduce the matrix size to the system size
@@ -1213,8 +1261,21 @@ void test_assemble_A_with_only_precomputing_indices(
     gpuErrchk(cudaMalloc((void **)A_data, A_nnz[0] * sizeof(double)));
     gpuErrchk(cudaMemset((*A_data), 0, A_nnz[0] * sizeof(double)));
 
-    // assemble only smaller part of K
-    assemble_K_gpu(
+    // // assemble only smaller part of K
+    // assemble_K_gpu(
+    //     metals_d,
+    //     element_d + contact_left_size,
+    //     site_charge_d + contact_left_size,
+    //     num_metals,
+    //     d_high_G, d_low_G,
+    //     system_size,
+    //     *A_col_indices,
+    //     *A_row_ptr,
+    //     *A_data
+    // );
+
+
+    calc_off_diagonal_K_gpu<<<blocks, threads>>>(
         metals_d,
         element_d + contact_left_size,
         site_charge_d + contact_left_size,
@@ -1223,9 +1284,20 @@ void test_assemble_A_with_only_precomputing_indices(
         system_size,
         *A_col_indices,
         *A_row_ptr,
-        *A_data
-    );
+        *A_data);
 
+
+    // reduce the diagonal
+    double *A_reduced;
+    gpuErrchk(cudaMalloc((void **)&A_reduced, system_size * sizeof(double)));
+
+    reduce_K_gpu<<<blocks, threads>>>(
+        *A_col_indices,
+        *A_row_ptr,
+        *A_data,
+        system_size,
+        *A_reduced
+    );
 
     // TODO possible faster to calculate once the off diagonal block indices
     // then do the reduction from these given indices
@@ -1302,27 +1374,68 @@ void test_assemble_A_with_only_precomputing_indices(
         *K_right_reduced
     );
 
-    // add left and right part of K to the diagonal of the data array
+    double *A_diag;
+    gpuErrchk(cudaMalloc((void **)&A_diag, system_size * sizeof(double)));
+    reduced_three_vectors<<<blocks, threads>>>(
+        *A_reduced,
+        *K_left_reduced,
+        *K_right_reduced,
+        *A_diag,
+        system_size
+    );
+
+    // // add left and right part of K to the diagonal of the data array
+    // add_vector_to_diagonal<<<blocks, threads>>>(
+    //     *A_data,
+    //     *A_row_ptr,
+    //     *A_col_indices,
+    //     system_size,
+    //     *K_left_reduced
+    // );
+    // add_vector_to_diagonal<<<blocks, threads>>>(
+    //     *A_data,
+    //     *A_row_ptr,
+    //     *A_col_indices,
+    //     system_size,
+    //     *K_right_reduced
+    // );
+
     add_vector_to_diagonal<<<blocks, threads>>>(
         *A_data,
         *A_row_ptr,
         *A_col_indices,
         system_size,
-        *K_left_reduced
+        *A_diag
     );
-    add_vector_to_diagonal<<<blocks, threads>>>(
-        *A_data,
-        *A_row_ptr,
-        *A_col_indices,
-        system_size,
-        *K_right_reduced
-    );
+
+
+    //save times
+    if(system_size < 14000){
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_7k/system_K/results"
+    }
+    else if(system_size > 14000 && system_size < 40000){
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_28k/system_K/results"
+    }
+    else{
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_80k/system_K/results"
+    }
+
 
 
     gpuErrchk(cudaFree(contact_left_row_ptr));
     gpuErrchk(cudaFree(contact_left_col_indices));
     gpuErrchk(cudaFree(contact_right_row_ptr));
     gpuErrchk(cudaFree(contact_right_col_indices));
+    gpuErrchk(cudaFree(A_reduced));
+    gpuErrchk(cudaFree(A_diag));
+
+    free(times_index_creation);
+    free(times_off_diagonal);
+    free(times_reduction_system);
+    free(times_reduction_contact_left);
+    free(times_reduction_contact_right);
+    free(times_add_to_diagonal);
+    
 
 }
 
