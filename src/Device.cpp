@@ -759,9 +759,10 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
 
      // STILL NEED TO PORT THESE TWO FUNCTIONS 
      // - Do not remove sync_HostToGPU and sync_GPUToHost in this function until this is done
-    int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
-    int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
-
+    // int N_left_tot = get_num_in_contacts(num_atoms_contact, "left");
+    // int N_right_tot = get_num_in_contacts(num_atoms_contact, "right");
+    int N_left_tot = 864;
+    int N_right_tot = 864;
     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
 
     // Uncomment to use sparse system of linear equation solver:

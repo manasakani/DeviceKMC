@@ -4,6 +4,7 @@
 #include <iostream>
 #include <omp.h>
 #include <cub/cub.cuh>
+#include <cstdlib>
 
 #define NUM_THREADS 512
 
@@ -721,7 +722,7 @@ __global__ void reduce_K_gpu(
         double tmp = 0.0;
         for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
             if(i != col_indices[j]){
-                tmp += data[j];
+                tmp += -data[j];
             }
         }
         rows_reduced[i] = tmp;
@@ -1061,6 +1062,24 @@ __global__ void add_vector_to_diagonal(
     }
 }
 
+
+__global__ void set_diagonal_to_zero_gpu(
+    double *data,
+    int *row_ptr,
+    int *col_indices,
+    int matrix_size
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){
+        for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+            if(i == col_indices[j]){
+                data[j] = 0.0;
+            }
+        }
+    }
+}
+
 __global__ void reduced_three_vectors(
     const double * const vec1,
     const double * const vec2,
@@ -1070,7 +1089,7 @@ __global__ void reduced_three_vectors(
 )
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    for(int i = idx; i < vec_out; i += blockDim.x * gridDim.x){
+    for(int i = idx; i < size; i += blockDim.x * gridDim.x){
         vec_out[i] = vec1[i] + vec2[i] + vec3[i];
     }
 }
@@ -1199,7 +1218,17 @@ void test_assemble_A(
 
 
 
-
+template <typename T>
+void writeArrayToBinFile(T* array, int numElements, const std::string& filename) {
+    std::ofstream file(filename, std::ios::binary);
+    if (file.is_open()) {
+        file.write(reinterpret_cast<char*>(array), numElements*sizeof(T));
+        file.close();
+        std::cout << "Array data written to file: " << filename << std::endl;
+    } else {
+        std::cerr << "Unable to open the file for writing." << std::endl;
+    }
+}
 void test_assemble_A_with_only_precomputing_indices(
     const double *posx, const double *posy, const double *posz,
     const double *lattice, const bool pbc,
@@ -1233,71 +1262,72 @@ void test_assemble_A_with_only_precomputing_indices(
     int threads = 512;
     int blocks = (system_size + threads - 1) / threads;
 
-    double *times_index_creation = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_device_indices = (double *)malloc(number_of_measurements * sizeof(double));
     double *times_off_diagonal = (double *)malloc(number_of_measurements * sizeof(double));
-    double *times_reduction_system = (double *)malloc(number_of_measurements * sizeof(double));
-    double *times_reduction_contact_left = (double *)malloc(number_of_measurements * sizeof(double));
-    double *times_reduction_contact_right = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_contact_indices = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_reduction = (double *)malloc(number_of_measurements * sizeof(double));
     double *times_add_to_diagonal = (double *)malloc(number_of_measurements * sizeof(double));
 
 
     // shift site position to the device
     // reduce the matrix size to the system size
     // works since the positions are ordered
+    double time_device_indices;
 
-    indices_creation_gpu(
-        posx + contact_left_size,
-        posy + contact_left_size,
-        posz + contact_left_size,
-        lattice, pbc,
-        cutoff_radius,
-        system_size,
-        A_col_indices,
-        A_row_ptr,
-        A_nnz
-    );
+    for(int i = 0; i < number_of_measurements; i++){
+        time_device_indices = -omp_get_wtime();
+        gpuErrchk(cudaDeviceSynchronize());
+        indices_creation_gpu(
+            posx + contact_left_size,
+            posy + contact_left_size,
+            posz + contact_left_size,
+            lattice, pbc,
+            cutoff_radius,
+            system_size,
+            A_col_indices,
+            A_row_ptr,
+            A_nnz
+        );
+        gpuErrchk(cudaDeviceSynchronize());
+        time_device_indices += omp_get_wtime();   
+        times_device_indices[i] = time_device_indices;
+        std::cout << "time_device_indices " << time_device_indices << std::endl;
+        if(i < number_of_measurements-1){
+            gpuErrchk(cudaFree(*A_col_indices));
+            gpuErrchk(cudaFree(*A_row_ptr));
+        }
+    }
+
+
+    // dealocate in measurement loop to not create memory leaks
+
 
     // allocate the data array
     gpuErrchk(cudaMalloc((void **)A_data, A_nnz[0] * sizeof(double)));
-    gpuErrchk(cudaMemset((*A_data), 0, A_nnz[0] * sizeof(double)));
 
-    // // assemble only smaller part of K
-    // assemble_K_gpu(
-    //     metals_d,
-    //     element_d + contact_left_size,
-    //     site_charge_d + contact_left_size,
-    //     num_metals,
-    //     d_high_G, d_low_G,
-    //     system_size,
-    //     *A_col_indices,
-    //     *A_row_ptr,
-    //     *A_data
-    // );
+    double time_off_diagonal;
 
+    for(int i = 0; i < number_of_measurements; i++){
+        gpuErrchk(cudaMemset((*A_data), 0, A_nnz[0] * sizeof(double)));
 
-    calc_off_diagonal_K_gpu<<<blocks, threads>>>(
-        metals_d,
-        element_d + contact_left_size,
-        site_charge_d + contact_left_size,
-        num_metals,
-        d_high_G, d_low_G,
-        system_size,
-        *A_col_indices,
-        *A_row_ptr,
-        *A_data);
+        time_off_diagonal= -omp_get_wtime();
+        gpuErrchk(cudaDeviceSynchronize());
+        calc_off_diagonal_K_gpu<<<blocks, threads>>>(
+            metals_d,
+            element_d + contact_left_size,
+            site_charge_d + contact_left_size,
+            num_metals,
+            d_high_G, d_low_G,
+            system_size,
+            *A_col_indices,
+            *A_row_ptr,
+            *A_data);
+        gpuErrchk(cudaDeviceSynchronize());
+        time_off_diagonal += omp_get_wtime();
+        std::cout << "time_off_diagonal " << time_off_diagonal << std::endl;
+        times_off_diagonal[i] = time_off_diagonal;
 
-
-    // reduce the diagonal
-    double *A_reduced;
-    gpuErrchk(cudaMalloc((void **)&A_reduced, system_size * sizeof(double)));
-
-    reduce_K_gpu<<<blocks, threads>>>(
-        *A_col_indices,
-        *A_row_ptr,
-        *A_data,
-        system_size,
-        *A_reduced
-    );
+    }
 
     // TODO possible faster to calculate once the off diagonal block indices
     // then do the reduction from these given indices
@@ -1308,134 +1338,195 @@ void test_assemble_A_with_only_precomputing_indices(
     int *contact_right_col_indices = NULL;
     int contact_right_nnz;
 
-    indices_creation_gpu_off_diagonal_block(
-        posx, posy, posz,
-        lattice, pbc,
-        cutoff_radius,
-        system_size,
-        contact_left_size,
-        contact_left_size,
-        0,
-        &contact_left_col_indices,
-        &contact_left_row_ptr,
-        &contact_left_nnz
-    );
-    std::cout << "contact_left_nnz " << contact_left_nnz << std::endl;
 
-    indices_creation_gpu_off_diagonal_block(
-        posx, posy, posz,
-        lattice, pbc,
-        cutoff_radius,
-        system_size,
-        contact_right_size,
-        contact_left_size,
-        contact_left_size + system_size,
-        &contact_right_col_indices,
-        &contact_right_row_ptr,
-        &contact_right_nnz
-    );
-    std::cout << "contact_right_nnz " << contact_right_nnz << std::endl;
+    double time_contact_indices;
+    for(int i = 0; i < number_of_measurements; i++){
+        time_contact_indices = -omp_get_wtime();
+        gpuErrchk(cudaDeviceSynchronize());
+        indices_creation_gpu_off_diagonal_block(
+            posx, posy, posz,
+            lattice, pbc,
+            cutoff_radius,
+            system_size,
+            contact_left_size,
+            contact_left_size,
+            0,
+            &contact_left_col_indices,
+            &contact_left_row_ptr,
+            &contact_left_nnz
+        );
 
-    // reduce the left part of K
-    // block starts at i = contact_left_size (first downshifted row)
-    // block starts at j = 0 (first column)
-    row_reduce_K_off_diagonal_block_with_precomputing<<<blocks, threads>>>(
-        posx, posy, posz,
-        lattice, pbc,
-        cutoff_radius,
-        metals_d, element_d, site_charge_d,
-        num_metals,
-        d_high_G, d_low_G,
-        system_size,
-        contact_left_size,
-        contact_left_size,
-        0,
-        contact_left_col_indices,
-        contact_left_row_ptr,
-        *K_left_reduced
-    );
+        indices_creation_gpu_off_diagonal_block(
+            posx, posy, posz,
+            lattice, pbc,
+            cutoff_radius,
+            system_size,
+            contact_right_size,
+            contact_left_size,
+            contact_left_size + system_size,
+            &contact_right_col_indices,
+            &contact_right_row_ptr,
+            &contact_right_nnz
+        );
+        gpuErrchk(cudaDeviceSynchronize());
+        time_contact_indices += omp_get_wtime();
+        std::cout << "time_contact_indices " << time_contact_indices << std::endl;
+        times_contact_indices[i] = time_contact_indices;
+        // dealocate contact indices to not create memory leaks in the measurement
+        if(i < number_of_measurements-1){
+            gpuErrchk(cudaFree(contact_left_col_indices));
+            gpuErrchk(cudaFree(contact_left_row_ptr));
+            gpuErrchk(cudaFree(contact_right_col_indices));
+            gpuErrchk(cudaFree(contact_right_row_ptr));
+        }
 
-    // reduce the right part of K
-    // block starts at i = contact_left_size (first downshifted row)
-    // block starts at j = contact_left_size + system_size (first column)
-    row_reduce_K_off_diagonal_block_with_precomputing<<<blocks, threads>>>(
-        posx, posy, posz,
-        lattice, pbc,
-        cutoff_radius,
-        metals_d, element_d, site_charge_d,
-        num_metals,
-        d_high_G, d_low_G,
-        system_size,
-        contact_right_size,
-        contact_left_size,
-        contact_left_size + system_size,
-        contact_right_col_indices,
-        contact_right_row_ptr,
-        *K_right_reduced
-    );
+    }
+
+    double *A_reduced;
+    gpuErrchk(cudaMalloc((void **)&A_reduced, system_size * sizeof(double)));
+    double time_reduce;
+
+    for(int i = 0; i < number_of_measurements; i++){
+        gpuErrchk(cudaMemset(A_reduced, 0, system_size * sizeof(double)));
+        gpuErrchk(cudaMemset((*K_left_reduced), 0, system_size * sizeof(double))); 
+        gpuErrchk(cudaMemset((*K_right_reduced), 0, system_size * sizeof(double)));
+        // reduce the left part of K
+        // block starts at i = contact_left_size (first downshifted row)
+        // block starts at j = 0 (first column)
+        time_reduce = -omp_get_wtime();
+        gpuErrchk(cudaDeviceSynchronize());
+
+        // reduce the diagonal
+        reduce_K_gpu<<<blocks, threads>>>(
+            *A_col_indices,
+            *A_row_ptr,
+            *A_data,
+            system_size,
+            A_reduced
+        );
+
+        row_reduce_K_off_diagonal_block_with_precomputing<<<blocks, threads>>>(
+            posx, posy, posz,
+            lattice, pbc,
+            cutoff_radius,
+            metals_d, element_d, site_charge_d,
+            num_metals,
+            d_high_G, d_low_G,
+            system_size,
+            contact_left_size,
+            contact_left_size,
+            0,
+            contact_left_col_indices,
+            contact_left_row_ptr,
+            *K_left_reduced
+        );
+
+        // reduce the right part of K
+        // block starts at i = contact_left_size (first downshifted row)
+        // block starts at j = contact_left_size + system_size (first column)
+        row_reduce_K_off_diagonal_block_with_precomputing<<<blocks, threads>>>(
+            posx, posy, posz,
+            lattice, pbc,
+            cutoff_radius,
+            metals_d, element_d, site_charge_d,
+            num_metals,
+            d_high_G, d_low_G,
+            system_size,
+            contact_right_size,
+            contact_left_size,
+            contact_left_size + system_size,
+            contact_right_col_indices,
+            contact_right_row_ptr,
+            *K_right_reduced
+        );
+        gpuErrchk(cudaDeviceSynchronize());
+        time_reduce += omp_get_wtime();
+        std::cout << "time_reduce " << time_reduce << std::endl;
+
+        times_reduction[i] = time_reduce;
+
+    }
 
     double *A_diag;
     gpuErrchk(cudaMalloc((void **)&A_diag, system_size * sizeof(double)));
-    reduced_three_vectors<<<blocks, threads>>>(
-        *A_reduced,
-        *K_left_reduced,
-        *K_right_reduced,
-        *A_diag,
-        system_size
-    );
+    double time_add_to_diagonal;
 
-    // // add left and right part of K to the diagonal of the data array
-    // add_vector_to_diagonal<<<blocks, threads>>>(
-    //     *A_data,
-    //     *A_row_ptr,
-    //     *A_col_indices,
-    //     system_size,
-    //     *K_left_reduced
-    // );
-    // add_vector_to_diagonal<<<blocks, threads>>>(
-    //     *A_data,
-    //     *A_row_ptr,
-    //     *A_col_indices,
-    //     system_size,
-    //     *K_right_reduced
-    // );
+    for(int i = 0; i < number_of_measurements; i++){
+        gpuErrchk(cudaMemset(A_diag, 0, system_size * sizeof(double))); 
+        
 
-    add_vector_to_diagonal<<<blocks, threads>>>(
-        *A_data,
-        *A_row_ptr,
-        *A_col_indices,
-        system_size,
-        *A_diag
-    );
+        set_diagonal_to_zero_gpu<<<blocks, threads>>>(
+            *A_data,
+            *A_row_ptr,
+            *A_col_indices,
+            system_size
+        );
 
 
+        time_add_to_diagonal = -omp_get_wtime();
+        gpuErrchk(cudaDeviceSynchronize());
+        reduced_three_vectors<<<blocks, threads>>>(
+            A_reduced,
+            *K_left_reduced,
+            *K_right_reduced,
+            A_diag,
+            system_size
+        );
+        add_vector_to_diagonal<<<blocks, threads>>>(
+            *A_data,
+            *A_row_ptr,
+            *A_col_indices,
+            system_size,
+            A_diag
+        );
+        gpuErrchk(cudaDeviceSynchronize());
+        time_add_to_diagonal += omp_get_wtime();
+        std::cout << "time_add_to_diagonal " << time_add_to_diagonal << std::endl;
+
+    }
     //save times
     if(system_size < 14000){
-        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_7k/system_K/results"
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_7k/system_K/results";
+        writeArrayToBinFile<double>(times_device_indices, number_of_measurements, base_path + "/times_device_indices.bin");
+        writeArrayToBinFile<double>(times_off_diagonal, number_of_measurements, base_path + "/times_off_diagonal.bin");
+        writeArrayToBinFile<double>(times_contact_indices, number_of_measurements, base_path + "/times_contact_indices.bin");
+        writeArrayToBinFile<double>(times_reduction, number_of_measurements, base_path + "/times_reduction.bin");
+        writeArrayToBinFile<double>(times_add_to_diagonal, number_of_measurements, base_path + "/times_add_to_diagonal.bin");
+
     }
     else if(system_size > 14000 && system_size < 40000){
-        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_28k/system_K/results"
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_28k/system_K/results";
+        writeArrayToBinFile<double>(times_device_indices, number_of_measurements, base_path + "/times_device_indices.bin");
+        writeArrayToBinFile<double>(times_off_diagonal, number_of_measurements, base_path + "/times_off_diagonal.bin");
+        writeArrayToBinFile<double>(times_contact_indices, number_of_measurements, base_path + "/times_contact_indices.bin");
+        writeArrayToBinFile<double>(times_reduction, number_of_measurements, base_path + "/times_reduction.bin");
+        writeArrayToBinFile<double>(times_add_to_diagonal, number_of_measurements, base_path + "/times_add_to_diagonal.bin");
     }
     else{
-        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_80k/system_K/results"
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_80k/system_K/results";
+        writeArrayToBinFile<double>(times_device_indices, number_of_measurements, base_path + "/times_device_indices.bin");
+        writeArrayToBinFile<double>(times_off_diagonal, number_of_measurements, base_path + "/times_off_diagonal.bin");
+        writeArrayToBinFile<double>(times_contact_indices, number_of_measurements, base_path + "/times_contact_indices.bin");
+        writeArrayToBinFile<double>(times_reduction, number_of_measurements, base_path + "/times_reduction.bin");
+        writeArrayToBinFile<double>(times_add_to_diagonal, number_of_measurements, base_path + "/times_add_to_diagonal.bin");
     }
 
-
+    gpuErrchk(cudaFree(A_diag));
 
     gpuErrchk(cudaFree(contact_left_row_ptr));
     gpuErrchk(cudaFree(contact_left_col_indices));
     gpuErrchk(cudaFree(contact_right_row_ptr));
     gpuErrchk(cudaFree(contact_right_col_indices));
     gpuErrchk(cudaFree(A_reduced));
-    gpuErrchk(cudaFree(A_diag));
 
-    free(times_index_creation);
+
+    free(times_device_indices);
     free(times_off_diagonal);
-    free(times_reduction_system);
-    free(times_reduction_contact_left);
-    free(times_reduction_contact_right);
+    free(times_contact_indices);
+    free(times_reduction);
     free(times_add_to_diagonal);
     
+    // exit(1);
 
 }
 
@@ -1447,220 +1538,220 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
 {
 
 
-    double *K_og;
-    K_og = (double *)malloc(N * N * sizeof(double));
-    double *K_sparse_cpu_assemble;
-    double *K_sparse_gpu_assemble;
-    K_sparse_cpu_assemble = (double *)malloc(N * N * sizeof(double));
-    K_sparse_gpu_assemble = (double *)malloc(N * N * sizeof(double));
+//     double *K_og;
+//     K_og = (double *)malloc(N * N * sizeof(double));
+//     double *K_sparse_cpu_assemble;
+//     double *K_sparse_gpu_assemble;
+//     K_sparse_cpu_assemble = (double *)malloc(N * N * sizeof(double));
+//     K_sparse_gpu_assemble = (double *)malloc(N * N * sizeof(double));
 
-    double reltol = 1e-12;
-    double abstol = 1e-12;
+//     double reltol = 1e-12;
+//     double abstol = 1e-12;
 
-    // original code for dense assemble on the gpu
-    assemble_K_og(handle, gpubuf, N, N_left_tot, N_right_tot, Vd, pbc, d_high_G, d_low_G, cutoff_radius, num_metals, kmc_step_count, K_og);
+//     // original code for dense assemble on the gpu
+//     assemble_K_og(handle, gpubuf, N, N_left_tot, N_right_tot, Vd, pbc, d_high_G, d_low_G, cutoff_radius, num_metals, kmc_step_count, K_og);
 
-    // load the data from the gpu for the sparse assemble
-    double *posx = (double *)malloc(N * sizeof(double));
-    double *posy = (double *)malloc(N * sizeof(double));
-    double *posz = (double *)malloc(N * sizeof(double));
-    double *lattice = (double *)malloc(3 * sizeof(double));
-    //gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
-    //const ELEMENT *metals, const ELEMENT *element, const int *site_charge,
-    ELEMENT *metals = (ELEMENT *)malloc(num_metals * sizeof(ELEMENT));
-    ELEMENT *element = (ELEMENT *)malloc(N * sizeof(ELEMENT));
-    int *site_charge = (int *)malloc(N * sizeof(int));
+//     // load the data from the gpu for the sparse assemble
+//     double *posx = (double *)malloc(N * sizeof(double));
+//     double *posy = (double *)malloc(N * sizeof(double));
+//     double *posz = (double *)malloc(N * sizeof(double));
+//     double *lattice = (double *)malloc(3 * sizeof(double));
+//     //gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
+//     //const ELEMENT *metals, const ELEMENT *element, const int *site_charge,
+//     ELEMENT *metals = (ELEMENT *)malloc(num_metals * sizeof(ELEMENT));
+//     ELEMENT *element = (ELEMENT *)malloc(N * sizeof(ELEMENT));
+//     int *site_charge = (int *)malloc(N * sizeof(int));
 
-    gpuErrchk(cudaMemcpy(posx, gpubuf.site_x, N * sizeof(double), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(posy, gpubuf.site_y, N * sizeof(double), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(posz, gpubuf.site_z, N * sizeof(double), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(lattice, gpubuf.lattice, 3 * sizeof(double), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(metals, gpubuf.metal_types, num_metals * sizeof(ELEMENT), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(element, gpubuf.site_element, N * sizeof(ELEMENT), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(site_charge, gpubuf.site_charge, N * sizeof(int), cudaMemcpyDeviceToHost));
+//     gpuErrchk(cudaMemcpy(posx, gpubuf.site_x, N * sizeof(double), cudaMemcpyDeviceToHost));
+//     gpuErrchk(cudaMemcpy(posy, gpubuf.site_y, N * sizeof(double), cudaMemcpyDeviceToHost));
+//     gpuErrchk(cudaMemcpy(posz, gpubuf.site_z, N * sizeof(double), cudaMemcpyDeviceToHost));
+//     gpuErrchk(cudaMemcpy(lattice, gpubuf.lattice, 3 * sizeof(double), cudaMemcpyDeviceToHost));
+//     gpuErrchk(cudaMemcpy(metals, gpubuf.metal_types, num_metals * sizeof(ELEMENT), cudaMemcpyDeviceToHost));
+//     gpuErrchk(cudaMemcpy(element, gpubuf.site_element, N * sizeof(ELEMENT), cudaMemcpyDeviceToHost));
+//     gpuErrchk(cudaMemcpy(site_charge, gpubuf.site_charge, N * sizeof(int), cudaMemcpyDeviceToHost));
 
-    // count the nonzero elements of the dense K
-    int nnz_og = count_nnz(K_og, N * N);
+//     // count the nonzero elements of the dense K
+//     int nnz_og = count_nnz(K_og, N * N);
 
-    // assemble the nonzero elements of K
-    int nnz = calc_nnz(posx, posy, posz, lattice, pbc, cutoff_radius, N);
+//     // assemble the nonzero elements of K
+//     int nnz = calc_nnz(posx, posy, posz, lattice, pbc, cutoff_radius, N);
 
-    double *data_h = (double *)malloc(nnz * sizeof(double));
+//     double *data_h = (double *)malloc(nnz * sizeof(double));
 
-    int nnz_cpu;
-    int *row_ptr_h = NULL;
-    int *col_indices_h = NULL;
+//     int nnz_cpu;
+//     int *row_ptr_h = NULL;
+//     int *col_indices_h = NULL;
 
-    indices_creation_cpu(
-        posx, posy, posz,
-        lattice, pbc,
-        cutoff_radius,
-        N,
-        &col_indices_h,
-        &row_ptr_h,
-        &nnz_cpu
-    );
-
-
-    // nnz from counting
-    if(nnz_og != nnz){
-        std::cout << "nnz mismatch" << std::endl;
-        std::cout << "nnz_og " << nnz_og << std::endl;
-        std::cout << "nnz " << nnz << std::endl;
-    }
-    else{
-        std::cout << "nnz match" << std::endl;
-    }
-    // nnz from reducing nnz per row
-    if(nnz_og != nnz_cpu){
-        std::cout << "nnz_cpu mismatch" << std::endl;
-        std::cout << "nnz_og " << nnz_og << std::endl;
-        std::cout << "nnz_cpu " << nnz_cpu << std::endl;
-    }
-    else{
-        std::cout << "nnz_cpu match" << std::endl;
-    }
+//     indices_creation_cpu(
+//         posx, posy, posz,
+//         lattice, pbc,
+//         cutoff_radius,
+//         N,
+//         &col_indices_h,
+//         &row_ptr_h,
+//         &nnz_cpu
+//     );
 
 
-    // test if the indices are correct
-    // i.e. that in the dense matrix onlz elements
-    // at positions given by indices and ptr are non zero
-    bool right_indices = assert_nnz(
-        K_og,
-        row_ptr_h,
-        col_indices_h,
-        nnz,
-        N);
-    if(!right_indices){
-        std::cout << "indices mismatch" << std::endl;
-    }
-    else{
-        std::cout << "indices match" << std::endl;
-    }
+//     // nnz from counting
+//     if(nnz_og != nnz){
+//         std::cout << "nnz mismatch" << std::endl;
+//         std::cout << "nnz_og " << nnz_og << std::endl;
+//         std::cout << "nnz " << nnz << std::endl;
+//     }
+//     else{
+//         std::cout << "nnz match" << std::endl;
+//     }
+//     // nnz from reducing nnz per row
+//     if(nnz_og != nnz_cpu){
+//         std::cout << "nnz_cpu mismatch" << std::endl;
+//         std::cout << "nnz_og " << nnz_og << std::endl;
+//         std::cout << "nnz_cpu " << nnz_cpu << std::endl;
+//     }
+//     else{
+//         std::cout << "nnz_cpu match" << std::endl;
+//     }
 
 
-    assemble_K_cpu(
-        metals, element, site_charge,
-        num_metals,
-        d_high_G, d_low_G,
-        N,
-        col_indices_h,
-        row_ptr_h,
-        data_h
-    );
-    sparse_to_dense<double>(K_sparse_cpu_assemble, data_h, col_indices_h, row_ptr_h, N);
-
-    if(!assert_array_magnitude(K_sparse_cpu_assemble, K_og, abstol, reltol, N * N)){
-        std::cout << "K_sparse_cpu_assemble and K_og mismatch" << std::endl;
-    }
-    else{
-        std::cout << "K_sparse_cpu_assemble and K_og match" << std::endl;
-    }
-
-    // assemble the indices on the gpu
-
-    int *col_indices_gpu_assemble_d;
-    int *row_ptr_gpu_assemble_d;
-    int nnz_gpu_assemble;
-
-    indices_creation_gpu(
-        gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-        gpubuf.lattice, pbc,
-        cutoff_radius,
-        N,
-        &col_indices_gpu_assemble_d,
-        &row_ptr_gpu_assemble_d,
-        &nnz_gpu_assemble
-    );
+//     // test if the indices are correct
+//     // i.e. that in the dense matrix onlz elements
+//     // at positions given by indices and ptr are non zero
+//     bool right_indices = assert_nnz(
+//         K_og,
+//         row_ptr_h,
+//         col_indices_h,
+//         nnz,
+//         N);
+//     if(!right_indices){
+//         std::cout << "indices mismatch" << std::endl;
+//     }
+//     else{
+//         std::cout << "indices match" << std::endl;
+//     }
 
 
-    if(nnz_gpu_assemble != nnz){
-        std::cout << "nnz_gpu_assemble mismatch" << std::endl;
-        std::cout << "nnz_gpu_assemble " << nnz_gpu_assemble << std::endl;
-        std::cout << "nnz " << nnz << std::endl;
-    }
-    else{
-        std::cout << "nnz_gpu_assemble match" << std::endl;
-    }
+//     assemble_K_cpu(
+//         metals, element, site_charge,
+//         num_metals,
+//         d_high_G, d_low_G,
+//         N,
+//         col_indices_h,
+//         row_ptr_h,
+//         data_h
+//     );
+//     sparse_to_dense<double>(K_sparse_cpu_assemble, data_h, col_indices_h, row_ptr_h, N);
+
+//     if(!assert_array_magnitude(K_sparse_cpu_assemble, K_og, abstol, reltol, N * N)){
+//         std::cout << "K_sparse_cpu_assemble and K_og mismatch" << std::endl;
+//     }
+//     else{
+//         std::cout << "K_sparse_cpu_assemble and K_og match" << std::endl;
+//     }
+
+//     // assemble the indices on the gpu
+
+//     int *col_indices_gpu_assemble_d;
+//     int *row_ptr_gpu_assemble_d;
+//     int nnz_gpu_assemble;
+
+//     indices_creation_gpu(
+//         gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+//         gpubuf.lattice, pbc,
+//         cutoff_radius,
+//         N,
+//         &col_indices_gpu_assemble_d,
+//         &row_ptr_gpu_assemble_d,
+//         &nnz_gpu_assemble
+//     );
 
 
-
-    // unload the indices and test if they are the same
-    int col_indices_gpu_assemble_h[nnz];
-    int row_ptr_gpu_assemble_h[N + 1];
-    gpuErrchk( cudaMemcpy(col_indices_gpu_assemble_h, col_indices_gpu_assemble_d, nnz * sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(row_ptr_gpu_assemble_h, row_ptr_gpu_assemble_d, (N + 1) * sizeof(int), cudaMemcpyDeviceToHost) );
-
-
-    if(!assert_array_magnitude(col_indices_gpu_assemble_h, col_indices_h, abstol, reltol, nnz)){
-        std::cout << "col_indices_gpu_assemble_h and col_indices_h mismatch" << std::endl;
-    }
-    else{
-        std::cout << "col_indices_gpu_assemble_h and col_indices_h match" << std::endl;
-    }
-    if(!assert_array_magnitude(row_ptr_gpu_assemble_h, row_ptr_h, abstol, reltol, N + 1)){
-        std::cout << "row_ptr_gpu_assemble_h and row_ptr_h mismatch" << std::endl;
-    }
-    else{
-        std::cout << "row_ptr_gpu_assemble_h and row_ptr_h match" << std::endl;
-    }
-
-
-    double *data_d;
-    int *col_indices_d;
-    int *row_ptr_d;
-
-    gpuErrchk( cudaMalloc((void **)&data_d, nnz * sizeof(double)) );
-    gpuErrchk( cudaMalloc((void **)&col_indices_d, nnz * sizeof(int)) );
-    gpuErrchk( cudaMalloc((void **)&row_ptr_d, (N + 1) * sizeof(int)) );
-
-
-    // copy the nonzero elements of K to the gpu
-    gpuErrchk( cudaMemcpy(col_indices_d, col_indices_h, nnz * sizeof(int), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(row_ptr_d, row_ptr_h, (N + 1) * sizeof(int), cudaMemcpyHostToDevice) );
-
-
-    assemble_K_gpu(
-        gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
-        num_metals,
-        d_high_G, d_low_G,
-        N,
-        col_indices_d,
-        row_ptr_d,
-        data_d
-    );
-
-    // unload sparse matrix
-    gpuErrchk( cudaMemcpy(data_h, data_d, nnz * sizeof(double), cudaMemcpyDeviceToHost) );
-    sparse_to_dense<double>(K_sparse_gpu_assemble, data_h, col_indices_h, row_ptr_h, N);
+//     if(nnz_gpu_assemble != nnz){
+//         std::cout << "nnz_gpu_assemble mismatch" << std::endl;
+//         std::cout << "nnz_gpu_assemble " << nnz_gpu_assemble << std::endl;
+//         std::cout << "nnz " << nnz << std::endl;
+//     }
+//     else{
+//         std::cout << "nnz_gpu_assemble match" << std::endl;
+//     }
 
 
 
-    if(!assert_array_magnitude(K_sparse_gpu_assemble, K_og, abstol, reltol, N * N)){
-        std::cout << "K_sparse_gpu_assemble and K_og mismatch" << std::endl;
-    }
-    else{
-        std::cout << "K_sparse_gpu_assemble and K_og match" << std::endl;
-    }
+//     // unload the indices and test if they are the same
+//     int col_indices_gpu_assemble_h[nnz];
+//     int row_ptr_gpu_assemble_h[N + 1];
+//     gpuErrchk( cudaMemcpy(col_indices_gpu_assemble_h, col_indices_gpu_assemble_d, nnz * sizeof(int), cudaMemcpyDeviceToHost) );
+//     gpuErrchk( cudaMemcpy(row_ptr_gpu_assemble_h, row_ptr_gpu_assemble_d, (N + 1) * sizeof(int), cudaMemcpyDeviceToHost) );
 
-    int count_left_nnzs = 0;
-    for(int i = 0; i < N; i++){
-        for(int j = row_ptr_h[i]; j < row_ptr_h[i+1]; j++){
-            if(i >= N_left_tot && i < N - N_right_tot && col_indices_h[j] < N_left_tot){
-                count_left_nnzs += 1;
-            }
-        }
-    }
-    std::cout << "count_left_nnzs " << count_left_nnzs << std::endl;
-    int count_right_nnzs = 0;
-    for(int i = 0; i < N; i++){
-        for(int j = row_ptr_h[i]; j < row_ptr_h[i+1]; j++){
-            if(i >= N_left_tot && i < N - N_right_tot && col_indices_h[j] >= N - N_right_tot){
-                count_right_nnzs += 1;
-            }
-        }
-    }
-    std::cout << "count_right_nnzs " << count_right_nnzs << std::endl;
+
+//     if(!assert_array_magnitude(col_indices_gpu_assemble_h, col_indices_h, abstol, reltol, nnz)){
+//         std::cout << "col_indices_gpu_assemble_h and col_indices_h mismatch" << std::endl;
+//     }
+//     else{
+//         std::cout << "col_indices_gpu_assemble_h and col_indices_h match" << std::endl;
+//     }
+//     if(!assert_array_magnitude(row_ptr_gpu_assemble_h, row_ptr_h, abstol, reltol, N + 1)){
+//         std::cout << "row_ptr_gpu_assemble_h and row_ptr_h mismatch" << std::endl;
+//     }
+//     else{
+//         std::cout << "row_ptr_gpu_assemble_h and row_ptr_h match" << std::endl;
+//     }
+
+
+//     double *data_d;
+//     int *col_indices_d;
+//     int *row_ptr_d;
+
+//     gpuErrchk( cudaMalloc((void **)&data_d, nnz * sizeof(double)) );
+//     gpuErrchk( cudaMalloc((void **)&col_indices_d, nnz * sizeof(int)) );
+//     gpuErrchk( cudaMalloc((void **)&row_ptr_d, (N + 1) * sizeof(int)) );
+
+
+//     // copy the nonzero elements of K to the gpu
+//     gpuErrchk( cudaMemcpy(col_indices_d, col_indices_h, nnz * sizeof(int), cudaMemcpyHostToDevice) );
+//     gpuErrchk( cudaMemcpy(row_ptr_d, row_ptr_h, (N + 1) * sizeof(int), cudaMemcpyHostToDevice) );
+
+
+//     assemble_K_gpu(
+//         gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
+//         num_metals,
+//         d_high_G, d_low_G,
+//         N,
+//         col_indices_d,
+//         row_ptr_d,
+//         data_d
+//     );
+
+//     // unload sparse matrix
+//     gpuErrchk( cudaMemcpy(data_h, data_d, nnz * sizeof(double), cudaMemcpyDeviceToHost) );
+//     sparse_to_dense<double>(K_sparse_gpu_assemble, data_h, col_indices_h, row_ptr_h, N);
+
+
+
+//     if(!assert_array_magnitude(K_sparse_gpu_assemble, K_og, abstol, reltol, N * N)){
+//         std::cout << "K_sparse_gpu_assemble and K_og mismatch" << std::endl;
+//     }
+//     else{
+//         std::cout << "K_sparse_gpu_assemble and K_og match" << std::endl;
+//     }
+
+//     int count_left_nnzs = 0;
+//     for(int i = 0; i < N; i++){
+//         for(int j = row_ptr_h[i]; j < row_ptr_h[i+1]; j++){
+//             if(i >= N_left_tot && i < N - N_right_tot && col_indices_h[j] < N_left_tot){
+//                 count_left_nnzs += 1;
+//             }
+//         }
+//     }
+//     std::cout << "count_left_nnzs " << count_left_nnzs << std::endl;
+//     int count_right_nnzs = 0;
+//     for(int i = 0; i < N; i++){
+//         for(int j = row_ptr_h[i]; j < row_ptr_h[i+1]; j++){
+//             if(i >= N_left_tot && i < N - N_right_tot && col_indices_h[j] >= N - N_right_tot){
+//                 count_right_nnzs += 1;
+//             }
+//         }
+//     }
+//     std::cout << "count_right_nnzs " << count_right_nnzs << std::endl;
 
 
 
@@ -1690,210 +1781,131 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
         &K_right_reduced_d
     );
 
-    std::cout << "A_nnz " << A_nnz << std::endl;
-    std::cout << "nnz " << nnz << std::endl;
-    double A_data_h[A_nnz];
-    int A_row_ptr_h[N - N_left_tot - N_right_tot + 1];
-    int A_col_indices_h[A_nnz];
+    // std::cout << "A_nnz " << A_nnz << std::endl;
+    // std::cout << "nnz " << nnz << std::endl;
+    // double *A_data_h = (double *)malloc(A_nnz * sizeof(double));
+    // int *A_row_ptr_h = (int *)malloc((N - N_left_tot - N_right_tot + 1) * sizeof(int));
+    // int *A_col_indices_h = (int *)malloc(A_nnz * sizeof(int));
 
 
-    gpuErrchk( cudaMemcpy(A_data_h, A_data_d, A_nnz * sizeof(double), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(A_row_ptr_h, A_row_ptr_d, (N - N_left_tot - N_right_tot + 1) * sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(A_col_indices_h, A_col_indices_d, A_nnz * sizeof(int), cudaMemcpyDeviceToHost) );
+
+    // gpuErrchk( cudaMemcpy(A_data_h, A_data_d, A_nnz * sizeof(double), cudaMemcpyDeviceToHost) );
+    // gpuErrchk( cudaMemcpy(A_row_ptr_h, A_row_ptr_d, (N - N_left_tot - N_right_tot + 1) * sizeof(int), cudaMemcpyDeviceToHost) );
+    // gpuErrchk( cudaMemcpy(A_col_indices_h, A_col_indices_d, A_nnz * sizeof(int), cudaMemcpyDeviceToHost) );
 
 
-    // sanity check if the indices are correct
-    bool inside_nnz = true;
-    for(int i = 0; i < N - N_left_tot - N_right_tot; i++){
-        for(int j = A_row_ptr_h[i]; j < A_row_ptr_h[i+1]; j++){
-            int row = i + N_left_tot;
-            int col = A_col_indices_h[j] + N_left_tot;
-            if(K_og[row * N + col] == 0.0){
-                inside_nnz = false;
-            }
+    // // sanity check if the indices are correct
+    // bool inside_nnz = true;
+
+    // for(int i = 0; i < N - N_left_tot - N_right_tot; i++){
+    //     for(int j = A_row_ptr_h[i]; j < A_row_ptr_h[i+1]; j++){
+    //         int row = i + N_left_tot;
+    //         int col = A_col_indices_h[j] + N_left_tot;
+    //         if(K_og[row * N + col] == 0.0){
+    //             inside_nnz = false;
+    //         }
     
-        }
-    }
-    if(!inside_nnz){
-        std::cout << "A_indices and K_og mismatch for nnz" << std::endl;
-    }
-    else{
-        std::cout << "A_indices and K_og match for nnz" << std::endl;
-    }
+    //     }
+    // }
+    // if(!inside_nnz){
+    //     std::cout << "A_indices and K_og mismatch for nnz" << std::endl;
+    // }
+    // else{
+    //     std::cout << "A_indices and K_og match for nnz" << std::endl;
+    // }
 
-    bool outside_nnz = true;
-    for(int i = 0; i < N - N_left_tot - N_right_tot; i++){
-        for(int j = 0; j < N - N_left_tot - N_right_tot; j++){
-            bool inside = false;
-            for(int k = A_row_ptr_h[i]; k < A_row_ptr_h[i+1]; k++){
-                if(A_col_indices_h[k] == j){
-                    inside = true;
-                }
-            }
-            int row = i + N_left_tot;
-            int col = j + N_left_tot;            
-            if(!inside){
-                if(K_og[row * N + col] != 0.0){
-                    outside_nnz = false;
-                }
-            }
-            else{
-                if(K_og[row * N + col] == 0.0){
-                    outside_nnz = false;
-                }
-            }
-        }
-    }
-    if(!outside_nnz){
-        std::cout << "A_indices and K_og mismatch for zeros" << std::endl;
-    }
-    else{
-        std::cout << "A_indices and K_og match for zeros" << std::endl;
-    }
-
-
+    // bool outside_nnz = true;
+    // for(int i = 0; i < N - N_left_tot - N_right_tot; i++){
+    //     for(int j = 0; j < N - N_left_tot - N_right_tot; j++){
+    //         bool inside = false;
+    //         for(int k = A_row_ptr_h[i]; k < A_row_ptr_h[i+1]; k++){
+    //             if(A_col_indices_h[k] == j){
+    //                 inside = true;
+    //             }
+    //         }
+    //         int row = i + N_left_tot;
+    //         int col = j + N_left_tot;            
+    //         if(!inside){
+    //             if(K_og[row * N + col] != 0.0){
+    //                 outside_nnz = false;
+    //             }
+    //         }
+    //         else{
+    //             if(K_og[row * N + col] == 0.0){
+    //                 outside_nnz = false;
+    //             }
+    //         }
+    //     }
+    // }
+    // if(!outside_nnz){
+    //     std::cout << "A_indices and K_og mismatch for zeros" << std::endl;
+    // }
+    // else{
+    //     std::cout << "A_indices and K_og match for zeros" << std::endl;
+    // }
 
 
-    double difference = 0.0;
-    double sum_ref = 0.0;
-    for(int i = 0; i < N - N_left_tot - N_right_tot; i++){
-        for(int j = A_row_ptr_h[i]; j < A_row_ptr_h[i+1]; j++){
-            int row = i + N_left_tot;
-            int col = A_col_indices_h[j] + N_left_tot;
 
-            difference += std::abs(A_data_h[j] - K_og[row * N + col]) * std::abs(A_data_h[j] - K_og[row * N + col]);
-            sum_ref += std::abs(K_og[row * N + col]) * std::abs(K_og[row * N + col]);
+
+    // double difference = 0.0;
+    // double sum_ref = 0.0;
+    // for(int i = 0; i < N - N_left_tot - N_right_tot; i++){
+    //     for(int j = A_row_ptr_h[i]; j < A_row_ptr_h[i+1]; j++){
+    //         int row = i + N_left_tot;
+    //         int col = A_col_indices_h[j] + N_left_tot;
+
+    //         difference += std::abs(A_data_h[j] - K_og[row * N + col]) * std::abs(A_data_h[j] - K_og[row * N + col]);
+    //         sum_ref += std::abs(K_og[row * N + col]) * std::abs(K_og[row * N + col]);
         
 
-        }
-    }
-    if(difference > abstol + reltol * sum_ref){
-        std::cout << "A_data_h and K_og mismatch" << std::endl;
-
-    }
-    else{
-        std::cout << "A_data_h and K_og match" << std::endl;
-    }
-
-
-
-    gpuErrchk(cudaFree(A_data_d));
-    gpuErrchk(cudaFree(A_col_indices_d));
-    gpuErrchk(cudaFree(A_row_ptr_d));
-    gpuErrchk(cudaFree(K_left_reduced_d));
-    gpuErrchk(cudaFree(K_right_reduced_d));
-
-
-
-    // // start of the benchmark
-    // int num_measurents = 10;
-
-    // double times_data_assemble_cpu[num_measurents];
-    // double times_data_assemble_gpu[num_measurents];
-    // double times_full_gpu_og[num_measurents];
-
-    // double times_indices_assemble_gpu[num_measurents];
-    // double times_indices_assemble_cpu[num_measurents];
-
-
-    // for(int i = 0; i < num_measurents; i++){
-    //     times_full_gpu_og[i] = assemble_K_og(handle, gpubuf, N, N_left_tot, N_right_tot, Vd, pbc, d_high_G, d_low_G, cutoff_radius, num_metals, kmc_step_count, K_og);
-    //     std::cout << "times_full_gpu_og " << times_full_gpu_og[i] << std::endl;
+    //     }
     // }
+    // if(difference > abstol + reltol * sum_ref){
+    //     std::cout << "A_data_h and K_og mismatch" << std::endl;
 
-    // for(int i = 0; i < num_measurents; i++){
-    //     times_data_assemble_cpu[i] = omp_get_wtime();
-    //     assemble_K_cpu(
-    //         metals, element, site_charge,
-    //         num_metals,
-    //         d_high_G, d_low_G,
-    //         N,
-    //         col_indices_h,
-    //         row_ptr_h,
-    //         data_h
-    //     );
-    //     times_data_assemble_cpu[i] = omp_get_wtime() - times_data_assemble_cpu[i];
-    //     std::cout << "times_data_assemble_cpu " << times_data_assemble_cpu[i] << std::endl;
     // }
-
-    // for(int i = 0; i < num_measurents; i++){
-    //     times_data_assemble_gpu[i] = omp_get_wtime();
-    //     gpuErrchk(cudaDeviceSynchronize());
-    //     assemble_K_gpu(
-    //         gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
-    //         num_metals,
-    //         d_high_G, d_low_G,
-    //         N,
-    //         col_indices_d,
-    //         row_ptr_d,
-    //         data_d
-    //     );
-    //     gpuErrchk(cudaDeviceSynchronize());
-    //     times_data_assemble_gpu[i] = omp_get_wtime() - times_data_assemble_gpu[i];
-    //     std::cout << "times_data_assemble_gpu " << times_data_assemble_gpu[i] << std::endl;
+    // else{
+    //     std::cout << "A_data_h and K_og match" << std::endl;
     // }
-
-    gpuErrchk( cudaFree(col_indices_gpu_assemble_d) );
-    gpuErrchk( cudaFree(row_ptr_gpu_assemble_d) );
-    free(col_indices_h);
-    free(row_ptr_h);
+    // std::cout << difference / sum_ref << std::endl;
 
 
-    // for(int i = 0; i < num_measurents; i++){
-    //     times_indices_assemble_cpu[i] = omp_get_wtime();
-    //     indices_creation_cpu(
-    //         posx, posy, posz,
-    //         lattice, pbc,
-    //         cutoff_radius,
-    //         N,
-    //         &col_indices_h,
-    //         &row_ptr_h,
-    //         &nnz_cpu
-    //     );
-    //     times_indices_assemble_cpu[i] = omp_get_wtime() - times_indices_assemble_cpu[i];
-    //     free(col_indices_h);
-    //     free(row_ptr_h);
-    //     std::cout << "times_indices_assemble_cpu " << times_indices_assemble_cpu[i] << std::endl;
-    // }
-    // for(int i = 0; i < num_measurents; i++){
-    //     times_indices_assemble_gpu[i] = omp_get_wtime();
-    //     gpuErrchk(cudaDeviceSynchronize());
-    //     indices_creation_gpu(
-    //         gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-    //         gpubuf.lattice, pbc,
-    //         cutoff_radius,
-    //         N,
-    //         &col_indices_gpu_assemble_d,
-    //         &row_ptr_gpu_assemble_d,
-    //         &nnz_gpu_assemble
-    //     );
-    //     gpuErrchk(cudaDeviceSynchronize());
-    //     times_indices_assemble_gpu[i] = omp_get_wtime() - times_indices_assemble_gpu[i];
-    //     cudaFree(col_indices_gpu_assemble_d);
-    //     cudaFree(row_ptr_gpu_assemble_d);
-    //     std::cout << "times_indices_assemble_gpu " << times_indices_assemble_gpu[i] << std::endl;
-    // }
+    // gpuErrchk(cudaFree(A_data_d));
+    // gpuErrchk(cudaFree(A_col_indices_d));
+    // gpuErrchk(cudaFree(A_row_ptr_d));
+    // gpuErrchk(cudaFree(K_left_reduced_d));
+    // gpuErrchk(cudaFree(K_right_reduced_d));
 
 
-    gpuErrchk( cudaFree(data_d) );
-    gpuErrchk( cudaFree(col_indices_d) );
-    gpuErrchk( cudaFree(row_ptr_d) );
+    // free(A_data_h);
+    // free(A_col_indices_h);
+    // free(A_row_ptr_h);
+
+
+    // gpuErrchk( cudaFree(col_indices_gpu_assemble_d) );
+    // gpuErrchk( cudaFree(row_ptr_gpu_assemble_d) );
+    // free(col_indices_h);
+    // free(row_ptr_h);
+
+    // gpuErrchk( cudaFree(data_d) );
+    // gpuErrchk( cudaFree(col_indices_d) );
+    // gpuErrchk( cudaFree(row_ptr_d) );
 
     
 
-    free(K_og);
-    free(K_sparse_cpu_assemble);
-    free(K_sparse_gpu_assemble);
-    free(posx);
-    free(posy);
-    free(posz);
-    free(lattice);
-    free(metals);
-    free(element);
-    free(site_charge);
-    free(data_h);
+    // free(K_og);
+    // free(K_sparse_cpu_assemble);
+    // free(K_sparse_gpu_assemble);
+    // free(posx);
+    // free(posy);
+    // free(posz);
+    // free(lattice);
+    // free(metals);
+    // free(element);
+    // free(site_charge);
+    // free(data_h);
 
-    std::cout << "K matrix assembled" << std::endl;
+    // std::cout << "K matrix assembled" << std::endl;
 
 
 
