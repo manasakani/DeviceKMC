@@ -1,4 +1,5 @@
 #include "cuda_wrapper.h"
+#include <stdlib.h>
 // #include <cub/cub.cuh>
 
 const double eV_to_J = 1.6e-19;
@@ -1129,6 +1130,18 @@ void Assemble_A(
 }
 
 
+template <typename T>
+void writeArrayToBinFile(T* array, int numElements, const std::string& filename) {
+    std::ofstream file(filename, std::ios::binary);
+    if (file.is_open()) {
+        file.write(reinterpret_cast<char*>(array), numElements*sizeof(T));
+        file.close();
+        std::cout << "Array data written to file: " << filename << std::endl;
+    } else {
+        std::cerr << "Unable to open the file for writing." << std::endl;
+    }
+}
+
 void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count)
@@ -1193,7 +1206,49 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     calc_rhs_for_A<<<num_blocks, num_threads>>>(K_left_reduced_d, K_right_reduced_d, VL, VR, rhs, N_interface, N_left_tot, N_right_tot);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
-    
+
+    std::cout << N_interface << std::endl;
+    std::cout << A_nnz << std::endl;
+
+    double *rhs_h = new double[N_interface];
+    gpuErrchk( cudaMemcpy(rhs_h, rhs, N_interface * sizeof(double), cudaMemcpyDeviceToHost) );
+    double *A_data_h = new double[A_nnz];
+    gpuErrchk( cudaMemcpy(A_data_h, A_data_d, A_nnz * sizeof(double), cudaMemcpyDeviceToHost) );
+    int *A_row_ptr_h = new int[N_interface + 1];
+    gpuErrchk( cudaMemcpy(A_row_ptr_h, A_row_ptr_d, (N_interface + 1) * sizeof(int), cudaMemcpyDeviceToHost) );
+    int *A_col_indices_h = new int[A_nnz];
+    gpuErrchk( cudaMemcpy(A_col_indices_h, A_col_indices_d, A_nnz * sizeof(int), cudaMemcpyDeviceToHost) );
+
+    if(N_interface < 20000){
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_7k/system_K/";
+        writeArrayToBinFile<double>(rhs_h, N_interface, base_path + "A_rhs"+ std::to_string(kmc_step_count) +".bin");
+        writeArrayToBinFile<double>(A_data_h, A_nnz, base_path + "A_data"+ std::to_string(kmc_step_count) +".bin");
+        writeArrayToBinFile<int>(A_row_ptr_h, N_interface + 1, base_path + "A_row_ptr"+ std::to_string(kmc_step_count) +".bin");
+        writeArrayToBinFile<int>(A_col_indices_h, A_nnz, base_path + "A_col_indices"+ std::to_string(kmc_step_count) +".bin");
+    }
+    else if(N_interface > 20000 && N_interface < 40000){
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_28k/system_K/";
+        writeArrayToBinFile<double>(rhs_h, N_interface, base_path + "A_rhs"+ std::to_string(kmc_step_count) +".bin");
+        writeArrayToBinFile<double>(A_data_h, A_nnz, base_path + "A_data"+ std::to_string(kmc_step_count) +".bin");
+        writeArrayToBinFile<int>(A_row_ptr_h, N_interface + 1, base_path + "A_row_ptr"+ std::to_string(kmc_step_count) +".bin");
+        writeArrayToBinFile<int>(A_col_indices_h, A_nnz, base_path + "A_col_indices"+ std::to_string(kmc_step_count) +".bin");
+    }
+    else{
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_80k/system_K/";
+        writeArrayToBinFile<double>(rhs_h, N_interface, base_path + "A_rhs"+ std::to_string(kmc_step_count) +".bin");
+        writeArrayToBinFile<double>(A_data_h, A_nnz, base_path + "A_data"+ std::to_string(kmc_step_count) +".bin");
+        writeArrayToBinFile<int>(A_row_ptr_h, N_interface + 1, base_path + "A_row_ptr"+ std::to_string(kmc_step_count) +".bin");
+        writeArrayToBinFile<int>(A_col_indices_h, A_nnz, base_path + "A_col_indices"+ std::to_string(kmc_step_count) +".bin");
+    }
+
+    delete[] rhs_h;
+    delete[] A_data_h;
+    delete[] A_row_ptr_h;
+    delete[] A_col_indices_h;
+
+    if(kmc_step_count > 10000){
+        exit(1);
+    }
     // ************************************************************
     // 2. Solve system of linear equations 
 
@@ -1231,6 +1286,26 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
 
     // ************************************************************
     // 3. Re-fix the boundary (gets modified by the poisson solver)
+
+    double *solution_h;
+    solution_h = new double[N_interface];
+    gpuErrchk( cudaMemcpy(solution_h, v_soln, N_interface * sizeof(double), cudaMemcpyDeviceToHost) );
+    if(N_interface < 20000){
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_7k/system_K/";
+        writeArrayToBinFile<double>(solution_h, N_interface, base_path + "solution"+ std::to_string(kmc_step_count) +".bin");
+    }
+    else if(N_interface > 20000 && N_interface < 40000){
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_28k/system_K/";
+        writeArrayToBinFile<double>(solution_h, N_interface, base_path + "solution"+ std::to_string(kmc_step_count) +".bin");
+    }
+    else{
+        std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_80k/system_K/";
+        writeArrayToBinFile<double>(solution_h, N_interface, base_path + "solution"+ std::to_string(kmc_step_count) +".bin");
+    }
+
+    delete[] solution_h;
+
+
 
     thrust::device_ptr<double> left_boundary = thrust::device_pointer_cast(gpubuf.site_potential);
     thrust::fill(left_boundary, left_boundary + N_left_tot, -Vd/2);

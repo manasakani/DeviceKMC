@@ -3,7 +3,7 @@
 //******************************
 
 rnd_seed = 1							// random number for KMCProcess
-restart = 1								// restart calculation
+restart = 0								// restart calculation
 restart_xyz_file = ./Results_17.000000_1/snapshot_990.xyz				// restart filename
 
 atom_xyz_file = crossbar.xyz	                 	// if not restart, draws from the atom coordinates file

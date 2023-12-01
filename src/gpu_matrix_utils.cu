@@ -162,7 +162,7 @@ void sparse_system_solve_iterative(cublasHandle_t handle_cublas, cusparseHandle_
     bool zero_guess = 0;
 
     // Error tolerance for the norm of the residual in the CG steps
-    double tol = 1e-12;
+    double tol = 1e-14;
 
     double one = 1.0;
     double n_one = -1.0;
@@ -230,7 +230,7 @@ void sparse_system_solve_iterative(cublasHandle_t handle_cublas, cusparseHandle_
     // Conjugate Gradient steps
     int counter = 0;
     double t, tnew, alpha, beta, alpha_temp;
-    while (h_norm > tol){
+    while (h_norm > tol && counter < 50000){
 
         // alpha = rT * r / (pT * A * p)
         CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                         // t = rT * r
