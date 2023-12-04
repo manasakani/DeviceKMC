@@ -149,9 +149,92 @@ void sparse_system_solve(cusolverSpHandle_t handle, int* d_csrRowPtr, int* d_csr
     free(h_y);
 }
 
+// Extracts the inverse sqrt of the diagonal values into a vector to use for the preconditioning
+__global__ void computeDiagonalInvSqrt(const double* A_data, const int* A_row_ptr,
+                                       const int* A_col_indices, double* diagonal_values_inv_sqrt_d,
+                                       const int matrix_size) {
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (tid < matrix_size) {
+        // Find the range of non-zero elements for the current row
+        int row_start = A_row_ptr[tid];
+        int row_end = A_row_ptr[tid + 1];
+
+        // Initialize the sum for the diagonal element
+        double diagonal_sum = 0.0;
+
+        // Loop through the non-zero elements in the current row
+        for (int i = row_start; i < row_end; ++i) {
+            if (A_col_indices[i] == tid) {
+                // Found the diagonal element
+                diagonal_sum = A_data[i];
+                break;
+            }
+        }
+
+        double diagonal_inv_sqrt = 1.0 / sqrt(diagonal_sum);
+
+        // Store the result in the output array
+        diagonal_values_inv_sqrt_d[tid] = diagonal_inv_sqrt;
+    }
+}
+
+// apply Jacobi preconditioner to an rhs vector
+__global__ void jacobi_precondition_array(
+    double *array,
+    double *diagonal_values_inv_sqrt,
+    int matrix_size
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){
+        array[i] = array[i] * diagonal_values_inv_sqrt[i];
+    }
+
+}
+
+// apply Jacobi preconditioner to matrix
+__global__ void jacobi_precondition_matrix(
+    double *data,
+    const int *col_indices,
+    const int *row_indptr,
+    double *diagonal_values_inv_sqrt,
+    int matrix_size
+){
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){
+        // Iterate over the row elements
+        for(int j = row_indptr[i]; j < row_indptr[i+1]; j++){
+            // Use temporary variables to store the original values
+            double original_value = data[j];
+
+            // Update data with the preconditioned value
+            data[j] = original_value * diagonal_values_inv_sqrt[i] * diagonal_values_inv_sqrt[col_indices[j]];
+        }
+    }
+}
+
+// apply Jacobi preconditioner to starting guess
+__global__ void jacobi_unprecondition_array(
+    double *array,
+    double *diagonal_values_inv_sqrt,
+    int matrix_size
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){
+        array[i] = array[i] * 1/diagonal_values_inv_sqrt[i];
+    }
+
+}
+
 // Iterative sparse linear solver using CG steps
-void sparse_system_solve_iterative(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
-								   cusparseSpMatDescr_t matA, int m, double *d_x, double *d_y){
+void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+							double* A_data, int* A_row_ptr,
+                            int* A_col_indices, const int A_nnz, int m, double *d_x, double *d_y){
 
     // A is an m x m sparse matrix represented by CSR format
     // - d_x is right hand side vector in gpu memory,
@@ -177,7 +260,191 @@ void sparse_system_solve_iterative(cublasHandle_t handle_cublas, cusparseHandle_
     cusparseStatus_t status;
 
     // ************************************
-    // ** Precondioner and Initial Guess **
+    // ** Initial Guess **
+
+    if (zero_guess)
+    {
+        // Set the initial guess for the solution vector to zero
+        gpuErrchk( cudaMemset(d_y, 0, m * sizeof(double)) ); 
+        gpuErrchk( cudaDeviceSynchronize() );
+    }
+
+    // *******************************
+    // ** Preconditioner **
+
+    double* diagonal_values_inv_sqrt_d;
+    cudaMalloc((void**)&diagonal_values_inv_sqrt_d, sizeof(double) * m);
+
+    int block_size = 256;
+    int grid_size = (m + block_size - 1) / block_size;
+
+    computeDiagonalInvSqrt<<<grid_size, block_size>>>(A_data, A_row_ptr, A_col_indices,
+                                                      diagonal_values_inv_sqrt_d, m);
+    gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    // scale rhs
+    jacobi_precondition_array<<<grid_size, block_size>>>(d_x, diagonal_values_inv_sqrt_d, m);
+    gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
+    
+    // scale matrix
+    jacobi_precondition_matrix<<<grid_size, block_size>>>(A_data, A_col_indices, A_row_ptr, 
+                                                          diagonal_values_inv_sqrt_d, m);
+    gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    // scale starting guess
+    jacobi_unprecondition_array<<<grid_size, block_size>>>(d_y, diagonal_values_inv_sqrt_d, m);
+    gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    cusparseSpMatDescr_t matA;
+    status = cusparseCreateCsr(&matA, m, m, A_nnz, A_row_ptr, A_col_indices, A_data, 
+                               CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
+    if (status != CUSPARSE_STATUS_SUCCESS)
+    {
+        std::cout << "ERROR: creation of sparse matrix descriptor in solve_sparse_CG_Jacobi() failed!\n";
+    }
+
+    // *******************************
+    // ** Iterative refinement loop **
+
+    // initialize variables for the residual calculation
+    double h_norm;
+    double *d_r, *d_p, *d_temp;
+    gpuErrchk( cudaMalloc((void**)&d_r, m * sizeof(double)) ); 
+    gpuErrchk( cudaMalloc((void**)&d_p, m * sizeof(double)) ); 
+    gpuErrchk( cudaMalloc((void**)&d_temp, m * sizeof(double)) ); 
+
+    // for SpMV:
+    // - d_x is right hand side vector
+    // - d_y is solution vector
+    cusparseDnVecDescr_t vecY, vecR, vecP, vectemp; 
+    cusparseCreateDnVec(&vecY, m, d_y, CUDA_R_64F);
+    cusparseCreateDnVec(&vecR, m, d_r, CUDA_R_64F);
+    cusparseCreateDnVec(&vecP, m, d_p, CUDA_R_64F);
+    cusparseCreateDnVec(&vectemp, m, d_temp, CUDA_R_64F);
+
+    size_t MVBufferSize;
+    void *MVBuffer = 0;
+    status = cusparseSpMV_bufferSize(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                          vecY, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &MVBufferSize);
+    gpuErrchk( cudaMalloc((void**)&MVBuffer, sizeof(double) * MVBufferSize) );
+
+    // Initialize the residual and conjugate vectors
+    // r = A*y - x & p = -r
+    status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                          vecY, zero_d, vecR, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);         // r = A*y
+    // gpuErrchk( cudaDeviceSynchronize() );
+    CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -x + r
+    //gpuErrchk( cudaDeviceSynchronize() );
+    CheckCublasError(cublasDcopy(handle_cublas, m, d_r, 1, d_p, 1));                                    // p = r
+    //gpuErrchk( cudaDeviceSynchronize() );
+    CheckCublasError(cublasDscal(handle_cublas, m, &n_one, d_p, 1));                                    // p = -p
+    //gpuErrchk( cudaDeviceSynchronize() );
+
+    // calculate the error (norm of the residual)
+    CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
+    gpuErrchk( cudaDeviceSynchronize() );
+    
+    // Conjugate Gradient steps
+    int counter = 0;
+    double t, tnew, alpha, beta, alpha_temp;
+    while (h_norm > tol){
+
+        // alpha = rT * r / (pT * A * p)
+        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                         // t = rT * r
+        //gpuErrchk( cudaDeviceSynchronize() );
+        status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                              vecP, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer); // temp = A*p
+        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( cublasDdot (handle_cublas, m, d_p, 1, d_temp, 1, &alpha_temp) );             // alpha = pT*temp = pT*A*p
+        //gpuErrchk( cudaDeviceSynchronize() );
+        alpha = t / alpha_temp; 
+
+        // y = y + alpha * p
+        CheckCublasError(cublasDaxpy(handle_cublas, m, &alpha, d_p, 1, d_y, 1));                       // y = y + alpha * p
+        //gpuErrchk( cudaDeviceSynchronize() );
+
+        // r = r + alpha * A * p 
+        CheckCublasError(cublasDaxpy(handle_cublas, m, &alpha, d_temp, 1, d_r, 1));                    // r = r + alpha * temp
+        //gpuErrchk( cudaDeviceSynchronize() );
+
+        // beta = (rT * r) / t
+        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &tnew) );                       // tnew = rT * r
+        //gpuErrchk( cudaDeviceSynchronize() );
+        beta = tnew / t;
+
+        // p = -r + beta * p
+        CheckCublasError(cublasDscal(handle_cublas, m, &beta, d_p, 1));                                  // p = p * beta
+        //gpuErrchk( cudaDeviceSynchronize() );
+
+        CheckCublasError(cublasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1));                         // p = p - r
+        //gpuErrchk( cudaDeviceSynchronize() );
+
+        // calculate the error (norm of the residual)
+        CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
+        //gpuErrchk( cudaDeviceSynchronize() );
+        // std::cout << h_norm << "\n";
+
+        counter++;
+        if (counter > 50000){
+            std::cout << "WARNING: might be stuck in diverging CG iterations, check the residual!\n";
+        }
+    }
+    std::cout << "# CG steps: " << counter << "\n";
+
+    // unprecondition the solution vector
+    jacobi_precondition_array<<<grid_size, block_size>>>(d_y, diagonal_values_inv_sqrt_d, m);
+    gpuErrchk(cudaPeekAtLastError());
+    gpuErrchk(cudaDeviceSynchronize());
+
+    // // check solution vector
+    // double *copy_back = (double *)calloc(m, sizeof(double));
+    // gpuErrchk( cudaMemcpy(copy_back, d_y, m * sizeof(double), cudaMemcpyDeviceToHost) );
+    // for (int i = 0; i < m; i++){
+    //     std::cout << copy_back[i] << " ";
+    // }
+    // std::cout << "\nPrinted solution vector, now exiting\n";
+    // exit(1);
+
+    cudaFree(diagonal_values_inv_sqrt_d);
+    cudaFree(MVBuffer); 
+    cudaFree(one_d);
+    cudaFree(n_one_d);
+    cudaFree(zero_d);
+}
+
+// Iterative sparse linear solver using CG steps
+void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+					 cusparseSpMatDescr_t matA, int m, double *d_x, double *d_y){
+
+    // A is an m x m sparse matrix represented by CSR format
+    // - d_x is right hand side vector in gpu memory,
+    // - d_y is solution vector in gpu memory.
+    // - d_z is intermediate result on gpu memory.
+
+    // Sets the initial guess for the solution vector to zero
+    bool zero_guess = 0;
+
+    // Error tolerance for the norm of the residual in the CG steps
+    double tol = 1e-12;
+
+    double one = 1.0;
+    double n_one = -1.0;
+    double zero = 0.0;
+    double *one_d, *n_one_d, *zero_d;
+    gpuErrchk( cudaMalloc((void**)&one_d, sizeof(double)) );
+    gpuErrchk( cudaMalloc((void**)&n_one_d, sizeof(double)) );
+    gpuErrchk( cudaMalloc((void**)&zero_d, sizeof(double)) );
+    gpuErrchk( cudaMemcpy(one_d, &one, sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(n_one_d, &n_one, sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(zero_d, &zero, sizeof(double), cudaMemcpyHostToDevice) );
+    cusparseStatus_t status;
+
+    // ************************************
+    // ** Set Initial Guess **
 
     if (zero_guess)
     {
@@ -272,6 +539,11 @@ void sparse_system_solve_iterative(cublasHandle_t handle_cublas, cusparseHandle_
         }
     }
     std::cout << "# CG steps: " << counter << "\n";
+
+    cudaFree(MVBuffer); 
+    cudaFree(one_d);
+    cudaFree(n_one_d);
+    cudaFree(zero_d);
 
     // // check solution vector
     // double *copy_back = (double *)calloc(m, sizeof(double));

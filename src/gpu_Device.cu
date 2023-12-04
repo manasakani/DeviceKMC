@@ -348,7 +348,7 @@ __global__ void create_K(
     }
 }
 
-__global__ void calc_off_diagonal_K_gpu(
+__global__ void calc_off_diagonal_A_gpu(
     const ELEMENT *metals, const ELEMENT *element, const int *site_charge,
     int num_metals,
     double d_high_G, double d_low_G,
@@ -384,7 +384,7 @@ __global__ void calc_off_diagonal_K_gpu(
     }
 }
 
-__global__ void calc_diagonal_K_gpu(
+__global__ void calc_diagonal_A_gpu(
     int *col_indices,
     int *row_ptr,
     double *data,
@@ -1005,30 +1005,30 @@ void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const 
     cudaFree(P_tot);
 }
 
-void assemble_K_gpu(
-    const ELEMENT *metals_d, const ELEMENT *element_d, const int *site_charge_d,
-    const int num_metals,
-    const double d_high_G, const double d_low_G,
-    int matrix_size,
-    int *col_indices_d,
-    int *row_ptr_d,
-    double *data_d
-)
-{
-    int threads = 512;
-    int blocks = (matrix_size + threads - 1) / threads;
+// void assemble_K_gpu(
+//     const ELEMENT *metals_d, const ELEMENT *element_d, const int *site_charge_d,
+//     const int num_metals,
+//     const double d_high_G, const double d_low_G,
+//     int matrix_size,
+//     int *col_indices_d,
+//     int *row_ptr_d,
+//     double *data_d
+// )
+// {
+//     int threads = 512;
+//     int blocks = (matrix_size + threads - 1) / threads;
 
-    calc_off_diagonal_K_gpu<<<blocks, threads>>>(
-        metals_d, element_d, site_charge_d,
-        num_metals,
-        d_high_G, d_low_G,
-        matrix_size,
-        col_indices_d,
-        row_ptr_d,
-        data_d);
+//     calc_off_diagonal_A_gpu<<<blocks, threads>>>(
+//         metals_d, element_d, site_charge_d,
+//         num_metals,
+//         d_high_G, d_low_G,
+//         matrix_size,
+//         col_indices_d,
+//         row_ptr_d,
+//         data_d);
 
-    calc_diagonal_K_gpu<<<blocks, threads>>>(col_indices_d, row_ptr_d, data_d, matrix_size);
-}
+//     calc_diagonal_A_gpu<<<blocks, threads>>>(col_indices_d, row_ptr_d, data_d, matrix_size);
+// }
 
 // Assemble the conductance matrix for the device and the reduced contact terms
 void Assemble_A(
@@ -1046,7 +1046,6 @@ void Assemble_A(
 {
 
     int system_size = K_size - contact_left_size - contact_right_size;
-    // std::cout << "system size " << system_size << std::endl;
 
     gpuErrchk(cudaMalloc((void **)K_left_reduced, system_size * sizeof(double)));
     gpuErrchk(cudaMalloc((void **)K_right_reduced, system_size * sizeof(double)));
@@ -1060,17 +1059,31 @@ void Assemble_A(
     gpuErrchk(cudaMemset((*A_data), 0, A_nnz[0] * sizeof(double)));
 
     // assemble only smaller part of K
-    assemble_K_gpu(
-        metals_d,
-        element_d + contact_left_size,
+    calc_off_diagonal_A_gpu<<<blocks, threads>>>(
+        metals_d, element_d + contact_left_size, 
         site_charge_d + contact_left_size,
         num_metals,
         d_high_G, d_low_G,
         system_size,
         *A_col_indices,
         *A_row_ptr,
-        *A_data
-    );
+        *A_data);
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    calc_diagonal_A_gpu<<<blocks, threads>>>(*A_col_indices, *A_row_ptr, *A_data, system_size);
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    // assemble_K_gpu(
+    //     metals_d,
+    //     element_d + contact_left_size,
+    //     site_charge_d + contact_left_size,
+    //     num_metals,
+    //     d_high_G, d_low_G,
+    //     system_size,
+    //     *A_col_indices,
+    //     *A_row_ptr,
+    //     *A_data
+    // );
 
     // reduce the left part of K
     // block starts at i = contact_left_size (first downshifted row)
@@ -1129,6 +1142,35 @@ void Assemble_A(
 }
 
 
+///
+__global__ void extractDiagonalValues(
+    double *A_data,
+    int *A_row_ptr,
+    int *A_col_indices,
+    double *diagonal_values,
+    int matrix_size
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (idx < matrix_size) {
+        // Initialize diagonal value to 0.0
+        double diag_value = 0.0;
+
+        // Search for the diagonal element in the column indices
+        for (int j = A_row_ptr[idx]; j < A_row_ptr[idx + 1]; ++j) {
+            if (A_col_indices[j] == idx) {
+                diag_value = A_data[j];
+                break;
+            }
+        }
+
+        // Store the diagonal value
+        diagonal_values[idx] = diag_value;
+    }
+}
+///
+
+
 void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count)
@@ -1175,7 +1217,7 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     // dump A to file:
     // dump_csr_matrix_txt(N_interface, A_nnz, A_row_ptr_d, A_col_indices_d, A_data_d, kmc_step_count);
 
-    // RHS vector: rhs = -K_left_interface * VL - K_right_interface * VR
+    // Prepare the RHS vector: rhs = -K_left_interface * VL - K_right_interface * VR
     // we take the negative and do rhs = K_left_interface * VL + K_right_interface * VR to account for a sign change in v_soln
     double *VL, *VR, *rhs;
     double Vl_h = -Vd/2;
@@ -1200,18 +1242,6 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     // the initial guess for the solution is the current site-resolved potential inside the device
     double *v_soln = gpubuf.site_potential + N_left_tot;
 
-    // Precondition the system for the iterative CG solver 
-    // // scale rhs
-    // jacobi_precondition_array<<<num_blocks, num_threads>>>( rhs, diagonal_values_inv_sqrt_d, N_interface);
-    // gpuErrchk( cudaDeviceSynchronize() );
-    // // scale matrix
-    // jacobi_precondition_matrix<<<num_blocks, num_threads>>>(A_data_d, A_col_indices_d, A_row_ptr_d, 
-    //                                                         diagonal_values_inv_sqrt_d, N_interface);
-    // gpuErrchk( cudaDeviceSynchronize() );
-    // // scale starting guess
-    // jacobi_unprecondition_array<<<num_blocks, num_threads>>>(v_soln, diagonal_values_inv_sqrt_d, N_interface);
-    // gpuErrchk( cudaDeviceSynchronize() );
-
     cusparseStatus_t status;
     cusparseHandle_t cusparseHandle;
     cusparseCreate(&cusparseHandle);
@@ -1225,7 +1255,13 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
         std::cout << "ERROR: creation of sparse matrix descriptor in background_potential_gpu_sparse() failed!\n";
     }
 
-    sparse_system_solve_iterative(handle_cublas, cusparseHandle, D_sparse, N_interface, rhs, v_soln);
+    // // sparse solver without preconditioning:
+    // solve_sparse_CG(handle_cublas, cusparseHandle, D_sparse, N_interface, rhs, v_soln);
+    // gpuErrchk( cudaPeekAtLastError() );
+    // gpuErrchk( cudaDeviceSynchronize() );
+
+    // sparse solver with Jacobi preconditioning:
+    solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_data_d, A_row_ptr_d, A_col_indices_d, A_nnz, N_interface, rhs, v_soln);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
@@ -1252,7 +1288,6 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     cudaFree(K_left_reduced_d);
     cudaFree(K_right_reduced_d);
     gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
 }
 
 void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,

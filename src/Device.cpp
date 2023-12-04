@@ -71,6 +71,7 @@ Device::Device(std::vector<std::string> &xyz_files, std::vector<double> lattice,
     std::cout << "Building the neighbor list...\n";
     site_neighbors.initialize(N);
     constructSiteNeighborList();
+    std::cout << "Finished building the neighbor list.\n";
 
     // check neighbors:
     for (int i = 0; i < N; i++)

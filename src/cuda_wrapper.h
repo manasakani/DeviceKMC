@@ -43,8 +43,13 @@ void sparse_system_solve(cusolverSpHandle_t handle, int* d_csrRowPtr, int* d_csr
                          int nnz, int m, double *d_x, double *d_y);
 
 // Iterative sparse linear solver using CG steps
-void sparse_system_solve_iterative(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
-								   cusparseSpMatDescr_t matA, int m, double *d_x, double *d_y);
+void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+					 cusparseSpMatDescr_t matA, int m, double *d_x, double *d_y);
+
+// Iterative sparse linear solver using CG steps and Jacobi preconditioner
+void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+                            double* A_data, int* A_row_ptr, int* A_col_indices,  
+                            const int A_nnz, int m, double *d_x, double *d_y);
 
 // Initialize sparsity of the background potential solver
 void Assemble_K_sparsity(const double *posx, const double *posy, const double *posz,
