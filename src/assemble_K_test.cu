@@ -6,7 +6,10 @@
 #include <cub/cub.cuh>
 #include <cstdlib>
 
-#define NUM_THREADS 512
+#define NUM_THREADS 256
+#define MAX_BLOCKS 1792
+#define MAX_BLOCKS_SHM 1792
+#define WARPSIZE 32
 
 // returns true if thing is present in the array of things
 template <typename T>
@@ -64,6 +67,44 @@ __device__ double site_dist_gpu_og(double pos1x, double pos1y, double pos1z,
 
     return dist;
 }
+
+__device__ double site_dist_gpu_pbc0(double pos1x, double pos1y, double pos1z,
+                                double pos2x, double pos2y, double pos2z)
+{
+    double dist = 0;
+    dist = sqrt(pow(pos2x - pos1x, 2) + pow(pos2y - pos1y, 2) + pow(pos2z - pos1z, 2));
+    return dist;
+}
+
+__device__ double site_dist_gpu_pbc1(double pos1x, double pos1y, double pos1z,
+                                double pos2x, double pos2y, double pos2z,
+                                double lattx, double latty, double lattz)
+{
+
+    double dist = 0;
+
+
+    double dist_x = pos1x - pos2x;
+    double distance_frac[3];
+
+    distance_frac[1] = (pos1y - pos2y) / latty;
+    distance_frac[1] -= round(distance_frac[1]);
+    distance_frac[2] = (pos1z - pos2z) / lattz;
+    distance_frac[2] -= round(distance_frac[2]);
+
+    double dist_xyz[3];
+    dist_xyz[0] = dist_x;
+
+    dist_xyz[1] = distance_frac[1] * latty;
+    dist_xyz[2] = distance_frac[2] * lattz;
+
+    dist = sqrt(dist_xyz[0] * dist_xyz[0] + dist_xyz[1] * dist_xyz[1] + dist_xyz[2] * dist_xyz[2]);
+        
+    return dist;
+}
+
+
+
 
 double site_dist_cpu(double pos1x, double pos1y, double pos1z,
                     double pos2x, double pos2y, double pos2z,
@@ -471,6 +512,201 @@ __global__ void calc_nnz_per_row_gpu_v2(
 
 }
 
+__device__ int sum_warp(int a) {
+    // sums up the elements in a warp
+    // only works for warpsize of 32
+    // only first thread has the correct result
+    a += __shfl_down_sync(0xFFFFFFFF, a, 1);
+    a += __shfl_down_sync(0xFFFFFFFF, a, 2);
+    a += __shfl_down_sync(0xFFFFFFFF, a, 4);
+    a += __shfl_down_sync(0xFFFFFFFF, a, 8);
+    a += __shfl_down_sync(0xFFFFFFFF, a, 16);
+    return a;
+}
+
+
+__global__ void calc_nnz_per_row_gpu_v3(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double *lattice_d, const bool pbc,
+    const double cutoff_radius,
+    int matrix_size,
+    int *nnz_per_row_d
+){
+
+    // assume 1D grid
+    // where every block reduces a row 
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    // shared memory for position
+    // shared memory is used to reduce a row
+    // needs to be blocksize / warpsize
+    extern __shared__ int shrm_warp_reudction[];
+    if (idx / WARPSIZE == 0){
+        shrm_warp_reudction[idx] = 0;
+    }
+    // loop over rows if not enough blocks are available
+    for(int i = blockIdx.x; i < matrix_size; i += gridDim.x){
+    
+        int loc_nnz_row = 0;
+
+        double row_posx = posx_d[i];
+        double row_posy = posy_d[i];
+        double row_posz = posz_d[i];
+        
+    
+        // loop over columns
+        for(int j = threadIdx.x; j < matrix_size; j += blockDim.x){
+            double dist = site_dist_gpu_og(row_posx, row_posy, row_posz,
+                                        posx_d[j], posy_d[j], posz_d[j],
+                                        lattice_d[0], lattice_d[1], lattice_d[2], pbc);
+            if(dist < cutoff_radius){
+                loc_nnz_row++;
+            }
+        }
+
+        // reduce the warp
+        int warp_idx = threadIdx.x / WARPSIZE;
+        int warp_sum = sum_warp(loc_nnz_row);
+        if (threadIdx.x % warpSize == 0)
+            shrm_warp_reudction[warp_idx] = warp_sum;
+        __syncthreads();
+
+
+        // reduce the block
+        int block_sum;
+        if (warp_idx == 0)
+            block_sum = sum_warp(shrm_warp_reudction[threadIdx.x]);
+
+        // write the result
+        // only the first thread has the correct result
+        if (threadIdx.x == 0){
+            nnz_per_row_d[i] = block_sum;
+        }
+
+    }
+
+}
+
+
+__global__ void calc_nnz_per_row_gpu_pbc0(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double cutoff_radius,
+    int matrix_size,
+    int *nnz_per_row_d
+){
+
+    // assume 1D grid
+    // where every block reduces a row 
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    // shared memory for position
+    // shared memory is used to reduce a row
+    // needs to be blocksize / warpsize
+    extern __shared__ int shrm_warp_reudction[];
+    if (idx / WARPSIZE == 0){
+        shrm_warp_reudction[idx] = 0;
+    }
+    // loop over rows if not enough blocks are available
+    for(int i = blockIdx.x; i < matrix_size; i += gridDim.x){
+    
+        int loc_nnz_row = 0;
+
+        double row_posx = posx_d[i];
+        double row_posy = posy_d[i];
+        double row_posz = posz_d[i];
+        
+    
+        // loop over columns
+        for(int j = threadIdx.x; j < matrix_size; j += blockDim.x){
+            double dist = site_dist_gpu_pbc0(row_posx, row_posy, row_posz,
+                                        posx_d[j], posy_d[j], posz_d[j]);
+            if(dist < cutoff_radius){
+                loc_nnz_row++;
+            }
+        }
+
+        // reduce the warp
+        int warp_idx = threadIdx.x / WARPSIZE;
+        int warp_sum = sum_warp(loc_nnz_row);
+        if (threadIdx.x % warpSize == 0)
+            shrm_warp_reudction[warp_idx] = warp_sum;
+        __syncthreads();
+
+
+        // reduce the block
+        int block_sum;
+        if (warp_idx == 0)
+            block_sum = sum_warp(shrm_warp_reudction[threadIdx.x]);
+
+        // write the result
+        // only the first thread has the correct result
+        if (threadIdx.x == 0){
+            nnz_per_row_d[i] = block_sum;
+        }
+
+    }
+
+}
+
+
+__global__ void calc_nnz_per_row_gpu_pbc1(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double *lattice_d,
+    const double cutoff_radius,
+    int matrix_size,
+    int *nnz_per_row_d
+){
+
+    // assume 1D grid
+    // where every block reduces a row 
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    // shared memory for position
+    // shared memory is used to reduce a row
+    // needs to be blocksize / warpsize
+    extern __shared__ int shrm_warp_reudction[];
+    if (idx / WARPSIZE == 0){
+        shrm_warp_reudction[idx] = 0;
+    }
+    // loop over rows if not enough blocks are available
+    for(int i = blockIdx.x; i < matrix_size; i += gridDim.x){
+    
+        int loc_nnz_row = 0;
+
+        double row_posx = posx_d[i];
+        double row_posy = posy_d[i];
+        double row_posz = posz_d[i];
+        
+    
+        // loop over columns
+        for(int j = threadIdx.x; j < matrix_size; j += blockDim.x){
+            double dist = site_dist_gpu_pbc1(row_posx, row_posy, row_posz,
+                                        posx_d[j], posy_d[j], posz_d[j],
+                                        lattice_d[0], lattice_d[1], lattice_d[2]);
+            if(dist < cutoff_radius){
+                loc_nnz_row++;
+            }
+        }
+
+        // reduce the warp
+        int warp_idx = threadIdx.x / WARPSIZE;
+        int warp_sum = sum_warp(loc_nnz_row);
+        if (threadIdx.x % warpSize == 0)
+            shrm_warp_reudction[warp_idx] = warp_sum;
+        __syncthreads();
+
+
+        // reduce the block
+        int block_sum;
+        if (warp_idx == 0)
+            block_sum = sum_warp(shrm_warp_reudction[threadIdx.x]);
+
+        // write the result
+        // only the first thread has the correct result
+        if (threadIdx.x == 0){
+            nnz_per_row_d[i] = block_sum;
+        }
+
+    }
+
+}
 
 
 
@@ -500,6 +736,155 @@ __global__ void calc_nnz_per_row_gpu_off_diagonal_block(
             }
         }
         nnz_per_row_d[row] = nnz_row;
+    }
+
+}
+
+
+__global__ void calc_nnz_per_row_gpu_off_diagonal_block_v2(
+    const double *posxi_d, const double *posyi_d, const double *poszi_d,
+    const double *posxj_d, const double *posyj_d, const double *poszj_d,
+    const double *lattice_d, const bool pbc,
+    const double cutoff_radius,
+    int block_size_i,
+    int block_size_j,
+    int *nnz_per_row_d
+){
+
+    // assume 1D grid, but now a block pre load the positions into shared memory
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    // shared memory for position
+    // shared memory needs 6 block size 
+    extern __shared__ double buffer[];
+
+    double *col_posx = &buffer[0];
+    double *col_posy = &buffer[blockDim.x];
+    double *col_posz = &buffer[2*blockDim.x];
+
+    // load position into shared memory
+
+
+    // now assumed enough threads for the full vector
+    // problem for larger devices TODO
+    for(int i = 0; i < block_size_i; i += blockDim.x * gridDim.x){
+    
+        int nnz_row = 0;
+
+        double row_posx = 0.0;
+        double row_posy = 0.0;
+        double row_posz = 0.0;
+
+        int iidx = i + idx;
+
+        if(
+            iidx < block_size_i
+        ){
+            row_posx = posxi_d[iidx];
+            row_posy = posyi_d[iidx];
+            row_posz = poszi_d[iidx];
+        }
+    
+
+
+        for(int k = 0; k < block_size_j; k += blockDim.x){
+            // synchronize to not overwrite the shared memory
+            // before every thread is finished
+            __syncthreads();
+
+            // stuff is loaded twice if blockIdx.x == k % gridDim.x
+            // TODO optimize
+            // problem we need all threads to load even for the last block row
+            if(k + threadIdx.x < block_size_j){
+                col_posx[threadIdx.x] = posxj_d[k + threadIdx.x];
+                col_posy[threadIdx.x] = posyj_d[k + threadIdx.x];
+                col_posz[threadIdx.x] = poszj_d[k + threadIdx.x];
+            }
+
+            __syncthreads();
+
+            int end = min(block_size_j - k, blockDim.x);
+            // threads with iidx >= matrix_size still do this, but it is not used
+            // better than branching
+            for(int j = 0; j < end; j++){
+                double dist = site_dist_gpu_og(row_posx, row_posy, row_posz,
+                                            col_posx[j], col_posy[j], col_posz[j],
+                                            lattice_d[0], lattice_d[1], lattice_d[2], pbc);
+                if(dist < cutoff_radius){
+                    nnz_row++;
+                }
+            }
+        }
+
+        if(
+            iidx < block_size_i
+        ){
+            nnz_per_row_d[iidx] = nnz_row;
+        }
+    }
+
+}
+
+__global__ void calc_nnz_per_row_gpu_off_diagonal_block_v3(
+    const double *posxi_d, const double *posyi_d, const double *poszi_d,
+    const double *posxj_d, const double *posyj_d, const double *poszj_d,
+    const double *lattice_d, const bool pbc,
+    const double cutoff_radius,
+    int block_size_i,
+    int block_size_j,
+    int *nnz_per_row_d
+){
+
+    // assume 1D grid
+    // where every block reduces a row 
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    // shared memory for position
+    // shared memory is used to reduce a row
+    // needs to be blocksize / warpsize
+    extern __shared__ int shrm_warp_reudction[];
+    if (idx / WARPSIZE == 0){
+        shrm_warp_reudction[idx] = 0;
+    }
+
+    // loop over rows if not enough blocks are available
+    for(int i = blockIdx.x; i < block_size_i; i += gridDim.x){
+    
+        int loc_nnz_row = 0;
+
+        double row_posx = posxi_d[i];
+        double row_posy = posyi_d[i];
+        double row_posz = poszi_d[i];
+        
+    
+        // loop over columns
+        for(int j = threadIdx.x; j < block_size_j; j += blockDim.x){
+            double dist = site_dist_gpu_og(row_posx, row_posy, row_posz,
+                                        posxj_d[j], posyj_d[j], poszj_d[j],
+                                        lattice_d[0], lattice_d[1], lattice_d[2], pbc);
+            if(dist < cutoff_radius){
+                loc_nnz_row++;
+            }
+        }
+
+        // reduce the warp
+        int warp_idx = threadIdx.x / WARPSIZE;
+        int warp_sum = sum_warp(loc_nnz_row);
+        if (threadIdx.x % warpSize == 0)
+            shrm_warp_reudction[warp_idx] = warp_sum;
+        __syncthreads();
+
+
+        // reduce the block
+        int block_sum;
+        if (warp_idx == 0)
+            block_sum = sum_warp(shrm_warp_reudction[threadIdx.x]);
+
+        // write the result
+        // only the first thread has the correct result
+        if (threadIdx.x == 0){
+            nnz_per_row_d[i] = block_sum;
+        }
+
     }
 
 }
@@ -708,6 +1093,151 @@ __global__ void assemble_K_indices_gpu_v2(
     }
 }
 
+__global__ void assemble_K_indices_gpu_pbc0(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double cutoff_radius,
+    int matrix_size,
+    int *nnz_per_row_d,
+    int *row_ptr_d,
+    int *col_indices_d)
+{
+    // row ptr is already calculated
+    // exclusive scam of nnz_per_row
+
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // shared memory for position
+    // shared memory needs 6 block size 
+    extern __shared__ double buffer[];
+
+    double *col_posx = &buffer[0];
+    double *col_posy = &buffer[blockDim.x];
+    double *col_posz = &buffer[2*blockDim.x];
+
+    //TODO can be optimized with a 2D grid instead of 1D
+    // now assumed enough threads for the full vector
+    // problem for larger devices TODO
+    for(int i = 0; i < matrix_size; i += blockDim.x * gridDim.x){
+    
+        int nnz_row = 0;
+
+        double row_posx = 0.0;
+        double row_posy = 0.0;
+        double row_posz = 0.0;
+
+        int iidx = i + idx;
+
+        if(
+            iidx < matrix_size
+        ){
+            row_posx = posx_d[iidx];
+            row_posy = posy_d[iidx];
+            row_posz = posz_d[iidx];
+        }
+
+        for(int k = 0; k < matrix_size; k += blockDim.x){
+            __syncthreads();
+
+            // stuff is loaded twice if blockIdx.x == k % gridDim.x
+            // TODO optimize
+            // problem we need all threads to load even for the last block row
+            if(k + threadIdx.x < matrix_size){
+                col_posx[threadIdx.x] = posx_d[k + threadIdx.x];
+                col_posy[threadIdx.x] = posy_d[k + threadIdx.x];
+                col_posz[threadIdx.x] = posz_d[k + threadIdx.x];
+            }
+
+            __syncthreads();
+
+            int end = min(matrix_size - k, blockDim.x);
+
+            for(int j = 0; j < end; j++){
+                double dist = site_dist_gpu_pbc0(row_posx, row_posy, row_posz,
+                                            col_posx[j], col_posy[j], col_posz[j]);
+                if(iidx < matrix_size && dist < cutoff_radius){
+                    col_indices_d[row_ptr_d[iidx] + nnz_row] = k+j;
+                    nnz_row++;
+                }
+            }
+        }
+
+    }
+}
+
+__global__ void assemble_K_indices_gpu_pbc1(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double *lattice_d,
+    const double cutoff_radius,
+    int matrix_size,
+    int *nnz_per_row_d,
+    int *row_ptr_d,
+    int *col_indices_d)
+{
+    // row ptr is already calculated
+    // exclusive scam of nnz_per_row
+
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // shared memory for position
+    // shared memory needs 6 block size 
+    extern __shared__ double buffer[];
+
+    double *col_posx = &buffer[0];
+    double *col_posy = &buffer[blockDim.x];
+    double *col_posz = &buffer[2*blockDim.x];
+
+    //TODO can be optimized with a 2D grid instead of 1D
+    // now assumed enough threads for the full vector
+    // problem for larger devices TODO
+    for(int i = 0; i < matrix_size; i += blockDim.x * gridDim.x){
+    
+        int nnz_row = 0;
+
+        double row_posx = 0.0;
+        double row_posy = 0.0;
+        double row_posz = 0.0;
+
+        int iidx = i + idx;
+
+        if(
+            iidx < matrix_size
+        ){
+            row_posx = posx_d[iidx];
+            row_posy = posy_d[iidx];
+            row_posz = posz_d[iidx];
+        }
+
+        for(int k = 0; k < matrix_size; k += blockDim.x){
+            __syncthreads();
+
+            // stuff is loaded twice if blockIdx.x == k % gridDim.x
+            // TODO optimize
+            // problem we need all threads to load even for the last block row
+            if(k + threadIdx.x < matrix_size){
+                col_posx[threadIdx.x] = posx_d[k + threadIdx.x];
+                col_posy[threadIdx.x] = posy_d[k + threadIdx.x];
+                col_posz[threadIdx.x] = posz_d[k + threadIdx.x];
+            }
+
+            __syncthreads();
+
+            int end = min(matrix_size - k, blockDim.x);
+
+            for(int j = 0; j < end; j++){
+                double dist = site_dist_gpu_pbc1(row_posx, row_posy, row_posz,
+                                            col_posx[j], col_posy[j], col_posz[j],
+                                            lattice_d[0], lattice_d[1], lattice_d[2]);
+                if(iidx < matrix_size && dist < cutoff_radius){
+                    col_indices_d[row_ptr_d[iidx] + nnz_row] = k+j;
+                    nnz_row++;
+                }
+            }
+        }
+
+    }
+}
+
+
 
 __global__ void assemble_K_indices_gpu_off_diagonal_block(
     const double *posx_d, const double *posy_d, const double *posz_d,
@@ -742,6 +1272,84 @@ __global__ void assemble_K_indices_gpu_off_diagonal_block(
         }
     }
 }
+
+
+
+__global__ void assemble_K_indices_gpu_off_diagonal_block_v2(
+    const double *posxi_d, const double *posyi_d, const double *poszi_d,
+    const double *posxj_d, const double *posyj_d, const double *poszj_d,
+    const double *lattice_d, const bool pbc,
+    const double cutoff_radius,
+    int block_size_i,
+    int block_size_j,
+    int *nnz_per_row_d,
+    int *row_ptr_d,
+    int *col_indices_d)
+{
+    // row ptr is already calculated
+    // exclusive scam of nnz_per_row
+
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    // shared memory for position
+    // shared memory needs 6 block size 
+    extern __shared__ double buffer[];
+
+    double *col_posx = &buffer[0];
+    double *col_posy = &buffer[blockDim.x];
+    double *col_posz = &buffer[2*blockDim.x];
+
+    //TODO can be optimized with a 2D grid instead of 1D
+    // now assumed enough threads for the full vector
+    // problem for larger devices TODO
+    for(int i = 0; i < block_size_i; i += blockDim.x * gridDim.x){
+    
+        int nnz_row = 0;
+
+        double row_posx = 0.0;
+        double row_posy = 0.0;
+        double row_posz = 0.0;
+
+        int iidx = i + idx;
+
+        if(
+            iidx < block_size_i
+        ){
+            row_posx = posxi_d[iidx];
+            row_posy = posyi_d[iidx];
+            row_posz = poszi_d[iidx];
+        }
+
+        for(int k = 0; k < block_size_j; k += blockDim.x){
+            __syncthreads();
+
+            // stuff is loaded twice if blockIdx.x == k % gridDim.x
+            // TODO optimize
+            // problem we need all threads to load even for the last block row
+            if(k + threadIdx.x < block_size_j){
+                col_posx[threadIdx.x] = posxj_d[k + threadIdx.x];
+                col_posy[threadIdx.x] = posyj_d[k + threadIdx.x];
+                col_posz[threadIdx.x] = poszj_d[k + threadIdx.x];
+            }
+
+            __syncthreads();
+
+            int end = min(block_size_j - k, blockDim.x);
+
+            for(int j = 0; j < end; j++){
+                double dist = site_dist_gpu_og(row_posx, row_posy, row_posz,
+                                            col_posx[j], col_posy[j], col_posz[j],
+                                            lattice_d[0], lattice_d[1], lattice_d[2], pbc);
+                if(iidx < block_size_i && dist < cutoff_radius){
+                    col_indices_d[row_ptr_d[iidx] + nnz_row] = k+j;
+                    nnz_row++;
+                }
+            }
+        }
+
+    }
+}
+
 
 
 void calc_off_diagonal_K_cpu(
@@ -927,10 +1535,11 @@ void assemble_K_gpu(
     double *data_d
 )
 {
-    int threads = 256;
-    int blocks = (matrix_size + threads - 1) / threads;
+    int threads = NUM_THREADS;
+    // max blocks blocks per SM times number of SM
+    int blocks_max = min(MAX_BLOCKS, (matrix_size + threads - 1) / threads);
 
-    calc_off_diagonal_K_gpu<<<blocks, threads>>>(
+    calc_off_diagonal_K_gpu<<<blocks_max, threads>>>(
         metals_d, element_d, site_charge_d,
         num_metals,
         d_high_G, d_low_G,
@@ -939,7 +1548,7 @@ void assemble_K_gpu(
         row_ptr_d,
         data_d);
 
-    calc_diagonal_K_gpu<<<blocks, threads>>>(col_indices_d, row_ptr_d, data_d, matrix_size);
+    calc_diagonal_K_gpu<<<blocks_max, threads>>>(col_indices_d, row_ptr_d, data_d, matrix_size);
 }
 
 
@@ -991,8 +1600,9 @@ void indices_creation_gpu(
 )
 {
     // parallelize over rows
-    int threads = 256;
-    int blocks = (matrix_size + threads - 1) / threads;
+    int threads = NUM_THREADS;
+    // max blocks blocks per SM times number of SM
+    int blocks_max = min(MAX_BLOCKS, (matrix_size + threads - 1) / threads);
 
     int *nnz_per_row_d;
     gpuErrchk( cudaMalloc((void **)row_ptr_d, (matrix_size + 1) * sizeof(int)) );
@@ -1000,7 +1610,7 @@ void indices_creation_gpu(
     gpuErrchk(cudaMemset((*row_ptr_d), 0, (matrix_size + 1) * sizeof(int)) );
 
     // calculate the nnz per row
-    calc_nnz_per_row_gpu<<<blocks, threads>>>(posx_d, posy_d, posz_d, lattice_d, pbc, cutoff_radius, matrix_size, nnz_per_row_d);
+    calc_nnz_per_row_gpu<<<blocks_max, threads>>>(posx_d, posy_d, posz_d, lattice_d, pbc, cutoff_radius, matrix_size, nnz_per_row_d);
 
     void     *temp_storage_d = NULL;
     size_t   temp_storage_bytes = 0;
@@ -1018,7 +1628,7 @@ void indices_creation_gpu(
     gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
 
     // assemble the indices of K
-    assemble_K_indices_gpu<<<blocks, threads>>>(
+    assemble_K_indices_gpu<<<blocks_max, threads>>>(
         posx_d, posy_d, posz_d,
         lattice_d, pbc,
         cutoff_radius,
@@ -1044,8 +1654,10 @@ void indices_creation_gpu_v2(
 )
 {
     // parallelize over rows
-    int threads = 256;
-    int blocks = (matrix_size + threads - 1) / threads;
+    int threads = NUM_THREADS;
+    // reduce number of blocks to reduce register usage
+    // four blocks per SM
+    int blocks_max_shm = min(MAX_BLOCKS_SHM, (matrix_size + threads - 1) / threads);
 
     int *nnz_per_row_d;
     gpuErrchk( cudaMalloc((void **)row_ptr_d, (matrix_size + 1) * sizeof(int)) );
@@ -1054,7 +1666,7 @@ void indices_creation_gpu_v2(
 
     // calculate the nnz per row
 
-    calc_nnz_per_row_gpu_v2<<<blocks, threads, 3*sizeof(double)*threads>>>(posx_d, posy_d, posz_d, lattice_d,
+    calc_nnz_per_row_gpu_v2<<<blocks_max_shm, threads, 3*sizeof(double)*threads>>>(posx_d, posy_d, posz_d, lattice_d,
                                                 pbc, cutoff_radius, matrix_size, nnz_per_row_d);
 
 
@@ -1074,7 +1686,73 @@ void indices_creation_gpu_v2(
     gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
 
     // assemble the indices of K
-    assemble_K_indices_gpu_v2<<<blocks, threads, 3*sizeof(double)*threads>>>(
+    assemble_K_indices_gpu_v2<<<blocks_max_shm, threads, 3*sizeof(double)*threads>>>(
+        posx_d, posy_d, posz_d,
+        lattice_d, pbc,
+        cutoff_radius,
+        matrix_size,
+        nnz_per_row_d,
+        (*row_ptr_d),
+        (*col_indices_d)
+    );
+
+    cudaFree(temp_storage_d);
+    cudaFree(nnz_per_row_d);
+}
+
+void indices_creation_gpu_v3(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double *lattice_d, const bool pbc,
+    const double cutoff_radius,
+    const int matrix_size,
+    int **col_indices_d,
+    int **row_ptr_d,
+    int *nnz
+)
+{
+
+
+    // parallelize over rows
+    int threads = NUM_THREADS;
+    int blocks_max_shm = min(MAX_BLOCKS_SHM, (matrix_size + threads - 1) / threads);
+    // need to be this large since 32*32
+    // meaning first a warp of 32 reduces to 32 values
+    // which are reduced by the first warp
+    int threads_block_reduce = 1024;
+    int blocks_block_reduce = min(MAX_BLOCKS, matrix_size);
+
+    int *nnz_per_row_d;
+    gpuErrchk( cudaMalloc((void **)row_ptr_d, (matrix_size + 1) * sizeof(int)) );
+    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
+    gpuErrchk(cudaMemset((*row_ptr_d), 0, (matrix_size + 1) * sizeof(int)) );
+
+    // calculate the nnz per row
+    calc_nnz_per_row_gpu_v3<<<blocks_block_reduce, threads_block_reduce, sizeof(int)*WARPSIZE>>>(
+                                                posx_d, posy_d, posz_d,
+                                                lattice_d,
+                                                pbc, cutoff_radius, matrix_size, nnz_per_row_d);
+
+
+
+
+
+    void     *temp_storage_d = NULL;
+    size_t   temp_storage_bytes = 0;
+    // determines temporary device storage requirements for inclusive prefix sum
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+    // Allocate temporary storage for inclusive prefix sum
+    gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
+    // Run inclusive prefix sum
+    // inclusive sum starting at second value to get the row ptr
+    // which is the same as inclusive sum starting at first value and last value filled with nnz
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+    
+    // nnz is the same as (*row_ptr_d)[matrix_size]
+    gpuErrchk( cudaMemcpy(nnz, (*row_ptr_d) + matrix_size, sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
+
+    // assemble the indices of K
+    assemble_K_indices_gpu_v2<<<blocks_max_shm, threads, 3*sizeof(double)*threads>>>(
         posx_d, posy_d, posz_d,
         lattice_d, pbc,
         cutoff_radius,
@@ -1090,6 +1768,133 @@ void indices_creation_gpu_v2(
 
 
 
+void indices_creation_gpu_pbc0(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double cutoff_radius,
+    const int matrix_size,
+    int **col_indices_d,
+    int **row_ptr_d,
+    int *nnz
+)
+{
+
+
+    // parallelize over rows
+    int threads = NUM_THREADS;
+    int blocks_max_shm = min(MAX_BLOCKS_SHM, (matrix_size + threads - 1) / threads);
+    // need to be this large since 32*32
+    // meaning first a warp of 32 reduces to 32 values
+    // which are reduced by the first warp
+    int threads_block_reduce = 1024;
+    int blocks_block_reduce = min(MAX_BLOCKS, matrix_size);
+
+    int *nnz_per_row_d;
+    gpuErrchk( cudaMalloc((void **)row_ptr_d, (matrix_size + 1) * sizeof(int)) );
+    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
+    gpuErrchk(cudaMemset((*row_ptr_d), 0, (matrix_size + 1) * sizeof(int)) );
+
+    // calculate the nnz per row
+    calc_nnz_per_row_gpu_pbc0<<<blocks_block_reduce, threads_block_reduce, sizeof(int)*WARPSIZE>>>(
+                                                posx_d, posy_d, posz_d,
+                                                cutoff_radius, matrix_size, nnz_per_row_d);
+
+
+
+
+
+    void     *temp_storage_d = NULL;
+    size_t   temp_storage_bytes = 0;
+    // determines temporary device storage requirements for inclusive prefix sum
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+    // Allocate temporary storage for inclusive prefix sum
+    gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
+    // Run inclusive prefix sum
+    // inclusive sum starting at second value to get the row ptr
+    // which is the same as inclusive sum starting at first value and last value filled with nnz
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+    
+    // nnz is the same as (*row_ptr_d)[matrix_size]
+    gpuErrchk( cudaMemcpy(nnz, (*row_ptr_d) + matrix_size, sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
+
+    // assemble the indices of K
+    assemble_K_indices_gpu_pbc0<<<blocks_max_shm, threads, 3*sizeof(double)*threads>>>(
+        posx_d, posy_d, posz_d,
+        cutoff_radius,
+        matrix_size,
+        nnz_per_row_d,
+        (*row_ptr_d),
+        (*col_indices_d)
+    );
+
+    cudaFree(temp_storage_d);
+    cudaFree(nnz_per_row_d);
+}
+
+void indices_creation_gpu_pbc1(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double *lattice_d,
+    const double cutoff_radius,
+    const int matrix_size,
+    int **col_indices_d,
+    int **row_ptr_d,
+    int *nnz
+)
+{
+
+    // parallelize over rows
+    int threads = NUM_THREADS;
+    int blocks_max_shm = min(MAX_BLOCKS_SHM, (matrix_size + threads - 1) / threads);
+    // need to be this large since 32*32
+    // meaning first a warp of 32 reduces to 32 values
+    // which are reduced by the first warp
+    int threads_block_reduce = 1024;
+    int blocks_block_reduce = min(MAX_BLOCKS, matrix_size);
+
+    int *nnz_per_row_d;
+    gpuErrchk( cudaMalloc((void **)row_ptr_d, (matrix_size + 1) * sizeof(int)) );
+    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
+    gpuErrchk(cudaMemset((*row_ptr_d), 0, (matrix_size + 1) * sizeof(int)) );
+
+    // calculate the nnz per row
+    calc_nnz_per_row_gpu_pbc1<<<blocks_block_reduce, threads_block_reduce, sizeof(int)*WARPSIZE>>>(
+                                                posx_d, posy_d, posz_d,
+                                                lattice_d,
+                                                cutoff_radius, matrix_size, nnz_per_row_d);
+
+
+
+
+
+    void     *temp_storage_d = NULL;
+    size_t   temp_storage_bytes = 0;
+    // determines temporary device storage requirements for inclusive prefix sum
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+    // Allocate temporary storage for inclusive prefix sum
+    gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
+    // Run inclusive prefix sum
+    // inclusive sum starting at second value to get the row ptr
+    // which is the same as inclusive sum starting at first value and last value filled with nnz
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+    
+    // nnz is the same as (*row_ptr_d)[matrix_size]
+    gpuErrchk( cudaMemcpy(nnz, (*row_ptr_d) + matrix_size, sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
+
+    // assemble the indices of K
+    assemble_K_indices_gpu_pbc1<<<blocks_max_shm, threads, 3*sizeof(double)*threads>>>(
+        posx_d, posy_d, posz_d,
+        lattice_d,
+        cutoff_radius,
+        matrix_size,
+        nnz_per_row_d,
+        (*row_ptr_d),
+        (*col_indices_d)
+    );
+
+    cudaFree(temp_storage_d);
+    cudaFree(nnz_per_row_d);
+}
 
 
 void indices_creation_gpu_off_diagonal_block(
@@ -1106,8 +1911,8 @@ void indices_creation_gpu_off_diagonal_block(
 )
 {
     // parallelize over rows
-    int threads = 256;
-    int blocks = (block_size_i + threads - 1) / threads;
+    int threads = NUM_THREADS;
+    int blocks_max = min(MAX_BLOCKS, (block_size_i + threads - 1) / threads);
 
     int *nnz_per_row_d;
     gpuErrchk( cudaMalloc((void **)row_ptr_d, (block_size_i + 1) * sizeof(int)) );
@@ -1115,7 +1920,7 @@ void indices_creation_gpu_off_diagonal_block(
     gpuErrchk(cudaMemset((*row_ptr_d), 0, (block_size_i + 1) * sizeof(int)) );
 
     // calculate the nnz per row
-    calc_nnz_per_row_gpu_off_diagonal_block<<<blocks, threads>>>(posx_d, posy_d, posz_d, lattice_d, pbc, cutoff_radius,
+    calc_nnz_per_row_gpu_off_diagonal_block<<<blocks_max, threads>>>(posx_d, posy_d, posz_d, lattice_d, pbc, cutoff_radius,
         block_size_i, block_size_j, block_start_i, block_start_j, nnz_per_row_d);
 
     void     *temp_storage_d = NULL;
@@ -1134,7 +1939,7 @@ void indices_creation_gpu_off_diagonal_block(
     gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
 
     // assemble the indices of K
-    assemble_K_indices_gpu_off_diagonal_block<<<blocks, threads>>>(
+    assemble_K_indices_gpu_off_diagonal_block<<<blocks_max, threads>>>(
         posx_d, posy_d, posz_d,
         lattice_d, pbc,
         cutoff_radius,
@@ -1150,6 +1955,157 @@ void indices_creation_gpu_off_diagonal_block(
     cudaFree(temp_storage_d);
     cudaFree(nnz_per_row_d);
 }
+
+
+
+void indices_creation_gpu_off_diagonal_block_v2(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double *lattice_d, const bool pbc,
+    const double cutoff_radius,
+    int block_size_i,
+    int block_size_j,
+    int block_start_i,
+    int block_start_j,
+    int **col_indices_d,
+    int **row_ptr_d,
+    int *nnz
+)
+{
+    // parallelize over rows
+    int threads = NUM_THREADS;
+    int blocks_max_shm = min(MAX_BLOCKS_SHM, (block_size_i + threads - 1) / threads);
+
+    int *nnz_per_row_d;
+    gpuErrchk( cudaMalloc((void **)row_ptr_d, (block_size_i + 1) * sizeof(int)) );
+    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, block_size_i * sizeof(int)) );
+    gpuErrchk(cudaMemset((*row_ptr_d), 0, (block_size_i + 1) * sizeof(int)) );
+
+    // calculate the nnz per row
+    calc_nnz_per_row_gpu_off_diagonal_block_v2<<<blocks_max_shm, threads, 3*threads*sizeof(double)>>>(
+        posx_d + block_start_i,
+        posy_d + block_start_i,
+        posz_d + block_start_i,
+        posx_d + block_start_j,
+        posy_d + block_start_j,
+        posz_d + block_start_j,
+        lattice_d, pbc, cutoff_radius,
+        block_size_i, block_size_j,
+        nnz_per_row_d);
+
+    void     *temp_storage_d = NULL;
+    size_t   temp_storage_bytes = 0;
+    // determines temporary device storage requirements for inclusive prefix sum
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, block_size_i);
+    // Allocate temporary storage for inclusive prefix sum
+    gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
+    // Run inclusive prefix sum
+    // inclusive sum starting at second value to get the row ptr
+    // which is the same as inclusive sum starting at first value and last value filled with nnz
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, block_size_i);
+    
+    // nnz is the same as (*row_ptr_d)[block_size_i]
+    gpuErrchk( cudaMemcpy(nnz, (*row_ptr_d) + block_size_i, sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
+
+
+    assemble_K_indices_gpu_off_diagonal_block_v2<<<blocks_max_shm, threads, 3*threads*sizeof(double)>>>(
+        posx_d + block_start_i,
+        posy_d + block_start_i,
+        posz_d + block_start_i,
+        posx_d + block_start_j,
+        posy_d + block_start_j,
+        posz_d + block_start_j,
+        lattice_d, pbc,
+        cutoff_radius,
+        block_size_i,
+        block_size_j,
+        nnz_per_row_d,
+        (*row_ptr_d),
+        (*col_indices_d)
+    );
+
+
+    cudaFree(temp_storage_d);
+    cudaFree(nnz_per_row_d);
+}
+
+void indices_creation_gpu_off_diagonal_block_v3(
+    const double *posx_d, const double *posy_d, const double *posz_d,
+    const double *lattice_d, const bool pbc,
+    const double cutoff_radius,
+    int block_size_i,
+    int block_size_j,
+    int block_start_i,
+    int block_start_j,
+    int **col_indices_d,
+    int **row_ptr_d,
+    int *nnz
+)
+{
+    // parallelize over rows
+    int threads = NUM_THREADS;
+    // need to be this large since 32*32
+    // meaning first a warp of 32 reduces to 32 values
+    // which are reduced by the first warp
+    int threads_block_reduce = 1024;
+    int blocks_max_shm = min(MAX_BLOCKS_SHM, (block_size_i + threads - 1) / threads);
+    int blocks_block_reduce = min(MAX_BLOCKS, block_size_i);
+
+
+    int *nnz_per_row_d;
+    gpuErrchk( cudaMalloc((void **)row_ptr_d, (block_size_i + 1) * sizeof(int)) );
+    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, block_size_i * sizeof(int)) );
+    gpuErrchk(cudaMemset((*row_ptr_d), 0, (block_size_i + 1) * sizeof(int)) );
+
+    // calculate the nnz per row
+    calc_nnz_per_row_gpu_off_diagonal_block_v3<<<blocks_block_reduce, threads_block_reduce, WARPSIZE*sizeof(int)>>>(
+        posx_d + block_start_i,
+        posy_d + block_start_i,
+        posz_d + block_start_i,
+        posx_d + block_start_j,
+        posy_d + block_start_j,
+        posz_d + block_start_j,
+        lattice_d, pbc, cutoff_radius,
+        block_size_i, block_size_j,
+        nnz_per_row_d);
+
+    void     *temp_storage_d = NULL;
+    size_t   temp_storage_bytes = 0;
+    // determines temporary device storage requirements for inclusive prefix sum
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, block_size_i);
+    // Allocate temporary storage for inclusive prefix sum
+    gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
+    // Run inclusive prefix sum
+    // inclusive sum starting at second value to get the row ptr
+    // which is the same as inclusive sum starting at first value and last value filled with nnz
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, block_size_i);
+    
+    // nnz is the same as (*row_ptr_d)[block_size_i]
+    gpuErrchk( cudaMemcpy(nnz, (*row_ptr_d) + block_size_i, sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
+
+
+    assemble_K_indices_gpu_off_diagonal_block_v2<<<blocks_max_shm, threads, 3*threads*sizeof(double)>>>(
+        posx_d + block_start_i,
+        posy_d + block_start_i,
+        posz_d + block_start_i,
+        posx_d + block_start_j,
+        posy_d + block_start_j,
+        posz_d + block_start_j,
+        lattice_d, pbc,
+        cutoff_radius,
+        block_size_i,
+        block_size_j,
+        nnz_per_row_d,
+        (*row_ptr_d),
+        (*col_indices_d)
+    );
+
+
+    cudaFree(temp_storage_d);
+    cudaFree(nnz_per_row_d);
+}
+
 
 __global__ void row_reduce_K_off_diagonal_block(
     const double *posx_d, const double *posy_d, const double *posz_d,
@@ -1223,8 +2179,13 @@ __global__ void row_reduce_K_off_diagonal_block_with_precomputing(
 
     for(int row = idx; row < block_size_i; row += blockDim.x * gridDim.x){
         double tmp = 0.0;
+        int i = block_start_i + row;
+        double row_posx = posx_d[i];
+        double row_posy = posy_d[i];
+        double row_posz = posz_d[i];
+
         for(int col = row_ptr_d[row]; col < row_ptr_d[row+1]; col++){
-            int i = block_start_i + row;
+            
             int j = block_start_j + col_indices_d[col];
 
             bool metal1 = is_in_array_gpu_og(metals_d, element_d[i], num_metals);
@@ -1235,7 +2196,8 @@ __global__ void row_reduce_K_off_diagonal_block_with_precomputing(
             bool isVacancy2 = element_d[j] == VACANCY;
             bool cvacancy1 = isVacancy1 && !ischarged1;
             bool cvacancy2 = isVacancy2 && !ischarged2;
-            double dist = site_dist_gpu_og(posx_d[i], posy_d[i], posz_d[i], posx_d[j], posy_d[j], posz_d[j], lattice_d[0], lattice_d[1], lattice_d[2], pbc);
+            double dist = site_dist_gpu_og(row_posx, row_posy, row_posz,
+                    posx_d[j], posy_d[j], posz_d[j], lattice_d[0], lattice_d[1], lattice_d[2], pbc);
 
             if (dist < cutoff_radius)
             {
@@ -1348,15 +2310,21 @@ void test_assemble_A_with_only_precomputing_indices(
     gpuErrchk(cudaMalloc((void **)K_right_reduced, system_size * sizeof(double)));
 
 
-    int number_of_measurements = 1;
+    int number_of_measurements = 110;
 
     // parallelize over rows
-    int threads = 256;
-    int blocks = (system_size + threads - 1) / threads;
+    int threads = NUM_THREADS;
+    // number of blocks per SM times number of SMs
+    int blocks_max = min(MAX_BLOCKS, (K_size - contact_left_size - contact_right_size + threads - 1) / threads);
 
     double *times_device_indices = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_device_indices_v2 = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_device_indices_v3 = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_device_indices_v4 = (double *)malloc(number_of_measurements * sizeof(double));
     double *times_off_diagonal = (double *)malloc(number_of_measurements * sizeof(double));
     double *times_contact_indices = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_contact_indices_v2 = (double *)malloc(number_of_measurements * sizeof(double));
+    double *times_contact_indices_v3 = (double *)malloc(number_of_measurements * sizeof(double));
     double *times_reduction = (double *)malloc(number_of_measurements * sizeof(double));
     double *times_add_to_diagonal = (double *)malloc(number_of_measurements * sizeof(double));
 
@@ -1369,7 +2337,7 @@ void test_assemble_A_with_only_precomputing_indices(
     for(int i = 0; i < number_of_measurements; i++){
         time_device_indices = -omp_get_wtime();
         gpuErrchk(cudaDeviceSynchronize());
-        indices_creation_gpu_v2(
+        indices_creation_gpu(
             posx + contact_left_size,
             posy + contact_left_size,
             posz + contact_left_size,
@@ -1389,8 +2357,98 @@ void test_assemble_A_with_only_precomputing_indices(
             gpuErrchk(cudaFree(*A_row_ptr));
         }
     }
+    double time_device_indices_v2;
 
+    for(int i = 0; i < number_of_measurements; i++){
+        time_device_indices_v2 = -omp_get_wtime();
+        gpuErrchk(cudaDeviceSynchronize());
+        indices_creation_gpu_v2(
+            posx + contact_left_size,
+            posy + contact_left_size,
+            posz + contact_left_size,
+            lattice, pbc,
+            cutoff_radius,
+            system_size,
+            A_col_indices,
+            A_row_ptr,
+            A_nnz
+        );
+        gpuErrchk(cudaDeviceSynchronize());
+        time_device_indices_v2 += omp_get_wtime();   
+        times_device_indices_v2[i] = time_device_indices_v2;
+        std::cout << "time_device_indices_v2 " << time_device_indices_v2 << std::endl;
+        if(i < number_of_measurements-1){
+            gpuErrchk(cudaFree(*A_col_indices));
+            gpuErrchk(cudaFree(*A_row_ptr));
+        }
+    }
 
+    double time_device_indices_v3;
+
+    for(int i = 0; i < number_of_measurements; i++){
+        time_device_indices_v3 = -omp_get_wtime();
+        gpuErrchk(cudaDeviceSynchronize());
+        indices_creation_gpu_v3(
+            posx + contact_left_size,
+            posy + contact_left_size,
+            posz + contact_left_size,
+            lattice, pbc,
+            cutoff_radius,
+            system_size,
+            A_col_indices,
+            A_row_ptr,
+            A_nnz
+        );
+        gpuErrchk(cudaDeviceSynchronize());
+        time_device_indices_v3 += omp_get_wtime();   
+        times_device_indices_v3[i] = time_device_indices_v3;
+        std::cout << "time_device_indices_v3 " << time_device_indices_v3 << std::endl;
+        if(i < number_of_measurements-1){
+            gpuErrchk(cudaFree(*A_col_indices));
+            gpuErrchk(cudaFree(*A_row_ptr));
+        }
+    }
+
+    double time_device_indices_v4;
+
+    for(int i = 0; i < number_of_measurements; i++){
+        time_device_indices_v4 = -omp_get_wtime();
+        gpuErrchk(cudaDeviceSynchronize());
+        if(pbc == 0){
+            indices_creation_gpu_pbc0(
+                posx + contact_left_size,
+                posy + contact_left_size,
+                posz + contact_left_size,
+                cutoff_radius,
+                system_size,
+                A_col_indices,
+                A_row_ptr,
+                A_nnz
+            );   
+        }
+        else{
+            indices_creation_gpu_pbc1(
+                posx + contact_left_size,
+                posy + contact_left_size,
+                posz + contact_left_size,
+                lattice,
+                cutoff_radius,
+                system_size,
+                A_col_indices,
+                A_row_ptr,
+                A_nnz
+            );            
+        }
+
+        gpuErrchk(cudaDeviceSynchronize());
+        time_device_indices_v4 += omp_get_wtime();   
+        times_device_indices_v4[i] = time_device_indices_v4;
+        std::cout << "time_device_indices_v4 " << time_device_indices_v4 << std::endl;
+        if(i < number_of_measurements-1){
+            gpuErrchk(cudaFree(*A_col_indices));
+            gpuErrchk(cudaFree(*A_row_ptr));
+        }
+    }
     // dealocate in measurement loop to not create memory leaks
 
 
@@ -1404,7 +2462,7 @@ void test_assemble_A_with_only_precomputing_indices(
 
         time_off_diagonal= -omp_get_wtime();
         gpuErrchk(cudaDeviceSynchronize());
-        calc_off_diagonal_K_gpu<<<blocks, threads>>>(
+        calc_off_diagonal_K_gpu<<<blocks_max, threads>>>(
             metals_d,
             element_d + contact_left_size,
             site_charge_d + contact_left_size,
@@ -1474,6 +2532,92 @@ void test_assemble_A_with_only_precomputing_indices(
 
     }
 
+    double time_contact_indices_v2;
+    for(int i = 0; i < number_of_measurements; i++){
+        time_contact_indices_v2 = -omp_get_wtime();
+        gpuErrchk(cudaDeviceSynchronize());
+        indices_creation_gpu_off_diagonal_block_v2(
+            posx, posy, posz,
+            lattice, pbc,
+            cutoff_radius,
+            system_size,
+            contact_left_size,
+            contact_left_size,
+            0,
+            &contact_left_col_indices,
+            &contact_left_row_ptr,
+            &contact_left_nnz
+        );
+
+        indices_creation_gpu_off_diagonal_block_v2(
+            posx, posy, posz,
+            lattice, pbc,
+            cutoff_radius,
+            system_size,
+            contact_right_size,
+            contact_left_size,
+            contact_left_size + system_size,
+            &contact_right_col_indices,
+            &contact_right_row_ptr,
+            &contact_right_nnz
+        );
+        gpuErrchk(cudaDeviceSynchronize());
+        time_contact_indices_v2 += omp_get_wtime();
+        std::cout << "time_contact_indices_v2 " << time_contact_indices_v2 << std::endl;
+        times_contact_indices_v2[i] = time_contact_indices_v2;
+        // dealocate contact indices to not create memory leaks in the measurement
+        if(i < number_of_measurements-1){
+            gpuErrchk(cudaFree(contact_left_col_indices));
+            gpuErrchk(cudaFree(contact_left_row_ptr));
+            gpuErrchk(cudaFree(contact_right_col_indices));
+            gpuErrchk(cudaFree(contact_right_row_ptr));
+        }
+
+    }
+
+    double time_contact_indices_v3;
+    for(int i = 0; i < number_of_measurements; i++){
+        time_contact_indices_v3 = -omp_get_wtime();
+        gpuErrchk(cudaDeviceSynchronize());
+        indices_creation_gpu_off_diagonal_block_v3(
+            posx, posy, posz,
+            lattice, pbc,
+            cutoff_radius,
+            system_size,
+            contact_left_size,
+            contact_left_size,
+            0,
+            &contact_left_col_indices,
+            &contact_left_row_ptr,
+            &contact_left_nnz
+        );
+
+        indices_creation_gpu_off_diagonal_block_v3(
+            posx, posy, posz,
+            lattice, pbc,
+            cutoff_radius,
+            system_size,
+            contact_right_size,
+            contact_left_size,
+            contact_left_size + system_size,
+            &contact_right_col_indices,
+            &contact_right_row_ptr,
+            &contact_right_nnz
+        );
+        gpuErrchk(cudaDeviceSynchronize());
+        time_contact_indices_v3 += omp_get_wtime();
+        std::cout << "time_contact_indices_v3 " << time_contact_indices_v3 << std::endl;
+        times_contact_indices_v3[i] = time_contact_indices_v3;
+        // dealocate contact indices to not create memory leaks in the measurement
+        if(i < number_of_measurements-1){
+            gpuErrchk(cudaFree(contact_left_col_indices));
+            gpuErrchk(cudaFree(contact_left_row_ptr));
+            gpuErrchk(cudaFree(contact_right_col_indices));
+            gpuErrchk(cudaFree(contact_right_row_ptr));
+        }
+
+    }
+
     double *A_reduced;
     gpuErrchk(cudaMalloc((void **)&A_reduced, system_size * sizeof(double)));
     double time_reduce;
@@ -1489,7 +2633,7 @@ void test_assemble_A_with_only_precomputing_indices(
         gpuErrchk(cudaDeviceSynchronize());
 
         // reduce the diagonal
-        reduce_K_gpu<<<blocks, threads>>>(
+        reduce_K_gpu<<<blocks_max, threads>>>(
             *A_col_indices,
             *A_row_ptr,
             *A_data,
@@ -1497,7 +2641,7 @@ void test_assemble_A_with_only_precomputing_indices(
             A_reduced
         );
 
-        row_reduce_K_off_diagonal_block_with_precomputing<<<blocks, threads>>>(
+        row_reduce_K_off_diagonal_block_with_precomputing<<<blocks_max, threads>>>(
             posx, posy, posz,
             lattice, pbc,
             cutoff_radius,
@@ -1516,7 +2660,7 @@ void test_assemble_A_with_only_precomputing_indices(
         // reduce the right part of K
         // block starts at i = contact_left_size (first downshifted row)
         // block starts at j = contact_left_size + system_size (first column)
-        row_reduce_K_off_diagonal_block_with_precomputing<<<blocks, threads>>>(
+        row_reduce_K_off_diagonal_block_with_precomputing<<<blocks_max, threads>>>(
             posx, posy, posz,
             lattice, pbc,
             cutoff_radius,
@@ -1547,7 +2691,7 @@ void test_assemble_A_with_only_precomputing_indices(
         gpuErrchk(cudaMemset(A_diag, 0, system_size * sizeof(double))); 
         
 
-        set_diagonal_to_zero_gpu<<<blocks, threads>>>(
+        set_diagonal_to_zero_gpu<<<blocks_max, threads>>>(
             *A_data,
             *A_row_ptr,
             *A_col_indices,
@@ -1557,14 +2701,14 @@ void test_assemble_A_with_only_precomputing_indices(
 
         time_add_to_diagonal = -omp_get_wtime();
         gpuErrchk(cudaDeviceSynchronize());
-        reduced_three_vectors<<<blocks, threads>>>(
+        reduced_three_vectors<<<blocks_max, threads>>>(
             A_reduced,
             *K_left_reduced,
             *K_right_reduced,
             A_diag,
             system_size
         );
-        add_vector_to_diagonal<<<blocks, threads>>>(
+        add_vector_to_diagonal<<<blocks_max, threads>>>(
             *A_data,
             *A_row_ptr,
             *A_col_indices,
@@ -1576,41 +2720,31 @@ void test_assemble_A_with_only_precomputing_indices(
         std::cout << "time_add_to_diagonal " << time_add_to_diagonal << std::endl;
         times_add_to_diagonal[i] = time_add_to_diagonal;
     }
-    // //save times
-    // if(system_size < 14000){
-    //     std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_7k/system_K/results";
-    //     writeArrayToBinFile<double>(times_device_indices, number_of_measurements, base_path + "/times_device_indices.bin");
-    //     writeArrayToBinFile<double>(times_off_diagonal, number_of_measurements, base_path + "/times_off_diagonal.bin");
-    //     writeArrayToBinFile<double>(times_contact_indices, number_of_measurements, base_path + "/times_contact_indices.bin");
-    //     writeArrayToBinFile<double>(times_reduction, number_of_measurements, base_path + "/times_reduction.bin");
-    //     writeArrayToBinFile<double>(times_add_to_diagonal, number_of_measurements, base_path + "/times_add_to_diagonal.bin");
+    //save times
+    std::string base_path;
+    if(system_size < 14000){
+        base_path = "/usr/scratch/mont-fort17/almaeder/kmc_7k/system_K/results";
+    }
+    else if(system_size > 14000 && system_size < 40000){
+        base_path = "/usr/scratch/mont-fort17/almaeder/kmc_28k/system_K/results";
+    }
+    else if(system_size > 40000 && system_size < 100000){
+        base_path = "/usr/scratch/mont-fort17/almaeder/kmc_80k/system_K/results";
+    }
+    else{
+        base_path = "/usr/scratch/mont-fort17/almaeder/kmc_144k/system_K/results";
+    }
 
-    // }
-    // else if(system_size > 14000 && system_size < 40000){
-    //     std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_28k/system_K/results";
-    //     writeArrayToBinFile<double>(times_device_indices, number_of_measurements, base_path + "/times_device_indices.bin");
-    //     writeArrayToBinFile<double>(times_off_diagonal, number_of_measurements, base_path + "/times_off_diagonal.bin");
-    //     writeArrayToBinFile<double>(times_contact_indices, number_of_measurements, base_path + "/times_contact_indices.bin");
-    //     writeArrayToBinFile<double>(times_reduction, number_of_measurements, base_path + "/times_reduction.bin");
-    //     writeArrayToBinFile<double>(times_add_to_diagonal, number_of_measurements, base_path + "/times_add_to_diagonal.bin");
-    // }
-    // else if(system_size > 40000 && system_size < 100000){
-    //     std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_80k/system_K/results";
-    //     writeArrayToBinFile<double>(times_device_indices, number_of_measurements, base_path + "/times_device_indices.bin");
-    //     writeArrayToBinFile<double>(times_off_diagonal, number_of_measurements, base_path + "/times_off_diagonal.bin");
-    //     writeArrayToBinFile<double>(times_contact_indices, number_of_measurements, base_path + "/times_contact_indices.bin");
-    //     writeArrayToBinFile<double>(times_reduction, number_of_measurements, base_path + "/times_reduction.bin");
-    //     writeArrayToBinFile<double>(times_add_to_diagonal, number_of_measurements, base_path + "/times_add_to_diagonal.bin");
-    // }
-    // else{
-    //     std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_144k/system_K/results";
-    //     writeArrayToBinFile<double>(times_device_indices, number_of_measurements, base_path + "/times_device_indices.bin");
-    //     writeArrayToBinFile<double>(times_off_diagonal, number_of_measurements, base_path + "/times_off_diagonal.bin");
-    //     writeArrayToBinFile<double>(times_contact_indices, number_of_measurements, base_path + "/times_contact_indices.bin");
-    //     writeArrayToBinFile<double>(times_reduction, number_of_measurements, base_path + "/times_reduction.bin");
-    //     writeArrayToBinFile<double>(times_add_to_diagonal, number_of_measurements, base_path + "/times_add_to_diagonal.bin");
-    // }
-
+    writeArrayToBinFile<double>(times_device_indices, number_of_measurements, base_path + "/times_device_indices.bin");
+    writeArrayToBinFile<double>(times_off_diagonal, number_of_measurements, base_path + "/times_off_diagonal.bin");
+    writeArrayToBinFile<double>(times_contact_indices, number_of_measurements, base_path + "/times_contact_indices.bin");
+    writeArrayToBinFile<double>(times_reduction, number_of_measurements, base_path + "/times_reduction.bin");
+    writeArrayToBinFile<double>(times_add_to_diagonal, number_of_measurements, base_path + "/times_add_to_diagonal.bin");
+    writeArrayToBinFile<double>(times_device_indices_v2, number_of_measurements, base_path + "/times_device_indices_v2.bin");
+    writeArrayToBinFile<double>(times_contact_indices_v2, number_of_measurements, base_path + "/times_contact_indices_v2.bin");
+    writeArrayToBinFile<double>(times_device_indices_v3, number_of_measurements, base_path + "/times_device_indices_v3.bin");
+    writeArrayToBinFile<double>(times_contact_indices_v3, number_of_measurements, base_path + "/times_contact_indices_v3.bin");
+    writeArrayToBinFile<double>(times_device_indices_v4, number_of_measurements, base_path + "/times_device_indices_v4.bin");
     gpuErrchk(cudaFree(A_diag));
 
     gpuErrchk(cudaFree(contact_left_row_ptr));
@@ -1621,8 +2755,12 @@ void test_assemble_A_with_only_precomputing_indices(
 
 
     free(times_device_indices);
+    free(times_device_indices_v2);
+    free(times_device_indices_v3);
+    free(times_device_indices_v4);
     free(times_off_diagonal);
     free(times_contact_indices);
+    free(times_contact_indices_v2);
     free(times_reduction);
     free(times_add_to_diagonal);
     
@@ -1638,131 +2776,119 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
 {
 
 
-    double *K_og;
-    K_og = (double *)malloc(N * N * sizeof(double));
-
-    double reltol = 1e-12;
-    double abstol = 1e-12;
-
-//     // original code for dense assemble on the gpu
-    assemble_K_og(handle, gpubuf, N, N_left_tot, N_right_tot, Vd, pbc, d_high_G, d_low_G, cutoff_radius, num_metals, kmc_step_count, K_og);
-    // // count the nonzero elements of the dense K
-    int nnz_og = count_nnz(K_og, N * N);
-
-    // // assemble the nonzero elements of K
-    // int nnz = calc_nnz(posx, posy, posz, lattice, pbc, cutoff_radius, N);
-
-    // double *data_h = (double *)malloc(nnz * sizeof(double));
-
-    // load the data from the gpu for the sparse assemble
-    double *posx = (double *)malloc(N * sizeof(double));
-    double *posy = (double *)malloc(N * sizeof(double));
-    double *posz = (double *)malloc(N * sizeof(double));
-    double *lattice = (double *)malloc(3 * sizeof(double));
-    //gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
-    //const ELEMENT *metals, const ELEMENT *element, const int *site_charge,
-    ELEMENT *metals = (ELEMENT *)malloc(num_metals * sizeof(ELEMENT));
-    ELEMENT *element = (ELEMENT *)malloc(N * sizeof(ELEMENT));
-    int *site_charge = (int *)malloc(N * sizeof(int));
-
-    gpuErrchk(cudaMemcpy(posx, gpubuf.site_x, N * sizeof(double), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(posy, gpubuf.site_y, N * sizeof(double), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(posz, gpubuf.site_z, N * sizeof(double), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(lattice, gpubuf.lattice, 3 * sizeof(double), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(metals, gpubuf.metal_types, num_metals * sizeof(ELEMENT), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(element, gpubuf.site_element, N * sizeof(ELEMENT), cudaMemcpyDeviceToHost));
-    gpuErrchk(cudaMemcpy(site_charge, gpubuf.site_charge, N * sizeof(int), cudaMemcpyDeviceToHost));
 
 
 
-    int number_of_measurements = 1;
-    double *times_device_indices_cpu = (double *)malloc(number_of_measurements * sizeof(double));
-    double *times_off_diagonal_cpu = (double *)malloc(number_of_measurements * sizeof(double));
+    // // load the data from the gpu for the sparse assemble
+    // double *posx = (double *)malloc(N * sizeof(double));
+    // double *posy = (double *)malloc(N * sizeof(double));
+    // double *posz = (double *)malloc(N * sizeof(double));
+    // double *lattice = (double *)malloc(3 * sizeof(double));
+    // //gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
+    // //const ELEMENT *metals, const ELEMENT *element, const int *site_charge,
+    // ELEMENT *metals = (ELEMENT *)malloc(num_metals * sizeof(ELEMENT));
+    // ELEMENT *element = (ELEMENT *)malloc(N * sizeof(ELEMENT));
+    // int *site_charge = (int *)malloc(N * sizeof(int));
 
-    int nnz_cpu;
-    int *row_ptr_h = NULL;
-    int *col_indices_h = NULL;
-    double time_device_indices_cpu;
-    double time_off_diagonal_cpu;
-    omp_set_num_threads(14);
-
-    for(int i = 0; i < number_of_measurements; i++){
-        time_device_indices_cpu = -omp_get_wtime();
-        indices_creation_cpu(
-            posx + N_left_tot,
-            posy + N_left_tot,
-            posz + N_left_tot,
-            lattice, pbc,
-            cutoff_radius,
-            N - N_left_tot - N_right_tot,
-            &col_indices_h,
-            &row_ptr_h,
-            &nnz_cpu
-        );
-        time_device_indices_cpu += omp_get_wtime();
-        times_device_indices_cpu[i] = time_device_indices_cpu;
-        if(i < number_of_measurements-1){
-            free(col_indices_h);
-            free(row_ptr_h);
-        }
-        std::cout << "time_device_indices_cpu " << time_device_indices_cpu << std::endl;
-    }
-
-    std::cout << "nnz_cpu " << nnz_cpu << std::endl;
-
-    double *data_h = (double *)malloc(nnz_cpu * sizeof(double));
+    // gpuErrchk(cudaMemcpy(posx, gpubuf.site_x, N * sizeof(double), cudaMemcpyDeviceToHost));
+    // gpuErrchk(cudaMemcpy(posy, gpubuf.site_y, N * sizeof(double), cudaMemcpyDeviceToHost));
+    // gpuErrchk(cudaMemcpy(posz, gpubuf.site_z, N * sizeof(double), cudaMemcpyDeviceToHost));
+    // gpuErrchk(cudaMemcpy(lattice, gpubuf.lattice, 3 * sizeof(double), cudaMemcpyDeviceToHost));
+    // gpuErrchk(cudaMemcpy(metals, gpubuf.metal_types, num_metals * sizeof(ELEMENT), cudaMemcpyDeviceToHost));
+    // gpuErrchk(cudaMemcpy(element, gpubuf.site_element, N * sizeof(ELEMENT), cudaMemcpyDeviceToHost));
+    // gpuErrchk(cudaMemcpy(site_charge, gpubuf.site_charge, N * sizeof(int), cudaMemcpyDeviceToHost));
 
 
-    for(int i = 0; i < number_of_measurements; i++){
-        // set data_h to zero
-        #pragma omp parallel for
-        for(int j = 0; j < nnz_cpu; j++){
-            data_h[j] = 0.0;
-        }
-        time_off_diagonal_cpu = -omp_get_wtime();
-        calc_off_diagonal_K_cpu(
-            metals,
-            element + N_left_tot,
-            site_charge + N_left_tot,
-            num_metals,
-            d_high_G, d_low_G,
-            N - N_left_tot - N_right_tot,
-            col_indices_h,
-            row_ptr_h,
-            data_h);
-        time_off_diagonal_cpu += omp_get_wtime();
-        times_off_diagonal_cpu[i] = time_off_diagonal_cpu;
-        std::cout << "time_off_diagonal_cpu " << time_off_diagonal_cpu << std::endl;
-    }
+
+    // int number_of_measurements = 110;
+    // double *times_device_indices_cpu = (double *)malloc(number_of_measurements * sizeof(double));
+    // double *times_off_diagonal_cpu = (double *)malloc(number_of_measurements * sizeof(double));
+
+    // int nnz_cpu;
+    // int *row_ptr_h = NULL;
+    // int *col_indices_h = NULL;
+    // double time_device_indices_cpu;
+    // double time_off_diagonal_cpu;
+    // omp_set_num_threads(14);
+
+    // for(int i = 0; i < number_of_measurements; i++){
+    //     time_device_indices_cpu = -omp_get_wtime();
+    //     indices_creation_cpu(
+    //         posx + N_left_tot,
+    //         posy + N_left_tot,
+    //         posz + N_left_tot,
+    //         lattice, pbc,
+    //         cutoff_radius,
+    //         N - N_left_tot - N_right_tot,
+    //         &col_indices_h,
+    //         &row_ptr_h,
+    //         &nnz_cpu
+    //     );
+    //     time_device_indices_cpu += omp_get_wtime();
+    //     times_device_indices_cpu[i] = time_device_indices_cpu;
+    //     if(i < number_of_measurements-1){
+    //         free(col_indices_h);
+    //         free(row_ptr_h);
+    //     }
+    //     std::cout << "time_device_indices_cpu " << time_device_indices_cpu << std::endl;
+    // }
+
+    // std::cout << "nnz_cpu " << nnz_cpu << std::endl;
+
+    // double *data_h = (double *)malloc(nnz_cpu * sizeof(double));
+
+
+    // for(int i = 0; i < number_of_measurements; i++){
+    //     // set data_h to zero
+    //     #pragma omp parallel for
+    //     for(int j = 0; j < nnz_cpu; j++){
+    //         data_h[j] = 0.0;
+    //     }
+    //     time_off_diagonal_cpu = -omp_get_wtime();
+    //     calc_off_diagonal_K_cpu(
+    //         metals,
+    //         element + N_left_tot,
+    //         site_charge + N_left_tot,
+    //         num_metals,
+    //         d_high_G, d_low_G,
+    //         N - N_left_tot - N_right_tot,
+    //         col_indices_h,
+    //         row_ptr_h,
+    //         data_h);
+    //     time_off_diagonal_cpu += omp_get_wtime();
+    //     times_off_diagonal_cpu[i] = time_off_diagonal_cpu;
+    //     std::cout << "time_off_diagonal_cpu " << time_off_diagonal_cpu << std::endl;
+    // }
 
     // // save times
+    // std::string base_path;
     // if(N - N_left_tot - N_right_tot < 14000){
-    //     std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_7k/system_K/results";
-    //     writeArrayToBinFile<double>(times_device_indices_cpu, number_of_measurements, base_path + "/times_device_indices_cpu.bin");
-    //     writeArrayToBinFile<double>(times_off_diagonal_cpu, number_of_measurements, base_path + "/times_off_diagonal_cpu.bin");
+    //     base_path = "/usr/scratch/mont-fort17/almaeder/kmc_7k/system_K/results";
     // }
     // else if(N - N_left_tot - N_right_tot > 14000 && N - N_left_tot - N_right_tot < 40000){
-    //     std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_28k/system_K/results";
-    //     writeArrayToBinFile<double>(times_device_indices_cpu, number_of_measurements, base_path + "/times_device_indices_cpu.bin");
-    //     writeArrayToBinFile<double>(times_off_diagonal_cpu, number_of_measurements, base_path + "/times_off_diagonal_cpu.bin");
+    //     base_path = "/usr/scratch/mont-fort17/almaeder/kmc_28k/system_K/results";
     // }
     // else if(N - N_left_tot - N_right_tot > 40000 && N - N_left_tot - N_right_tot < 100000){
-    //     std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_80k/system_K/results";
-    //     writeArrayToBinFile<double>(times_device_indices_cpu, number_of_measurements, base_path + "/times_device_indices_cpu.bin");
-    //     writeArrayToBinFile<double>(times_off_diagonal_cpu, number_of_measurements, base_path + "/times_off_diagonal_cpu.bin");
+    //     base_path = "/usr/scratch/mont-fort17/almaeder/kmc_80k/system_K/results";
     // }
     // else{
-    //     std::string base_path = "/usr/scratch/mont-fort17/almaeder/kmc_144k/system_K/results";
-    //     writeArrayToBinFile<double>(times_device_indices_cpu, number_of_measurements, base_path + "/times_device_indices_cpu.bin");
-    //     writeArrayToBinFile<double>(times_off_diagonal_cpu, number_of_measurements, base_path + "/times_off_diagonal_cpu.bin");
+    //     base_path = "/usr/scratch/mont-fort17/almaeder/kmc_144k/system_K/results";
+
     // }
-
-    free(times_device_indices_cpu);
-    free(times_off_diagonal_cpu);
-    free(data_h);
-    free(row_ptr_h);
-    free(col_indices_h);
-
+    // writeArrayToBinFile<double>(times_device_indices_cpu, number_of_measurements, base_path + "/times_device_indices_cpu.bin");
+    // writeArrayToBinFile<double>(times_off_diagonal_cpu, number_of_measurements, base_path + "/times_off_diagonal_cpu.bin");
+    // free(times_device_indices_cpu);
+    // free(times_off_diagonal_cpu);
+    // free(data_h);
+    // free(row_ptr_h);
+    // free(col_indices_h);
+    // free(posx);
+    // free(posy);
+    // free(posz);
+    // free(lattice);
+    // free(metals);
+    // free(element);
+    // free(site_charge);
 
 
     double *A_data_d = NULL;
@@ -1791,12 +2917,17 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
         &K_right_reduced_d
     );
 
-    if(nnz_cpu != A_nnz){
-        std::cout << "nnz mismatch" << std::endl;
-    }
-    else{
-        std::cout << "nnz match" << std::endl;
-    }
+
+    double *K_og;
+    K_og = (double *)malloc(N * N * sizeof(double));
+
+    double reltol = 1e-12;
+    double abstol = 1e-12;
+
+    // original code for dense assemble on the gpu
+    assemble_K_og(handle, gpubuf, N, N_left_tot, N_right_tot, Vd, pbc, d_high_G, d_low_G, cutoff_radius, num_metals, kmc_step_count, K_og);
+    // // count the nonzero elements of the dense K
+    int nnz_og = count_nnz(K_og, N * N);
 
     std::cout << "A_nnz " << A_nnz << std::endl;
     std::cout << "nnz " << nnz_og << std::endl;
@@ -1886,6 +3017,10 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
     }
     std::cout << difference / sum_ref << std::endl;
 
+    free(K_og);
+    free(A_data_h);
+    free(A_col_indices_h);
+    free(A_row_ptr_h);
 
     gpuErrchk(cudaFree(A_data_d));
     gpuErrchk(cudaFree(A_col_indices_d));
@@ -1894,19 +3029,11 @@ void test_assemble_K(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const 
     gpuErrchk(cudaFree(K_right_reduced_d));
 
 
-    free(A_data_h);
-    free(A_col_indices_h);
-    free(A_row_ptr_h);
 
 
-    free(K_og);
-    free(posx);
-    free(posy);
-    free(posz);
-    free(lattice);
-    free(metals);
-    free(element);
-    free(site_charge);
+
+
+
 
     std::cout << "K matrix assembled" << std::endl;
 
