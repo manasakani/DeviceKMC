@@ -1,0 +1,12 @@
+main
+*.o
+*.out
+test_data/*
+core*
+data/*
+*.run
+*.qdrep
+*.nsys-rep
+nc.vg*
+images/*
+__pycache__/*
