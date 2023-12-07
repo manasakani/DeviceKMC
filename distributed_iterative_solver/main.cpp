@@ -1,11 +1,15 @@
 #include <iostream>
-#include <petscksp.h>
+// #include <petscksp.h>
+// #include <petscsys.h>
 #include <string>
 #include "utils.h"
 #include <mpi.h>
 
+
 int main(int argc, char **argv) {
-    PetscCall(PetscInitialize(&argc, &argv, NULL, NULL));
+    // older version of petsc on daint
+    // replace by PetscCall()
+    // CHKERRQ(PetscInitialize(&argc, &argv, NULL, NULL));
     int rank, size;
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -20,6 +24,6 @@ int main(int argc, char **argv) {
     std::cout << "Hello World from rank " << rank << std::endl;
     std::cout << "Matrix size: " << matrix_size << " from rank " << rank << std::endl;
 
-    PetscCall(PetscFinalize());
+    // CHKERRQ(PetscFinalize());
     return 0;
 }
