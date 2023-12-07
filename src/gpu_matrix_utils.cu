@@ -1,6 +1,21 @@
 #include "cuda_wrapper.h"
 #include <cub/cub.cuh>
 
+void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact)
+{
+    int N_left_tot = num_atoms_contact;
+    int N_right_tot = num_atoms_contact;
+    int N_interface = gpubuf.N_ - (N_left_tot + N_right_tot);
+
+    Assemble_K_sparsity(gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+                        gpubuf.lattice, pbc, nn_dist,
+                        N_interface, N_left_tot, N_right_tot,
+                        &gpubuf.Device_row_ptr_d, &gpubuf.Device_col_indices_d, &gpubuf.Device_nnz,
+                        &gpubuf.contact_left_col_indices, &gpubuf.contact_left_row_ptr, &gpubuf.contact_left_nnz,
+                        &gpubuf.contact_right_col_indices, &gpubuf.contact_right_row_ptr, &gpubuf.contact_right_nnz);
+
+}
+
 __device__ double site_dist_gpu_2(double pos1x, double pos1y, double pos1z,
                                 double pos2x, double pos2y, double pos2z,
                                 double lattx, double latty, double lattz, bool pbc)
@@ -335,14 +350,10 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     // Initialize the residual and conjugate vectors
     // r = A*y - x & p = -r
     status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                          vecY, zero_d, vecR, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);         // r = A*y
-    // gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -x + r
-    //gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError(cublasDcopy(handle_cublas, m, d_r, 1, d_p, 1));                                    // p = r
-    //gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError(cublasDscal(handle_cublas, m, &n_one, d_p, 1));                                    // p = -p
-    //gpuErrchk( cudaDeviceSynchronize() );
+                          vecY, zero_d, vecR, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);           // r = A*y
+    CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                            // r = -x + r
+    CheckCublasError( cublasDcopy(handle_cublas, m, d_r, 1, d_p, 1) );                                    // p = r
+    CheckCublasError( cublasDscal(handle_cublas, m, &n_one, d_p, 1) );                                    // p = -p
 
     // calculate the error (norm of the residual)
     CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
@@ -351,41 +362,31 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     // Conjugate Gradient steps
     int counter = 0;
     double t, tnew, alpha, beta, alpha_temp;
-    while (h_norm > tol){
+    while (h_norm > tol*tol){
 
         // alpha = rT * r / (pT * A * p)
-        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                         // t = rT * r
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                           // t = rT * r
         status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                              vecP, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer); // temp = A*p
-        //gpuErrchk( cudaDeviceSynchronize() );
-        CheckCublasError( cublasDdot (handle_cublas, m, d_p, 1, d_temp, 1, &alpha_temp) );             // alpha = pT*temp = pT*A*p
-        //gpuErrchk( cudaDeviceSynchronize() );
+                              vecP, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);   // temp = A*p
+        CheckCublasError( cublasDdot (handle_cublas, m, d_p, 1, d_temp, 1, &alpha_temp) );               // alpha = pT*temp = pT*A*p
         alpha = t / alpha_temp; 
 
         // y = y + alpha * p
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &alpha, d_p, 1, d_y, 1));                       // y = y + alpha * p
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( cublasDaxpy(handle_cublas, m, &alpha, d_p, 1, d_y, 1) );                       // y = y + alpha * p
 
         // r = r + alpha * A * p 
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &alpha, d_temp, 1, d_r, 1));                    // r = r + alpha * temp
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( cublasDaxpy(handle_cublas, m, &alpha, d_temp, 1, d_r, 1) );                    // r = r + alpha * temp
 
         // beta = (rT * r) / t
-        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &tnew) );                       // tnew = rT * r
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &tnew) );                        // tnew = rT * r
         beta = tnew / t;
 
         // p = -r + beta * p
-        CheckCublasError(cublasDscal(handle_cublas, m, &beta, d_p, 1));                                  // p = p * beta
-        //gpuErrchk( cudaDeviceSynchronize() );
-
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1));                         // p = p - r
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( cublasDscal(handle_cublas, m, &beta, d_p, 1) );                                 // p = p * beta
+        CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1) );                        // p = p - r
 
         // calculate the error (norm of the residual)
-        CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( cublasDdot(handle_cublas, m, d_r, 1, d_r, 1, &h_norm) );
         // std::cout << h_norm << "\n";
 
         counter++;

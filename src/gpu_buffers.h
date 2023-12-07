@@ -12,7 +12,7 @@ class Device;
 class GPUBuffers {
 
 public:
-    // varying parameters
+    // varying parameters:
     int *site_charge = nullptr;
     double *site_power, *site_potential, *site_temperature = nullptr;
     double *T_bg = nullptr;
@@ -20,7 +20,7 @@ public:
     int *atom_charge = nullptr;
     int *Natom_;
 
-    // unchanging parameters:
+    // unchanging parameters (site_) and ones which aren't copied back (atom_):
     ELEMENT *site_element = nullptr;
     ELEMENT *atom_element = nullptr;
     double *site_x, *site_y, *site_z = nullptr;
@@ -29,10 +29,20 @@ public:
     double *sigma, *k, *lattice, *freq;
     int *neigh_idx, *site_layer = nullptr;
 
+
+    int *Device_row_ptr_d = nullptr;                // CSR representation of the matrix which represents connectivity in the device
+    int *Device_col_indices_d = nullptr;            
+    int *contact_left_row_ptr = nullptr;            // CSR representation of the matrix which represents connectivity of the left contact
+    int *contact_left_col_indices = nullptr;
+    int *contact_right_row_ptr = nullptr;           // CSR representation of the matrix which represents connectivity of the right contact
+    int *contact_right_col_indices = nullptr;       
+    int Device_nnz, contact_left_nnz, contact_right_nnz;
+
+
     // NOT gpu pointers, passed by value
     int num_metal_types_ = 0;
-    int N_ = 0;
-    int nn_ = 0;
+    int N_ = 0;                                     // number of sites in the device
+    int nn_ = 0;                                    // maximum number of neighbors in the device
 
     // helper variables stored on host:
     std::vector<double> E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host;
@@ -43,12 +53,11 @@ public:
     // downloads the GPU device attributes into the local versions
     void sync_GPUToHost(Device &device);
 
-    // copy back just the site_power into the power vector
+    // copy back just some device attribute vectors:
     void copy_power_fromGPU(std::vector<double> &power);
-
     void copy_charge_toGPU(std::vector<int> &charge);
 
-    // constructor allocates nothing:
+    // constructor allocates nothing (used for CPU-only code):
     GPUBuffers(){};
 
     // constructor allocates arrays in GPU memory

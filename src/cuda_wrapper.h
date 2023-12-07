@@ -28,9 +28,15 @@ class GPUBuffers;
 
 extern "C" {
 
-//**************************************
+//***************************************
 // Matrix solver utilities / gpu_utils.cu
-//******************************
+//***************************************
+
+// Initialize the buffer and the indices of the non-zeros in the matrix which represent neighbor connectivity
+void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact);
+
+// initialize the handles for CuSparse, CuBlas, and CuSolver to keep in GPU memory
+// void initialize_handles();
 
 // check that sparse and dense versions are the same
 void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal);
@@ -82,7 +88,7 @@ void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubu
                               const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count);
         
-void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
+void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count);
 

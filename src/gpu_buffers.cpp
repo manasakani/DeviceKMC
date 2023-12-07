@@ -82,6 +82,6 @@ void GPUBuffers::freeGPUmemory(){
     cudaFree(k);
     cudaFree(lattice);
     cudaFree(freq);
-    //... FREE THE REST OF THE MEMORY ...
+    //... FREE THE REST OF THE MEMORY !!! ...
 #endif
 }

@@ -1171,51 +1171,33 @@ __global__ void extractDiagonalValues(
 ///
 
 
-void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
+void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count)
 {
 
     // *********************************************************************
     // 1. Assemble the device conductance matrix (A) and the boundaries (rhs)
+    // based on the precalculated sparsity of the neighbor connections (CSR rows/cols)
 
     // device submatrix size
     int N_interface = N - (N_left_tot + N_right_tot);
 
-    // get the sparsity pattern first (move to beginning)
-    int *A_row_ptr_d = NULL;
-    int *A_col_indices_d = NULL;
-    int *contact_left_row_ptr = NULL;
-    int *contact_left_col_indices = NULL;
-    int *contact_right_row_ptr = NULL;
-    int *contact_right_col_indices = NULL;
-    int A_nnz, contact_left_nnz, contact_right_nnz;
-
-    Assemble_K_sparsity(gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                        gpubuf.lattice, pbc, nn_dist,
-                        N_interface, N_left_tot, N_right_tot,
-                        &A_row_ptr_d, &A_col_indices_d, &A_nnz,
-                        &contact_left_col_indices, &contact_left_row_ptr, &contact_left_nnz,
-                        &contact_right_col_indices, &contact_right_row_ptr, &contact_right_nnz);
-
-    // Prepare the matrix
+    // Prepare the matrix (fill in the sparsity pattern)
     double *A_data_d = NULL;
     double *K_left_reduced_d = NULL;
     double *K_right_reduced_d = NULL;
 
-    Assemble_A( gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                gpubuf.lattice, pbc, nn_dist,
-                gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
-                num_metals,
-                d_high_G, d_low_G,
-                N, N_left_tot, N_right_tot,
-                &A_data_d, &A_row_ptr_d, &A_col_indices_d, &A_nnz,
-                &contact_left_col_indices, &contact_left_row_ptr, &contact_left_nnz,
-                &contact_right_col_indices, &contact_right_row_ptr, &contact_left_nnz,
-                &K_left_reduced_d, &K_right_reduced_d);
-
-    // dump A to file:
-    // dump_csr_matrix_txt(N_interface, A_nnz, A_row_ptr_d, A_col_indices_d, A_data_d, kmc_step_count);
+     Assemble_A( gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+                 gpubuf.lattice, pbc, nn_dist,
+                 gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
+                 num_metals,
+                 d_high_G, d_low_G,
+                 N, N_left_tot, N_right_tot,
+                 &A_data_d, &gpubuf.Device_row_ptr_d, &gpubuf.Device_col_indices_d, &gpubuf.Device_nnz,
+                 &gpubuf.contact_left_col_indices, &gpubuf.contact_left_row_ptr, &gpubuf.contact_left_nnz,
+                 &gpubuf.contact_right_col_indices, &gpubuf.contact_right_row_ptr, &gpubuf.contact_left_nnz,
+                 &K_left_reduced_d, &K_right_reduced_d);
 
     // Prepare the RHS vector: rhs = -K_left_interface * VL - K_right_interface * VR
     // we take the negative and do rhs = K_left_interface * VL + K_right_interface * VR to account for a sign change in v_soln
@@ -1242,26 +1224,13 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     // the initial guess for the solution is the current site-resolved potential inside the device
     double *v_soln = gpubuf.site_potential + N_left_tot;
 
-    cusparseStatus_t status;
     cusparseHandle_t cusparseHandle;
     cusparseCreate(&cusparseHandle);
     cusparseSetPointerMode(cusparseHandle, CUSPARSE_POINTER_MODE_DEVICE);
-    
-    cusparseSpMatDescr_t D_sparse;
-    status = cusparseCreateCsr(&D_sparse, N_interface, N_interface, A_nnz, A_row_ptr_d, A_col_indices_d, A_data_d, 
-                               CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
-    if (status != CUSPARSE_STATUS_SUCCESS)
-    {
-        std::cout << "ERROR: creation of sparse matrix descriptor in background_potential_gpu_sparse() failed!\n";
-    }
-
-    // // sparse solver without preconditioning:
-    // solve_sparse_CG(handle_cublas, cusparseHandle, D_sparse, N_interface, rhs, v_soln);
-    // gpuErrchk( cudaPeekAtLastError() );
-    // gpuErrchk( cudaDeviceSynchronize() );
 
     // sparse solver with Jacobi preconditioning:
-    solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_data_d, A_row_ptr_d, A_col_indices_d, A_nnz, N_interface, rhs, v_soln);
+    // solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_data_d, A_row_ptr_d, A_col_indices_d, A_nnz, N_interface, rhs, v_soln);
+    solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_data_d, gpubuf.Device_row_ptr_d, gpubuf.Device_col_indices_d, gpubuf.Device_nnz, N_interface, rhs, v_soln);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
 
@@ -1273,15 +1242,8 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     thrust::device_ptr<double> right_boundary = thrust::device_pointer_cast(gpubuf.site_potential + N_left_tot + N_interface);
     thrust::fill(right_boundary, right_boundary + N_right_tot, Vd/2);
 
-	cusparseDestroySpMat(D_sparse);
     cusparseDestroy(cusparseHandle);
     cudaFree(A_data_d);
-    cudaFree(A_row_ptr_d);
-    cudaFree(A_col_indices_d);
-    cudaFree(contact_left_row_ptr);
-    cudaFree(contact_left_col_indices);
-    cudaFree(contact_right_row_ptr);
-    cudaFree(contact_right_col_indices);
     cudaFree(VL);
     cudaFree(VR);
     cudaFree(rhs);
@@ -1290,6 +1252,7 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     gpuErrchk( cudaPeekAtLastError() );
 }
 
+// solves site-resolved background potential using dense matrix assembly and direct LU-solver schemes
 void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count)
@@ -1799,6 +1762,11 @@ void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std
     gpuErrchk( cudaMemcpyToSymbol(E_Vdiff_const, E_Vdiff.data(), E_Vdiff.size() * sizeof(double)) );
     gpuErrchk( cudaMemcpyToSymbol(E_Odiff_const, E_Odiff.data(), E_Odiff.size() * sizeof(double)) );
 }
+
+// *** The Graveyard of Code ***
+
+    // dump A to file:
+    // dump_csr_matrix_txt(N_interface, A_nnz, A_row_ptr_d, A_col_indices_d, A_data_d, kmc_step_count);
 
     // # if __CUDA_ARCH__>=200
     // printf("%i \n", tid);

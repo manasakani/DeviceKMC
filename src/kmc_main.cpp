@@ -103,6 +103,7 @@ int main(int argc, char **argv)
                           device.N, device.site_x, device.site_y, device.site_z,
                           device.max_num_neighbors, device.sigma, device.k, 
                           device.lattice, device.neigh_idx, p.metals, p.metals.size());
+        initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_contact);
 #else
         GPUBuffers gpubuf;
 #endif
