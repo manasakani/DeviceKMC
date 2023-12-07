@@ -1,4 +1,4 @@
-
+#include "utils.h"
 
 template <typename T>
 void save_bin_array(T* array, int numElements, const std::string& filename) {
@@ -15,7 +15,7 @@ template void save_bin_array<double>(double* array, int numElements, const std::
 template void save_bin_array<int>(int* array, int numElements, const std::string& filename);
 
 template<typename T>
-bool load_binary_array(
+void load_binary_array(
     std::string filename, 
     T *array, 
     int size)
@@ -25,13 +25,28 @@ bool load_binary_array(
     fp = std::fopen(filename.c_str(), "rb");
     if (fp == nullptr) {
         std::printf("Error opening file\n");
-        return false;
     }
 
     std::fread(array, sizeof(T), size, fp);
 
     std::fclose(fp);
-    return true;
 }
-template bool load_binary_array<double>(std::string filename, double *array, int size);
-template bool load_binary_array<int>(std::string filename, int *array, int size);
+template void load_binary_array<double>(std::string filename, double *array, int size);
+template void load_binary_array<int>(std::string filename, int *array, int size);
+
+void load_matrix_parameters(
+    std::string filename, 
+    int *matrix_size)
+{
+    FILE *fp;
+
+    fp = std::fopen(filename.c_str(), "r");
+    if (fp == NULL) {
+        std::printf("Error opening file\n");
+    }
+
+    std::fscanf(fp, "%u", matrix_size);
+
+    std::fclose(fp);
+
+}
