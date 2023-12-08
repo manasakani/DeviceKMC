@@ -4,7 +4,7 @@
 
 rnd_seed = 1										// random number for KMCProcess
 restart = 1											// restart calculation
-restart_xyz_file = Results_17.000000_2/snapshot_2400.xyz				// restart filename
+restart_xyz_file = Results_17.000000_4/snapshot_4940.xyz				// restart filename
 
 atom_xyz_file = atoms_4x4.xyz	                 		// if not restart, draws from the atom coordinates file
 interstitial_xyz_file = interstitials_4x4.xyz 
@@ -37,9 +37,9 @@ background_temp = 300 						// [K] contact temperature
 
 pbc = 1										// toggle for periodic boundary conditions
 
-V_switch = 15.0 							// [V] applied bias to right contact
+V_switch = 17.0 							// [V] applied bias to right contact
 
-t_switch = 7e-13								// [s] timescale for switching
+t_switch = 1								// [s] timescale for switching
 
 Icc = 3e-3 								// [A] enforced compliance current
 
