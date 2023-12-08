@@ -1,2 +1,5 @@
 main
 *.o
+*.out
+test_data/*
+core*

@@ -1,0 +1,14 @@
+#!/bin/bash -l
+#SBATCH --job-name="petsc_test"
+#SBATCH --account="s1212"
+#SBATCH --time=00:03:00
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-core=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=1
+#SBATCH --partition=normal
+#SBATCH --constraint=gpu
+#SBATCH --hint=nomultithread
+
+
+srun ./main
