@@ -2,7 +2,11 @@
 
 #include "utils.h"
 #include "random_num.h"
+
+// excluded for testing
+#ifndef COMPILE_WITH_TESTS
 #include "gpu_buffers.h"
+#endif 
 
 #include <stdio.h>
 #include <vector>
@@ -26,6 +30,14 @@
 // forward declaration of gpubuf class          
 class GPUBuffers;
 
+//************************
+// CUDA GPU Kernels / *.cu
+//************************
+
+// reduces the array into the value
+template <typename T, int NTHREADS>
+__global__ void reduce(const T* array_to_reduce, T* value, const int N);
+
 extern "C" {
 
 //***************************************
@@ -34,9 +46,6 @@ extern "C" {
 
 // Initialize the buffer and the indices of the non-zeros in the matrix which represent neighbor connectivity
 void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact);
-
-// initialize the handles for CuSparse, CuBlas, and CuSolver to keep in GPU memory
-// void initialize_handles();
 
 // check that sparse and dense versions are the same
 void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal);
@@ -73,34 +82,41 @@ void get_gpu_info(char *gpu_string, int dev);
 
 void set_gpu(int dev);
 
+// Updates the site-resolved charge (gpu_site_charge) based on a neighborhood condition
 void update_charge_gpu(ELEMENT *gpu_site_element, 
                        int *gpu_site_charge,
                        int *gpu_neigh_idx, int N, int nn, 
                        const ELEMENT *metals, const int num_metals);
 
+// Updates the global temperature (T_bg) based on a capacitative heat equation
 void update_temperatureglobal_gpu(const double *site_power, 
                                   double *T_bg, const int N, 
                                   const double a_coeff, const double b_coeff, 
                                   const double number_steps, const double C_thermal, 
                                   const double small_step);
 
-void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
+// Updates the site-resolved potential (gpubuf.site_potential) using a resistive network model (dense matrix with LU solver)
+void background_potential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count);
-        
+
+// Updates the site-resolved potential (gpubuf.site_potential) using a resistive network model (sparse matrix with iterative solver)
 void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count);
 
+// Updates the site-resolved potential (gpubuf.site_potential) using the short-range Poisson solution summed over charged species
 void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice,
                           const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz,
                           const int *site_charge, double *site_potential);
 
+// Updates the site-resolved dissipated power (gpubuf.site_power) using a graph-based current flow solver
 void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int N, const int num_source_inj, const int num_ground_ext,
                       const double Vd, const int pbc, const double high_G, const double low_G,
                       const double nn_dist, const double m_e, const double V0, int num_metals, const double t_ox, double *imacro);
 
+// Selects and executes events, and updates the relevant site attribute (_element, _charge, etc) using the residence time algorithm
 double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
                           const double *lattice, const int pbc, const double *T_bg, 
                           const double *freq, const double *sigma, const double *k,
@@ -108,6 +124,8 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
                           const double *site_potential, const double *site_temperature,
                           ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
 
+// excluded for testing
+#ifndef COMPILE_WITH_TESTS
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff);
-
+#endif
 }

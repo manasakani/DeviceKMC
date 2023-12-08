@@ -284,6 +284,17 @@ cublasHandle_t CreateCublasHandle(int device) {
 #endif
 }
 
+void CreateCublasHandle(cublasHandle_t handle, int device) {
+#ifdef USE_CUDA
+  if (device >= 0) {
+    if (cudaSetDevice(device) != cudaSuccess) {
+      throw std::runtime_error("Failed to set CUDA device.");
+    }
+  }
+  CheckCublasError(cublasCreate(&handle));
+#endif
+}
+
 void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int *k, double *alpha, double *A, int *lda, double *B, int *ldb, double *beta, double *C, int *ldc) {
 
 #ifdef USE_CUDA
@@ -349,6 +360,17 @@ cusolverDnHandle_t CreateCusolverDnHandle(int device) {
 #endif
 }
 
+void CreateCusolverDnHandle(cusolverDnHandle_t handle, int device) {
+#ifdef USE_CUDA
+  if (cudaSetDevice(device) != cudaSuccess) {
+    throw std::runtime_error("Failed to set CUDA device.");
+  }
+  std::cout << "making handle\n";
+  CheckCusolverDnError(cusolverDnCreate(&handle));
+  std::cout << "made handle\n";
+#endif
+}
+
 void CheckCusolverDnError(cusolverStatus_t const &status)
 {
 #ifdef USE_CUDA
@@ -360,9 +382,12 @@ void CheckCusolverDnError(cusolverStatus_t const &status)
 #endif
 }
 
-void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info) {
+// void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info) {
+void gesv(int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info) {
 
 #ifdef USE_CUDA
+
+    cusolverDnHandle_t handle = CreateCusolverDnHandle(0);
 
     // https://github.com/NVIDIA/CUDALibrarySamples/blob/master/cuSOLVER/getrf/cusolver_getrf_example.cu
     // printf("Solving linear system on the GPU ...\n");

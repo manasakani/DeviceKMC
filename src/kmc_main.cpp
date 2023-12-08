@@ -22,35 +22,21 @@ Copyright 2023 ETH Zurich and the Computational Nanoelectronics Group. All right
 #include "cuda_wrapper.h"
 #endif
 
-// main function for KMC simulation
 int main(int argc, char **argv)
 {
-    // parse inputs
-    KMCParameters p(argv[1]);
-
-    // set up logging
-    std::ostringstream outputBuffer;
+    //***************************************
+    // Parse inputs and setup output logging
+    //***************************************
+    
+    KMCParameters p(argv[1]);                                                       // stores simulation parameters
+    std::ostringstream outputBuffer;                                                // holds output data to dump into a txt file
     std::remove("output.txt");
     std::ofstream outputFile("output.txt", std::ios_base::app);
-    outputBuffer << "----------------------------\n";
-    outputBuffer << "Starting Kinetic Monte Carlo\n";
-    outputBuffer << "----------------------------\n";
 
-    // check for accelerators
-#ifdef USE_CUDA
-    std::cout << "checking for an accelerator...\n";
-    char gpu_string[1000];
-    get_gpu_info(gpu_string, 0);
-    printf("Will use this GPU: %s\n", gpu_string);
-    set_gpu(0);
-#else
-    std::cout << "Simulation will not use the GPU.\n";
-#endif
-    cublasHandle_t handle = CreateCublasHandle(0);
-    // cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
-    cusolverDnHandle_t handle_cusolver = CreateCusolverDnHandle(0);
+    //*******************************************************
+    // Initialize the Atomistic simulation domain (the Device)
+    //*******************************************************
 
-    // Initialize device
     std::vector<std::string> xyz_files;
     if (p.restart)
     {
@@ -75,38 +61,53 @@ int main(int argc, char **argv)
     }
 
     std::cout << "Constructing device...\n";
-    Device device(xyz_files, p.lattice, p.metals, p.shift, p.shifts, p.pbc, p.sigma, p.epsilon, p.nn_dist, p.background_temp, p.rnd_seed);
+    Device device(xyz_files, p);                                                    // the simulation domain and field solver functions
 
     std::chrono::duration<double> diff_laplacian;
     auto t_lap0 = std::chrono::steady_clock::now();
     if (p.solve_heating_local)
     {
-        device.constructLaplacian(handle_cusolver, p.k_th_interface, p.k_th_metal, p.delta,
-                                  p.delta_t, p.tau, p.metals, p.background_temp,
-                                  p.num_atoms_contact);
+        device.constructLaplacian(p);
     }
     auto t_lap1 = std::chrono::steady_clock::now();
     diff_laplacian = t_lap1 - t_lap0;
     outputBuffer << "**Calculation time for the laplacian:**\n";
     outputBuffer << "Laplacian update: " << diff_laplacian.count() << "\n";
+    outputBuffer.str(std::string());
 
     if (p.pristine)
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
 
-    // Initialize KMC simulation
-    KMCProcess sim(&device, p.freq);
-    outputBuffer.str(std::string());
+    //******************************
+    // Initialize the KMC Simulation
+    //******************************
 
-    // Initialize device attributes on GPU
+    KMCProcess sim(&device, p.freq);                                                // stores the division of the device into KMC regions
+                                                                                    // and the energy landscape parameters
+    //**********************************************
+    // Setup and handle accelerators (GPU/Multinode)
+    //**********************************************
+
 #ifdef USE_CUDA
-        GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,
-                          device.N, device.site_x, device.site_y, device.site_z,
-                          device.max_num_neighbors, device.sigma, device.k, 
-                          device.lattice, device.neigh_idx, p.metals, p.metals.size());
-        initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_contact);
+    char gpu_string[1000];
+    get_gpu_info(gpu_string, 0);
+    printf("Will use this GPU: %s\n", gpu_string);
+    set_gpu(0);
+
+    GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,                         // handles GPU memory management of the device attributes
+                      device.N, device.site_x, device.site_y, device.site_z,
+                      device.max_num_neighbors, device.sigma, device.k, 
+                      device.lattice, device.neigh_idx, p.metals, p.metals.size());
+    initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_contact);
+
 #else
-        GPUBuffers gpubuf;
+    std::cout << "Simulation will not use any accelerators.\n";
+    GPUBuffers gpubuf;
 #endif
+
+    // CUDA library handles
+    cublasHandle_t handle = CreateCublasHandle(0);
+    cusolverDnHandle_t handle_cusolver = CreateCusolverDnHandle(0);
 
         // loop over V_switch and t_switch
         double Vd, t, kmc_time, step_time, I_macro, T_kmc, V_vcm;
@@ -141,6 +142,7 @@ int main(int argc, char **argv)
 
             // ********************************************************
             // ***************** MAIN KMC LOOP ************************
+            // **** Update fields and execute events on structure *****
             // ********************************************************
 #ifdef USE_CUDA
         gpubuf.sync_HostToGPU(device);
@@ -149,55 +151,44 @@ int main(int argc, char **argv)
             {
                 outputBuffer << "--------------\n";
                 outputBuffer << "KMC step count: " << kmc_step_count << "\n";
-                // std::cout << "Rs: " << p.Rs << "\n";
+
+                // handle any input IR drop:
                 V_vcm = Vd - I_macro * p.Rs;
                 outputBuffer << "V_vcm: " << V_vcm << "\n";
 
-                // ********************************************************
-                // **** Update fields and execute events on structure *****
-                // ********************************************************
-
-                // Charge and Potential
+                // Update potential
                 auto t0 = std::chrono::steady_clock::now();
                 if (p.solve_potential)
                 {
-                    std::map<std::string, int> chargeMap = device.updateCharge(gpubuf, p.metals);
-                    resultMap.insert(chargeMap.begin(), chargeMap.end());
+                    std::map<std::string, int> chargeMap = device.updateCharge(gpubuf, p.metals);           // update site-resolved charge
+                    device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);         // update site-resolved potential
 
-                    device.updatePotential(handle, handle_cusolver, gpubuf, p.num_atoms_contact, Vd, p.lattice,
-                                           p.G_coeff, p.high_G, p.low_G, p.metals, kmc_step_count);
+                    resultMap.insert(chargeMap.begin(), chargeMap.end());                                   // update output file with collected metrics
                 }
-
                 auto t_pot = std::chrono::steady_clock::now();
                 diff_pot = t_pot - t0;
 
-                //std::cout << " time for updatePotential: " << diff_pot.count() << "\n"; 
-
-                // KMC update step
-                step_time = sim.executeKMCStep(gpubuf, device);
-
-                kmc_time += step_time;
+                // Execute events and update time
+                step_time = sim.executeKMCStep(gpubuf, device);                                             
+                kmc_time += step_time;                                                                      // internal simulation timescale
                 auto t_perturb = std::chrono::steady_clock::now();
                 diff_perturb = t_perturb - t_pot;
 
-                // Power and Temperature
+                // Update current and joule heating
                 if (p.solve_current)
                 {
-                    std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver, gpubuf, p.num_atoms_first_layer, Vd, p.high_G, p.low_G,
-                                                                                p.metals, p.m_e, p.V0, p.t_ox);
+                    std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver,    // update site-resolved dissipated power
+                                                                                gpubuf, p, Vd);
                     resultMap.insert(powerMap.begin(), powerMap.end());
 
                    auto t_power = std::chrono::steady_clock::now();
                    diff_power = t_power - t_perturb;
 
                    // Temperature
-                   if (p.solve_heating_global || p.solve_heating_local)
+                   if (p.solve_heating_global || p.solve_heating_local)                                     // update site-resolved heat
                    {
-                       std::map<std::string, double> temperatureMap = device.updateTemperature(p.solve_heating_global, p.solve_heating_local, gpubuf,
-                                                                                               step_time, p.small_step, p.dissipation_constant, 
-                                                                                               p.background_temp, p.t_ox, p.A, p.c_p, p.delta_t, p.tau, p.power_adjustment_term, p.k_th_interface, 
-                                                                                               p.k_th_vacancies, p.num_atoms_contact, p.metals);
-                       resultMap.insert(temperatureMap.begin(), temperatureMap.end());
+                        std::map<std::string, double> temperatureMap = device.updateTemperature(gpubuf, p, step_time);
+                        resultMap.insert(temperatureMap.begin(), temperatureMap.end());
                    }
 
                     auto t_temp = std::chrono::steady_clock::now();
@@ -221,16 +212,12 @@ int main(int argc, char **argv)
                I_macro = device.imacro;
                outputBuffer << "I_macro: " << I_macro << "\n";
 
-               // Compute the total dissipated power
+               // Compute the total dissipated power --> use reduction
                double P_diss = 0;
                for (int i = 0; i < device.N; i++)
                {
                    P_diss += device.site_power[i];
                }
-               //    std::cout << "P_diss: " << P_diss << "\n";
-               //    std::cout << "I_macro: " << I_macro << "\n";
-               //    std::cout << "V_vcm: " << V_vcm << "\n";
-               outputBuffer << "P_diss: " << P_diss << "\n";
 
                // dump print buffer into the output file
                if (!(kmc_step_count % p.output_freq))
@@ -249,7 +236,7 @@ int main(int argc, char **argv)
 
                if (I_macro > p.Icc)
                {
-                   outputBuffer << "I_macro > Icc, breaking out of loop\n";
+                   outputBuffer << "I_macro > Icc, compliance current reached.\n";
                    break;
                }
 

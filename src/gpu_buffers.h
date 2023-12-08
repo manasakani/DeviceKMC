@@ -29,7 +29,12 @@ public:
     double *sigma, *k, *lattice, *freq;
     int *neigh_idx, *site_layer = nullptr;
 
+    // CUDA library handles
+    // cublasHandle_t cublas_handle;
+    // cusolverDnHandle_t  cusolver_handle;
+    // cusparseHandle_t cusparse_handle;
 
+    // CSR indices pre-computation
     int *Device_row_ptr_d = nullptr;                // CSR representation of the matrix which represents connectivity in the device
     int *Device_col_indices_d = nullptr;            
     int *contact_left_row_ptr = nullptr;            // CSR representation of the matrix which represents connectivity of the left contact
@@ -37,7 +42,6 @@ public:
     int *contact_right_row_ptr = nullptr;           // CSR representation of the matrix which represents connectivity of the right contact
     int *contact_right_col_indices = nullptr;       
     int Device_nnz, contact_left_nnz, contact_right_nnz;
-
 
     // NOT gpu pointers, passed by value
     int num_metal_types_ = 0;
@@ -78,6 +82,13 @@ public:
             E_Odiff_host.push_back(l.E_diff_3);
         }
         int num_layers = layers.size();
+
+        // initialize CUDA library handles:
+        // cusparseCreate(&cusparse_handle);
+        // cusparseSetPointerMode(cusparse_handle, CUSPARSE_POINTER_MODE_DEVICE);
+        // CreateCublasHandle(cublas_handle, 0);
+        // cublasSetPointerMode(cublas_handle, CUBLAS_POINTER_MODE_DEVICE);
+        // CreateCusolverDnHandle(cusolver_handle, 0);
 
 #ifdef USE_CUDA
 

@@ -127,13 +127,16 @@ void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<
 void CheckCublasError(cublasStatus_t const& status);
 void CheckCusolverDnError(cusolverStatus_t const &status);
 cublasHandle_t CreateCublasHandle(int device);
+void CreateCublasHandle(cublasHandle_t handle, int device);
 cusolverDnHandle_t CreateCusolverDnHandle(int device);
+void CreateCusolverDnHandle(cusolverDnHandle_t handle, int device);
 
 // GEMM
 void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int *k, double *alpha, double *A, int *lda, double *B, int *ldb, double *beta, double *C, int *ldc);
 
 // GESV (by LU decomposition)
-void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info);
+// void gesv(cusolverDnHandle_t handle, int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info);
+void gesv(int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info);
 
 // error checking for CUDA calls
 // #ifdef USE_CUDA

@@ -84,4 +84,6 @@ void GPUBuffers::freeGPUmemory(){
     cudaFree(freq);
     //... FREE THE REST OF THE MEMORY !!! ...
 #endif
+
+//destroy handles!
 }

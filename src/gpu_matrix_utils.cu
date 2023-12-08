@@ -637,6 +637,7 @@ void indices_creation_gpu(
     size_t   temp_storage_bytes = 0;
     // determines temporary device storage requirements for inclusive prefix sum
     cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+
     // Allocate temporary storage for inclusive prefix sum
     gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
     // Run inclusive prefix sum

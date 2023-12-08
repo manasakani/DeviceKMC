@@ -790,6 +790,8 @@ __global__ void reduce(const T* array_to_reduce, T* value, const int N){
         }
     }
 }
+// Explicit instantiation for double, NUM_THREADS
+// template __global__ void reduce<double, NUM_THREADS>(const double* array_to_reduce, double* value, const int N);
 
 // Kernel to extract COO struct data from a dense matrix
 __global__ void extractCOOData(double* matrix, int N, COOElement* d_cooData, int* numNonZero) {
@@ -938,32 +940,32 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
 // ****************** KERNEL UNIT TESTS *******************
 // ********************************************************
 
-// unit test for reduce kernel, checks correctness for large arrays
-void test_reduce()
-{
-    int N = 70000;
+// // unit test for reduce kernel, checks correctness for large arrays --> move to tests
+// void test_reduce()
+// {
+//     int N = 70000;
 
-    int num_threads = 512;
-    int num_blocks = (N - 1) / num_threads + 1;
-    // num_blocks = min(65535, num_blocks);
+//     int num_threads = 512;
+//     int num_blocks = (N - 1) / num_threads + 1;
+//     // num_blocks = min(65535, num_blocks);
 
-    double *gpu_test_array;
-    double *gpu_test_sum;
-    double t_test = 0.0;
-    std::vector<double> test_array(N, 1.0);
+//     double *gpu_test_array;
+//     double *gpu_test_sum;
+//     double t_test = 0.0;
+//     std::vector<double> test_array(N, 1.0);
 
-    gpuErrchk( cudaMalloc((void**)&gpu_test_array, N * sizeof(double)) );
-    gpuErrchk( cudaMalloc((void**)&gpu_test_sum, 1 * sizeof(double)) );
-    gpuErrchk( cudaMemcpy(gpu_test_array, test_array.data(), N * sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(gpu_test_sum, &t_test, 1 * sizeof(double), cudaMemcpyHostToDevice) );
+//     gpuErrchk( cudaMalloc((void**)&gpu_test_array, N * sizeof(double)) );
+//     gpuErrchk( cudaMalloc((void**)&gpu_test_sum, 1 * sizeof(double)) );
+//     gpuErrchk( cudaMemcpy(gpu_test_array, test_array.data(), N * sizeof(double), cudaMemcpyHostToDevice) );
+//     gpuErrchk( cudaMemcpy(gpu_test_sum, &t_test, 1 * sizeof(double), cudaMemcpyHostToDevice) );
 
-    reduce<double, NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS*sizeof(double)>>>(gpu_test_array, gpu_test_sum, N);
-    gpuErrchk( cudaGetLastError() );
+//     reduce<double, NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS*sizeof(double)>>>(gpu_test_array, gpu_test_sum, N);
+//     gpuErrchk( cudaGetLastError() );
 
-    gpuErrchk( cudaMemcpy(&t_test, gpu_test_sum, 1 * sizeof(double), cudaMemcpyDeviceToHost));
-    assert(t_test == 70000.0);
-    std::cout << "--> Ran test for kernel reduce()\n";
-}                
+//     gpuErrchk( cudaMemcpy(&t_test, gpu_test_sum, 1 * sizeof(double), cudaMemcpyDeviceToHost));
+//     assert(t_test == 70000.0);
+//     std::cout << "--> Ran test for kernel reduce()\n";
+// }                
 
 // ********************************************************
 // *************** WRAPPER FUNCTIONS **********************
@@ -1004,31 +1006,6 @@ void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const 
     // std::cout << "temperature: " << t_test << "\n";
     cudaFree(P_tot);
 }
-
-// void assemble_K_gpu(
-//     const ELEMENT *metals_d, const ELEMENT *element_d, const int *site_charge_d,
-//     const int num_metals,
-//     const double d_high_G, const double d_low_G,
-//     int matrix_size,
-//     int *col_indices_d,
-//     int *row_ptr_d,
-//     double *data_d
-// )
-// {
-//     int threads = 512;
-//     int blocks = (matrix_size + threads - 1) / threads;
-
-//     calc_off_diagonal_A_gpu<<<blocks, threads>>>(
-//         metals_d, element_d, site_charge_d,
-//         num_metals,
-//         d_high_G, d_low_G,
-//         matrix_size,
-//         col_indices_d,
-//         row_ptr_d,
-//         data_d);
-
-//     calc_diagonal_A_gpu<<<blocks, threads>>>(col_indices_d, row_ptr_d, data_d, matrix_size);
-// }
 
 // Assemble the conductance matrix for the device and the reduced contact terms
 void Assemble_A(
@@ -1072,18 +1049,6 @@ void Assemble_A(
 
     calc_diagonal_A_gpu<<<blocks, threads>>>(*A_col_indices, *A_row_ptr, *A_data, system_size);
     gpuErrchk( cudaDeviceSynchronize() );
-
-    // assemble_K_gpu(
-    //     metals_d,
-    //     element_d + contact_left_size,
-    //     site_charge_d + contact_left_size,
-    //     num_metals,
-    //     d_high_G, d_low_G,
-    //     system_size,
-    //     *A_col_indices,
-    //     *A_row_ptr,
-    //     *A_data
-    // );
 
     // reduce the left part of K
     // block starts at i = contact_left_size (first downshifted row)
@@ -1229,7 +1194,6 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     cusparseSetPointerMode(cusparseHandle, CUSPARSE_POINTER_MODE_DEVICE);
 
     // sparse solver with Jacobi preconditioning:
-    // solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_data_d, A_row_ptr_d, A_col_indices_d, A_nnz, N_interface, rhs, v_soln);
     solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_data_d, gpubuf.Device_row_ptr_d, gpubuf.Device_col_indices_d, gpubuf.Device_nnz, N_interface, rhs, v_soln);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
@@ -1253,7 +1217,7 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
 }
 
 // solves site-resolved background potential using dense matrix assembly and direct LU-solver schemes
-void background_potential_gpu(cusolverDnHandle_t handle, const GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
+void background_potential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count)
 {
@@ -1755,6 +1719,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
     return event_time;    
 }
 
+#ifndef COMPILE_WITH_TESTS
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff)
 {   
     gpuErrchk( cudaMemcpyToSymbol(E_gen_const, E_gen.data(), E_gen.size() * sizeof(double)) );
@@ -1762,6 +1727,7 @@ void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std
     gpuErrchk( cudaMemcpyToSymbol(E_Vdiff_const, E_Vdiff.data(), E_Vdiff.size() * sizeof(double)) );
     gpuErrchk( cudaMemcpyToSymbol(E_Odiff_const, E_Odiff.data(), E_Odiff.size() * sizeof(double)) );
 }
+#endif
 
 // *** The Graveyard of Code ***
 
