@@ -415,6 +415,9 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     cudaFree(one_d);
     cudaFree(n_one_d);
     cudaFree(zero_d);
+    cudaFree(d_r);
+    cudaFree(d_p);
+    cudaFree(d_temp);
 }
 
 // Iterative sparse linear solver using CG steps
@@ -545,6 +548,9 @@ void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle,
     cudaFree(one_d);
     cudaFree(n_one_d);
     cudaFree(zero_d);
+    cudaFree(d_r);
+    cudaFree(d_p);
+    cudaFree(d_temp);
 
     // // check solution vector
     // double *copy_back = (double *)calloc(m, sizeof(double));

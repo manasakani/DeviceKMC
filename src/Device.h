@@ -9,6 +9,8 @@
 #include <omp.h>
 #include <map>
 
+#include <mpi.h>
+
 // forward declaration of KMC Parameters class
 class KMCParameters;
 

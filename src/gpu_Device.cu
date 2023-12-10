@@ -1,5 +1,4 @@
 #include "cuda_wrapper.h"
-// #include <cub/cub.cuh>
 
 const double eV_to_J = 1.6e-19;
 const double h_bar_sq = 4.3957e-67;
@@ -571,6 +570,64 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
     
     }
 }
+
+///
+template <int NTHREADS>
+__global__ void calculate_pairwise_interaction_mpi(const double* posx, const double* posy, const double*posz, 
+                                               const double *lattice, const int pbc, 
+                                               const int N, const double *sigma, const double *k, 
+                                               const int *charge, double* potential_local, 
+                                               const int row_idx_start, const int row_numbers){
+
+    // Version with reduction, where every thread evaluates site-site interaction term
+    int num_threads = blockDim.x;
+    int blocks_per_row = (N - 1) / num_threads + 1;
+    int block_id = blockIdx.x;
+
+    int row = block_id / blocks_per_row;
+    int scol = (block_id % blocks_per_row) * num_threads;
+    int lcol = min(N, scol + num_threads);
+
+    int tid = threadIdx.x;
+
+    __shared__ double buf[NTHREADS];
+    double dist;
+    int i, j;
+
+    for (int ridx = row; ridx < N; ridx += gridDim.x) {
+
+        buf[tid] = 0.0;
+        if (tid + scol < lcol) {
+
+            i = ridx;
+            j = scol+tid;
+            if (i != j && charge[j] != 0){
+                dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
+                                             posx[j], posy[j], posz[j], 
+                                             lattice[0], lattice[1], lattice[2], pbc);
+                buf[tid] = v_solve_gpu(dist, charge[j], sigma, k);
+
+            }
+        }
+
+        int width = num_threads / 2;
+        while (width != 0) {
+            __syncthreads();
+            if (tid < width) {
+                buf[tid] += buf[tid + width];
+            }
+            width /= 2;
+        }
+
+        int block_id = blockIdx.x + row_idx_start;
+        for (int ridx = row; ridx < row_numbers; ridx += gridDim.x){
+        if (tid == 0) {
+            atomicAdd(potential_local, buf[0]);
+        }
+        }
+    }
+}
+///
 
 __global__ void update_m(double *m, long minidx, int np2)
 {
@@ -1335,6 +1392,21 @@ void background_potential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, con
 
 }
 
+void poisson_gridless_mpi(const int num_atoms_contact, const int pbc, const int N, const double *lattice, 
+                          const double *sigma, const double *k,
+                          const double *posx, const double *posy, const double *posz, 
+                          const int *site_charge, double *site_potential_local,
+                          const int row_idx_start, const int row_numbers){
+
+    int num_threads = 1024;
+    int blocks_per_row = (row_numbers - 1) / num_threads + 1; 
+    int num_blocks = blocks_per_row * N; // NOTE: fix the kernel for block overflow!
+
+
+    calculate_pairwise_interaction_mpi<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, 
+                                                                                                               site_potential_local, row_idx_start, row_numbers);
+}
+
 void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice, 
                           const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz, 
@@ -1347,7 +1419,8 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential);
 }
 
-void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int N, const int num_source_inj, const int num_ground_ext,
+void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+                      const int N, const int num_source_inj, const int num_ground_ext,
                       const double Vd, const int pbc, const double high_G, const double low_G,
                       const double nn_dist, const double m_e, const double V0, int num_metals, const double t_ox, double *imacro)
 {
@@ -1475,7 +1548,6 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
                                           V0, gpubuf.atom_potential, t_ox);
     cudaDeviceSynchronize();
 
-
     // Update I_neg diagonal
     cudaMemset(gpu_diag, 0, (N_atom + 2) * sizeof(double));
     cudaDeviceSynchronize();
@@ -1541,11 +1613,11 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
 
     // populate the event_type and event_prob arrays:
     build_event_list<<<num_blocks, num_threads>>>(N, nn, neigh_idx, 
-                                                 site_layer, lattice, pbc,
-                                                 T_bg, freq, sigma, k,
-                                                 posx, posy, posz, 
-                                                 site_potential, site_temperature, 
-                                                 site_element, site_charge, event_type, event_prob);
+                                                  site_layer, lattice, pbc,
+                                                  T_bg, freq, sigma, k,
+                                                  posx, posy, posz, 
+                                                  site_potential, site_temperature, 
+                                                  site_element, site_charge, event_type, event_prob);
 
     gpuErrchk( cudaDeviceSynchronize() );
     gpuErrchk( cudaPeekAtLastError() );
@@ -1680,8 +1752,8 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
 
         // Deactivate conflicting events
 
-        EVENTTYPE null_event_host = NULL_EVENT;
-        double zero_double_host = 0.0;
+        // EVENTTYPE null_event_host = NULL_EVENT;
+        // double zero_double_host = 0.0;
 
         // other site's events with i or j
          int i_, j_;
@@ -1690,23 +1762,17 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
             j_ = neigh_idx_host[idx];
 
             if (i_host == i_ || j_host == j_ || i_host == j_ || j_host == i_){
-
-                gpuErrchk( cudaMemcpy(event_type + idx, &null_event_host, 1 * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
-                gpuErrchk( cudaMemcpy(event_prob + idx, &zero_double_host, 1 * sizeof(double), cudaMemcpyHostToDevice) );
+                gpuErrchk( cudaMemset(event_type + idx, NULL_EVENT, 1 * sizeof(EVENTTYPE)) );
+                gpuErrchk( cudaMemset(event_prob + idx, 0.0, 1 * sizeof(double)) );
             }
         }
 
-        // REPLACE WITH THRUST::FILL AND CUDAMEMSET
-        for (int fill_ind = 0; fill_ind < (nn-1); fill_ind++){
-
-            // i's events with its neighbors    
-            gpuErrchk( cudaMemcpy(event_type + i_host * nn + fill_ind, &null_event_host, 1 * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
-            gpuErrchk( cudaMemcpy(event_type + i_host * nn + fill_ind, &zero_double_host, 1 * sizeof(double), cudaMemcpyHostToDevice) );
-
-            // j's events with its neighbors
-            gpuErrchk( cudaMemcpy(event_type + j_host * nn + fill_ind, &null_event_host, 1 * sizeof(EVENTTYPE), cudaMemcpyHostToDevice) );
-            gpuErrchk( cudaMemcpy(event_type + j_host * nn + fill_ind, &zero_double_host, 1 * sizeof(double), cudaMemcpyHostToDevice) );
-        }
+        // remove the conflicting events i an j and their probabilities
+        gpuErrchk( cudaMemset(event_type + i_host * nn, NULL_EVENT, (nn - 1) * sizeof(EVENTTYPE)) );
+        gpuErrchk( cudaMemset(event_type + j_host * nn, NULL_EVENT, (nn - 1) * sizeof(EVENTTYPE)) );
+        gpuErrchk( cudaMemset(event_prob + i_host * nn, 0, (nn - 1) * sizeof(double)) );
+        gpuErrchk( cudaMemset(event_prob + j_host * nn, 0, (nn - 1) * sizeof(double)) );
+        gpuErrchk( cudaDeviceSynchronize() );
 
         event_time = -log(rng.getRandomNumber()) / Psum_host;
         // std::cout << "event time: " << event_time << "\n";

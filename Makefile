@@ -15,17 +15,33 @@
 # USE TO COMPILE GPU CODE ON ATTELAS, remember to make clean when switching
 # ***************************************************
 # *** IIS - GNU C++ compiler (with C++17) + nvcc *** 
+#  CXX = /usr/sepp/bin/g++ 
+#  MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
+#  OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
+#  CUDA_ROOT = /usr/local/cuda
+#  CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
+#  NVCC = nvcc
+#  NVCCFLAGS = -O3 -std=c++17 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" --extended-lambda #-G -lineinfo # Last two are for the visual profiler # To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 
+#  LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver -lcusparse
+#  CXXFLAGS += -DUSE_CUDA 
+#  COMPILE_WITH_CUDA = -DCUDA 
+# ***************************************************
+
+# ***************************************************
+# *** IIS - MPI GNU C++ compiler (with C++17) + nvcc for CUDA+MPI support *** 
  CXX = /usr/sepp/bin/g++ 
  MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
  OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
  CUDA_ROOT = /usr/local/cuda
- CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
+ MPI_ROOT = /usr/ela/local/linux-local/mpich-3.4.2/gcc/
+ CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -I"${MPI_ROOT}/include" -fopenmp -lpthread -lm -ldl
  NVCC = nvcc
  NVCCFLAGS = -O3 -std=c++17 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" --extended-lambda #-G -lineinfo # Last two are for the visual profiler # To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 
- LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver -lcusparse
+ LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver -lcusparse -L"${MPI_ROOT}/lib" -lmpi
  CXXFLAGS += -DUSE_CUDA 
  COMPILE_WITH_CUDA = -DCUDA 
 # ***************************************************
+
 
 # USE TO COMPILE GPU CODE WITH MPI ON PIZ DAINT, remember to make clean when switching
 # ***************************************************

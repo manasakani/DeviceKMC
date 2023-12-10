@@ -772,6 +772,21 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
                                  Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
     }
 
+    int mpi_rank, mpi_size, rows_per_process, row_idx_start, row_numbers;
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    //1D distribution over sites 
+    rows_per_process = (N + mpi_size - 1) / mpi_size;
+    row_idx_start = mpi_rank * rows_per_process;
+    row_numbers = std::max(0, std::min(rows_per_process, N - row_idx_start));
+    std::cout << "poisson: rank " << mpi_rank << " handles rows from " << row_idx_start << " to " << (row_idx_start + row_numbers - 1) << std::endl;
+
+    // poisson_gridless_mpi(p.num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
+    //                      gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+    //                      gpubuf.site_charge, gpubuf.site_potential, row_idx_start, row_numbers);
+
     poisson_gridless_gpu(p.num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                          gpubuf.site_charge, gpubuf.site_potential);

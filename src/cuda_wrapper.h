@@ -74,9 +74,9 @@ void Assemble_K_sparsity(const double *posx, const double *posy, const double *p
                          int **contact_left_col_indices, int **contact_left_row_ptr, int *contact_left_nnz, 
                          int **contact_right_col_indices, int **contact_right_row_ptr, int *contact_right_nnz);
 
-//*************************************
-// Field solver modules / gpu_Device.cu
-//*************************************
+//***************************************************
+// Field solver modules on single GPU / gpu_Device.cu
+//***************************************************
 
 void get_gpu_info(char *gpu_string, int dev);
 
@@ -111,6 +111,12 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const double *posx, const double *posy, const double *posz,
                           const int *site_charge, double *site_potential);
 
+void poisson_gridless_mpi(const int num_atoms_contact, const int pbc, const int N, const double *lattice,
+                          const double *sigma, const double *k,
+                          const double *posx, const double *posy, const double *posz,
+                          const int *site_charge, double *site_potential_local, 
+                          const int row_idx_start, const int row_numbers);
+
 // Updates the site-resolved dissipated power (gpubuf.site_power) using a graph-based current flow solver
 void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int N, const int num_source_inj, const int num_ground_ext,
                       const double Vd, const int pbc, const double high_G, const double low_G,
@@ -128,4 +134,10 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
 #ifndef COMPILE_WITH_TESTS
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff);
 #endif
+
+//**********************************************************************
+// Field solver modules - distributed GPU implementation / mpi_Device.cu
+//**********************************************************************
+
+
 }
