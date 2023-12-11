@@ -66,7 +66,7 @@ public:
     double T_bg;                            // global background temperature
     bool pbc;                               // is device periodic in the lateral directions?
     std::vector<double> lattice;            // size of device box
-    double imacro;                          // macroscopic current
+    double imacro = 0.0;                    // macroscopic current
 
     // Site attributes:
     std::vector<double> site_x;
