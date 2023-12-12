@@ -60,10 +60,10 @@ int cpu_solve(
     PetscCall(MatGetOwnershipRangeColumn(A, &A_col_rstart, &A_col_rend));
     PetscCall(VecGetOwnershipRange(b, &b_rstart, &b_rend));
     PetscCall(VecGetOwnershipRange(x, &x_rstart, &x_rend));
-    std::cout << "rank " << rank << " A_row_rstart " << A_row_rstart << " A_row_rend " << A_row_rend << std::endl;
-    std::cout << "rank " << rank << " A_col_rstart " << A_col_rstart << " A_col_rend " << A_col_rend << std::endl;
-    std::cout << "rank " << rank << " b_rstart " << b_rstart << " b_rend " << b_rend << std::endl;
-    std::cout << "rank " << rank << " x_rstart " << x_rstart << " x_rend " << x_rend << std::endl;
+    // std::cout << "rank " << rank << " A_row_rstart " << A_row_rstart << " A_row_rend " << A_row_rend << std::endl;
+    // std::cout << "rank " << rank << " A_col_rstart " << A_col_rstart << " A_col_rend " << A_col_rend << std::endl;
+    // std::cout << "rank " << rank << " b_rstart " << b_rstart << " b_rend " << b_rend << std::endl;
+    // std::cout << "rank " << rank << " x_rstart " << x_rstart << " x_rend " << x_rend << std::endl;
 
     KSP ksp;
     PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
@@ -189,10 +189,10 @@ int gpu_solve(
     PetscCall(MatGetOwnershipRangeColumn(A, &A_col_rstart, &A_col_rend));
     PetscCall(VecGetOwnershipRange(b, &b_rstart, &b_rend));
     PetscCall(VecGetOwnershipRange(x, &x_rstart, &x_rend));
-    std::cout << "rank " << rank << " A_row_rstart " << A_row_rstart << " A_row_rend " << A_row_rend << std::endl;
-    std::cout << "rank " << rank << " A_col_rstart " << A_col_rstart << " A_col_rend " << A_col_rend << std::endl;
-    std::cout << "rank " << rank << " b_rstart " << b_rstart << " b_rend " << b_rend << std::endl;
-    std::cout << "rank " << rank << " x_rstart " << x_rstart << " x_rend " << x_rend << std::endl;
+    // std::cout << "rank " << rank << " A_row_rstart " << A_row_rstart << " A_row_rend " << A_row_rend << std::endl;
+    // std::cout << "rank " << rank << " A_col_rstart " << A_col_rstart << " A_col_rend " << A_col_rend << std::endl;
+    // std::cout << "rank " << rank << " b_rstart " << b_rstart << " b_rend " << b_rend << std::endl;
+    // std::cout << "rank " << rank << " x_rstart " << x_rstart << " x_rend " << x_rend << std::endl;
 
     KSP ksp;
     PetscCall(KSPCreate(MPI_COMM_WORLD, &ksp));
@@ -220,18 +220,22 @@ int gpu_solve(
     PetscCall(VecGetArray(x, &solution));
     double difference = 0;
     double sum_ref = 0;
+    double sum_b = 0;
     for (int i = 0; i < rows_per_rank; ++i) {
         difference += std::sqrt( (solution[i] - reference_solution[i+row_start_index]) * (solution[i] - reference_solution[i+row_start_index]) );
         sum_ref += std::sqrt( (reference_solution[i+row_start_index]) * (reference_solution[i+row_start_index]) );
+        sum_b += std::sqrt( (rhs[i+row_start_index]) * (rhs[i+row_start_index]) );
     }
 
 
     MPI_Reduce(&difference, &difference, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
     MPI_Reduce(&sum_ref, &sum_ref, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&sum_b, &sum_b, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
     if(rank == 0){
         std::cout << "difference " << difference << std::endl;
         std::cout << "sum_ref " << sum_ref << std::endl;
-        std::cout << difference/sum_ref << std::endl;
+        std::cout << "difference/sum_ref " << difference/sum_ref << std::endl;
+        std::cout << "sum_b " << sum_b << std::endl;
         if(difference < relative_tolerance * sum_ref + absolute_tolerance){
             *correct_solution = true;
         } else {

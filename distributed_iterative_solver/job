@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #SBATCH --job-name="petsc_test"
 #SBATCH --account="s1212"
-#SBATCH --time=00:03:00
+#SBATCH --time=10:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-core=1
 #SBATCH --ntasks-per-node=1
@@ -12,3 +12,4 @@
 export MPICH_RDMA_ENABLED_CUDA=1
 
 srun ./main
+
