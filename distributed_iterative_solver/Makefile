@@ -11,38 +11,18 @@
 # LDFLAGS = -L"${CUDA_ROOT}/lib64" -L"${MPI_ROOT}/lib" -L"${MKL_ROOT}/lib/intel64" -L"${PETSC_ROOT}/lib" -L"${PETSC_ARCH_ROOT}/lib" -lpetsc -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmkl_intel_lp64 -lmkl_gnu_thread -lm -lmkl_core -lmpi
 
 
-
-# # The following variable must either be a path to petsc.pc or just "petsc" if petsc.pc
-# # has been installed to a system location or can be found in PKG_CONFIG_PATH.
-# petsc.pc := $(PETSC_DIR)/$(PETSC_ARCH)/lib/pkgconfig/PETSc.pc
-
-# # Additional libraries that support pkg-config can be added to the list of PACKAGES below.
-# PACKAGES := $(petsc.pc)
-
-# CC = g++
-# NVCC = nvcc
-
-# CFLAGS_OTHER := $(shell pkg-config --cflags-only-other $(PACKAGES))
-# CFLAGS := $(shell pkg-config --variable=cflags_extra $(PACKAGES)) $(CFLAGS_OTHER)
-# CCFLAGS := $(shell pkg-config --variable=CCflags_extra $(PACKAGES)) $(CFLAGS_OTHER)
-# CCFLAGS += -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include"
-# NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I${CUDA_HOME}/include -I"${PETSC_DIR}/include"
-
-# LDFLAGS := $(shell pkg-config --libs-only-L --libs-only-other $(PACKAGES))
-# LDFLAGS += $(patsubst -L%, $(shell pkg-config --variable=ldflag_rpath $(PACKAGES))%, $(shell pkg-config --libs-only-L $(PACKAGES)))
-# LDFLAGS += -L"${CUDA_HOME}/lib64" -L"${MPICH_DIR}/lib" -L"${MKL_ROOT}/lib/intel64"
-# LDLIBS := $(shell pkg-config --libs-only-l $(PACKAGES)) -lm
-# LDLIBS += -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmpich
-
-
 NVCC = nvcc
 
-CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${PETSC_DIR}/include"
-NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I${CUDA_HOME}/include -I"${PETSC_DIR}/include"
-LDFLAGS = -L"${CUDA_HOME}/lib64" -L"${MPICH_DIR}/lib" -L"${PETSC_DIR}/lib" -L"/opt/cray/pe/lib64"
-LDLIBS = -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmpich -lcraypetsc_crayclang_real
+# madman installed petsc with cuda, but i do not know with which mpi version it was compiled
+# PETSC_DIR=/apps/daint/UES/6.0.UP02/sandbox-ws/petsc-maint
+# PETSC_ARCH=arch-gnu-xc30-daint-cuda
 
-SOURCES= main.cpp utils.cpp test.cu
+CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
+NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I${CUDA_HOME}/include -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
+LDFLAGS = -L"${CUDA_HOME}/lib64" -L"${MPICH_DIR}/lib" -L"${PETSC_DIR}/${PETSC_ARCH}/lib" -L"${PETSC_DIR}/lib" -L"/opt/cray/pe/lib64"
+LDLIBS = -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmpich -lpetsc
+
+SOURCES= main.cpp utils.cpp test.cu petsc_implementations_to_compare.cpp
 
 CPP_SOURCES = $(filter %.cpp, $(SOURCES))
 CU_SOURCES = $(filter %.cu, $(SOURCES))
