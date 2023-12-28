@@ -11,6 +11,11 @@
 int main(int argc, char **argv) {
     // older version of petsc on daint
     // replace by PetscCall()
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+
+    std::cout << "provided " << provided << std::endl;
+
     CHKERRQ(PetscInitialize(&argc, &argv, NULL, NULL));
     int rank, size;
     MPI_Comm_size(MPI_COMM_WORLD, &size);
@@ -18,8 +23,11 @@ int main(int argc, char **argv) {
 
 
     std::cout << "Hello World from rank " << rank << std::endl;
-    int matrix_size = 7302;
-    int nnz = 186684;
+    // int matrix_size = 7302;
+    // int nnz = 186684;
+    int matrix_size = 70630;
+    int nnz = 1719652;
+
 
     int rows_per_rank = matrix_size / size;
     int remainder = matrix_size % size;
@@ -39,33 +47,37 @@ int main(int argc, char **argv) {
     double *rhs = new double[matrix_size];
     double *reference_solution = new double[matrix_size];
 
-    std::string data_path = "/scratch/snx3000/amaeder/7k_piz_daint_data";
-    std::string save_path ="/scratch/snx3000/amaeder/measurements/7k/";
+    // std::string data_path = "/scratch/snx3000/amaeder/7k_piz_daint_data";
+    // std::string save_path ="/scratch/snx3000/amaeder/measurements/scaling_measurement_7k/";
+    std::string data_path = "/scratch/snx3000/amaeder/80k_piz_daint_data";
+    std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement_80k/";
 
-    int number_of_measurements = 20;
-    int number_of_kmc_steps = 500;
+    // int number_of_measurements = 20;
+    // int number_of_kmc_steps = 50;
+    int number_of_measurements = 22;
+    int number_of_kmc_steps = 10;
 
-    int max_iterations = 1000;
+    int max_iterations = 5000;
     double relative_tolerance = 1e-15;
-    double absolute_tolerance = 1e-20;
+    double absolute_tolerance = 1e-30;
     double divergence_tolerance = 1e+50;
 
     int number_of_methods = 6;
     std::string method_names[number_of_methods] = {
         "cg_jacobi",
+        "cg_gropp_jacobi",
         "bicg_jacobi",
-        "gmres_jacobi",
         "cg_sor",
-        "bicg_sor",
-        "gmres_sor"
+        "cg_gropp_sor",
+        "bicg_sor"
     };
     KSPType solver_types[number_of_methods] = {
         KSPCG,
+        KSPGROPPCG,
         KSPBCGS,
-        KSPGMRES,
         KSPCG,
-        KSPBCGS,
-        KSPGMRES
+        KSPGROPPCG,
+        KSPBCGS
     };
     PCType preconditioners[number_of_methods] = {
         PCJACOBI,
@@ -75,6 +87,26 @@ int main(int argc, char **argv) {
         PCSOR,
         PCSOR
     };
+    // int number_of_methods = 4;
+    // std::string method_names[number_of_methods] = {
+    //     "cg_jacobi",
+    //     "bicg_jacobi",
+    //     "cg_sor",
+    //     "bicg_sor"
+    // };
+    // KSPType solver_types[number_of_methods] = {
+    //     KSPCG,
+    //     KSPBCGS,
+    //     KSPCG,
+    //     KSPBCGS
+    // };
+    // PCType preconditioners[number_of_methods] = {
+    //     PCJACOBI,
+    //     PCJACOBI,
+    //     PCSOR,
+    //     PCSOR
+    // };
+
     int iterations[number_of_methods][number_of_kmc_steps];
 
 
@@ -98,6 +130,10 @@ int main(int argc, char **argv) {
         load_binary_array<int>(col_indices_filename, col_indices, nnz);
         load_binary_array<double>(rhs_filename, rhs, matrix_size);
         load_binary_array<double>(solution_filename, reference_solution, matrix_size);
+
+
+    
+
 
 
         int *row_ptr_local = new int[rows_per_rank+1];
@@ -154,7 +190,8 @@ int main(int argc, char **argv) {
 
         for(int method = 0; method < number_of_methods; method++){
             std::ofstream outputFile_times;
-            std::string path_times = save_path + method_names[method] + "_times"+std::to_string(step)+ "_" + std::to_string(size) + "_" + std::to_string(rank) + ".txt";
+            std::string path_times = save_path + method_names[method] + "_gpu_times"+ std::to_string(number_of_kmc_steps) + "_" + std::to_string(step) 
+                + "_" + std::to_string(size) + "_" + std::to_string(rank) + ".txt";
             outputFile_times.open(path_times);
             if(outputFile_times.is_open()){
                 for(int i = 0; i < number_of_measurements; i++){
@@ -177,7 +214,7 @@ int main(int argc, char **argv) {
     if(rank == 0){
         for(int method = 0; method < number_of_methods; method++){
             std::ofstream outputFile_iterations;
-            std::string path_iterations = save_path + method_names[method] + "_iterations.txt";
+            std::string path_iterations = save_path + method_names[method] + "_iterations"+ std::to_string(number_of_kmc_steps) +"_.txt";
             outputFile_iterations.open(path_iterations);
             if(outputFile_iterations.is_open()){
                 for(int i = 0; i < number_of_kmc_steps; i++){

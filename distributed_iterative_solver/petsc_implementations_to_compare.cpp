@@ -161,21 +161,21 @@ int gpu_solve(
 
     Vec x;
     PetscCall(VecCreate(MPI_COMM_WORLD,&x));
-    PetscCall(VecSetSizes(x, PETSC_DECIDE, matrix_size));
+    PetscCall(VecSetSizes(x, rows_per_rank, matrix_size));
     PetscCall(VecSetType(x, vec_type));
     PetscCall(VecAssemblyBegin(x));
     PetscCall(VecAssemblyEnd(x));
 
     Vec b;
     PetscCall(VecCreate(MPI_COMM_WORLD,&b));
-    PetscCall(VecSetSizes(b, PETSC_DECIDE, matrix_size));
+    PetscCall(VecSetSizes(b, rows_per_rank, matrix_size));
     PetscCall(VecSetType(b, vec_type));    
     PetscCall(VecSetValues(b, rows_per_rank, linear_range+row_start_index, rhs+row_start_index, INSERT_VALUES));
     PetscCall(VecAssemblyBegin(b));
     PetscCall(VecAssemblyEnd(b));
 
     Mat A;
-    PetscCall(MatCreateMPIAIJWithArrays(MPI_COMM_WORLD, rows_per_rank, PETSC_DECIDE, matrix_size, matrix_size,
+    PetscCall(MatCreateMPIAIJWithArrays(MPI_COMM_WORLD, rows_per_rank, rows_per_rank, matrix_size, matrix_size,
         row_ptr_local, col_indices_local, data_local, &A));
     PetscCall(MatSetType(A, mat_type));
     PetscCall(MatAssemblyBegin(A, MAT_FINAL_ASSEMBLY));
@@ -189,6 +189,7 @@ int gpu_solve(
     PetscCall(MatGetOwnershipRangeColumn(A, &A_col_rstart, &A_col_rend));
     PetscCall(VecGetOwnershipRange(b, &b_rstart, &b_rend));
     PetscCall(VecGetOwnershipRange(x, &x_rstart, &x_rend));
+    // std::cout << "rank " << rank << " row_start_index " << row_start_index << " rows_per_rank " << rows_per_rank << std::endl;
     // std::cout << "rank " << rank << " A_row_rstart " << A_row_rstart << " A_row_rend " << A_row_rend << std::endl;
     // std::cout << "rank " << rank << " A_col_rstart " << A_col_rstart << " A_col_rend " << A_col_rend << std::endl;
     // std::cout << "rank " << rank << " b_rstart " << b_rstart << " b_rend " << b_rend << std::endl;
@@ -203,11 +204,13 @@ int gpu_solve(
     PetscCall(PCSetType(pc, preconditioner));
     PetscCall(KSPSetTolerances(ksp, relative_tolerance, absolute_tolerance, divergence_tolerance, max_iterations));
 
+    MPI_Barrier(MPI_COMM_WORLD);
     *time_taken = -omp_get_wtime();
     PetscCall(PetscDeviceContextSynchronize(dctx));
     PetscCall(KSPSolve(ksp,b,x));
     PetscCall(PetscDeviceContextSynchronize(dctx));
     *time_taken += omp_get_wtime();
+    MPI_Barrier(MPI_COMM_WORLD);
 
     PetscCall(KSPGetIterationNumber(ksp, iterations));
     // PetscCall(KSPGetSolution(ksp,x));
