@@ -10,6 +10,7 @@
 # NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I${CUDA_ROOT}/include -I"${MKL_ROOT}/include" -I"${PETSC_ROOT}/include"
 # LDFLAGS = -L"${CUDA_ROOT}/lib64" -L"${MPI_ROOT}/lib" -L"${MKL_ROOT}/lib/intel64" -L"${PETSC_ROOT}/lib" -L"${PETSC_ARCH_ROOT}/lib" -lpetsc -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmkl_intel_lp64 -lmkl_gnu_thread -lm -lmkl_core -lmpi
 
+# /opt/cray/pe/tpsl/20.03.2/GNU/82/sandybridge/lib
 
 NVCC = nvcc
 
@@ -20,9 +21,9 @@ NVCC = nvcc
 CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
 NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I${CUDA_HOME}/include -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
 LDFLAGS = -L"${CUDA_HOME}/lib64" -L"${MPICH_DIR}/lib" -L"${PETSC_DIR}/${PETSC_ARCH}/lib" -L"${PETSC_DIR}/lib" -L"/opt/cray/pe/lib64"
-LDLIBS = -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmpich -lpetsc
+LDLIBS = -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmpich -lpetsc -lm -lHYPRE
 
-SOURCES= main.cpp utils.cpp test.cu petsc_implementations_to_compare.cpp
+SOURCES= main_hypre.cpp utils.cpp test.cu petsc_implementations_to_compare.cpp
 
 CPP_SOURCES = $(filter %.cpp, $(SOURCES))
 CU_SOURCES = $(filter %.cu, $(SOURCES))

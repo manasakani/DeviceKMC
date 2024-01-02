@@ -7,7 +7,11 @@
 
 #include <petscksp.h>
 #include <petscvec.h>
-#include <petscdevice.h> 
+#include <petscdevice.h>
+
+// export MPICH_MAX_THREAD_SAFETY=multiple
+// export MPICH_ASYNC_PROGRESS=1
+
 int main(int argc, char **argv) {
     // older version of petsc on daint
     // replace by PetscCall()
@@ -21,12 +25,23 @@ int main(int argc, char **argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-
     std::cout << "Hello World from rank " << rank << std::endl;
-    // int matrix_size = 7302;
-    // int nnz = 186684;
-    int matrix_size = 70630;
-    int nnz = 1719652;
+
+    int matsize = 80;
+    std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
+    std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
+
+    int matrix_size;
+    int nnz;     
+    if(matsize == 7){
+        matrix_size = 7302;
+        nnz = 186684;        
+    }
+    else{
+        matrix_size = 70630;
+        nnz = 1719652;        
+    }
+
 
 
     int rows_per_rank = matrix_size / size;
@@ -46,15 +61,13 @@ int main(int argc, char **argv) {
     int *col_indices = new int[nnz];
     double *rhs = new double[matrix_size];
     double *reference_solution = new double[matrix_size];
+    // precondition the system myself
+    double *diagonal = new double[matrix_size];
 
-    // std::string data_path = "/scratch/snx3000/amaeder/7k_piz_daint_data";
-    // std::string save_path ="/scratch/snx3000/amaeder/measurements/scaling_measurement_7k/";
-    std::string data_path = "/scratch/snx3000/amaeder/80k_piz_daint_data";
-    std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement_80k/";
 
     // int number_of_measurements = 20;
     // int number_of_kmc_steps = 50;
-    int number_of_measurements = 22;
+    int number_of_measurements = 30;
     int number_of_kmc_steps = 10;
 
     int max_iterations = 5000;
@@ -62,31 +75,31 @@ int main(int argc, char **argv) {
     double absolute_tolerance = 1e-30;
     double divergence_tolerance = 1e+50;
 
-    int number_of_methods = 6;
-    std::string method_names[number_of_methods] = {
-        "cg_jacobi",
-        "cg_gropp_jacobi",
-        "bicg_jacobi",
-        "cg_sor",
-        "cg_gropp_sor",
-        "bicg_sor"
-    };
-    KSPType solver_types[number_of_methods] = {
-        KSPCG,
-        KSPGROPPCG,
-        KSPBCGS,
-        KSPCG,
-        KSPGROPPCG,
-        KSPBCGS
-    };
-    PCType preconditioners[number_of_methods] = {
-        PCJACOBI,
-        PCJACOBI,
-        PCJACOBI,
-        PCSOR,
-        PCSOR,
-        PCSOR
-    };
+    // int number_of_methods = 6;
+    // std::string method_names[number_of_methods] = {
+    //     "cg_jacobi",
+    //     "cg_gropp_jacobi",
+    //     "bicg_jacobi",
+    //     "cg_sor",
+    //     "cg_gropp_sor",
+    //     "bicg_sor"
+    // };
+    // KSPType solver_types[number_of_methods] = {
+    //     KSPCG,
+    //     KSPGROPPCG,
+    //     KSPBCGS,
+    //     KSPCG,
+    //     KSPGROPPCG,
+    //     KSPBCGS
+    // };
+    // PCType preconditioners[number_of_methods] = {
+    //     PCJACOBI,
+    //     PCJACOBI,
+    //     PCJACOBI,
+    //     PCSOR,
+    //     PCSOR,
+    //     PCSOR
+    // };
     // int number_of_methods = 4;
     // std::string method_names[number_of_methods] = {
     //     "cg_jacobi",
@@ -106,13 +119,31 @@ int main(int argc, char **argv) {
     //     PCSOR,
     //     PCSOR
     // };
+    int number_of_methods = 4;
+    std::string method_names[number_of_methods] = {
+        "cg_jacobi",
+        "cg_gropp_jacobi",
+        "bicg_jacobi",
+        "minres_jacobi"
+    };
+    KSPType solver_types[number_of_methods] = {
+        KSPCG,
+        KSPGROPPCG,
+        KSPBICG,
+        KSPMINRES
+    };
+    PCType preconditioners[number_of_methods] = {
+        PCNONE,
+        PCNONE,
+        PCNONE,
+        PCNONE
+    };
 
     int iterations[number_of_methods][number_of_kmc_steps];
 
 
 
 
-    bool correct_solution_global = true;
     for(int step = 0; step < number_of_kmc_steps; step++){
         std::cout << "rank " << rank << " step " << step << std::endl;
         bool correct_solution_iteration;
@@ -132,8 +163,11 @@ int main(int argc, char **argv) {
         load_binary_array<double>(solution_filename, reference_solution, matrix_size);
 
 
-    
-
+        // precondition the system myself
+        extract_diagonal(data, row_ptr, col_indices, diagonal, matrix_size);
+        symmetric_precondition_matrix(data, row_ptr, col_indices, diagonal, matrix_size);
+        precondition_vector(rhs, diagonal, matrix_size);
+        unpreecondition_vector(reference_solution, diagonal, matrix_size);
 
 
         int *row_ptr_local = new int[rows_per_rank+1];
@@ -181,7 +215,6 @@ int main(int argc, char **argv) {
                     &times[method][measurement],
                     &correct_solution_iteration
                 );
-                correct_solution_global = correct_solution_global && correct_solution_iteration;
             }
         }
 
@@ -190,7 +223,7 @@ int main(int argc, char **argv) {
 
         for(int method = 0; method < number_of_methods; method++){
             std::ofstream outputFile_times;
-            std::string path_times = save_path + method_names[method] + "_gpu_times"+ std::to_string(number_of_kmc_steps) + "_" + std::to_string(step) 
+            std::string path_times = save_path + method_names[method] + "_gpu_times"+ std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) + "_" + std::to_string(step) 
                 + "_" + std::to_string(size) + "_" + std::to_string(rank) + ".txt";
             outputFile_times.open(path_times);
             if(outputFile_times.is_open()){
@@ -207,14 +240,11 @@ int main(int argc, char **argv) {
 
     }
 
-    if(rank == 0){
-        std::cout << "Correct measurements: " << correct_solution_global << std::endl;
-    }
     
     if(rank == 0){
         for(int method = 0; method < number_of_methods; method++){
             std::ofstream outputFile_iterations;
-            std::string path_iterations = save_path + method_names[method] + "_iterations"+ std::to_string(number_of_kmc_steps) +"_.txt";
+            std::string path_iterations = save_path + method_names[method] + "_iterations" + std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) +"_.txt";
             outputFile_iterations.open(path_iterations);
             if(outputFile_iterations.is_open()){
                 for(int i = 0; i < number_of_kmc_steps; i++){
@@ -235,7 +265,7 @@ int main(int argc, char **argv) {
     delete[] col_indices;
     delete[] rhs;
     delete[] reference_solution;
-
+    delete[] diagonal;
 
     CHKERRQ(PetscFinalize());
     return 0;
