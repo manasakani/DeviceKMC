@@ -122,6 +122,9 @@ int main(int argc, char **argv) {
     int jlower = row_start_index;
     int jupper = row_end_index;
 
+    // not installed with cuda support
+    // HYPRE_SetMemoryLocation(HYPRE_MEMORY_DEVICE);
+
     std::cout << "Creating matrix" << std::endl;
     HYPRE_IJMatrixCreate(MPI_COMM_WORLD, ilower, iupper, jlower, jupper, &ij_matrix);
     HYPRE_IJMatrixSetObjectType(ij_matrix, HYPRE_PARCSR);

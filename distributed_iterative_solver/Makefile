@@ -19,11 +19,11 @@ NVCC = nvcc
 # PETSC_ARCH=arch-gnu-xc30-daint-cuda
 
 CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
-NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I${CUDA_HOME}/include -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
-LDFLAGS = -L"${CUDA_HOME}/lib64" -L"${MPICH_DIR}/lib" -L"${PETSC_DIR}/${PETSC_ARCH}/lib" -L"${PETSC_DIR}/lib" -L"/opt/cray/pe/lib64"
-LDLIBS = -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmpich -lpetsc -lm -lHYPRE
+NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
+LDFLAGS = -L"${MPICH_DIR}/lib" -L"${PETSC_DIR}/${PETSC_ARCH}/lib" -L"${PETSC_DIR}/lib" -L"/opt/cray/pe/lib64"
+LDLIBS = -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmpich -lpetsc -lm
 
-SOURCES= main_hypre.cpp utils.cpp test.cu petsc_implementations_to_compare.cpp
+SOURCES= main_petsc.cpp utils.cpp utils_gpu.cu petsc_implementations_to_compare.cpp
 
 CPP_SOURCES = $(filter %.cpp, $(SOURCES))
 CU_SOURCES = $(filter %.cu, $(SOURCES))

@@ -5,6 +5,9 @@
 #include <petscksp.h>
 #include <petscvec.h>
 #include <petscdevice.h> 
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include <unistd.h> 
 
 int cpu_solve(
     int rank,
