@@ -3,3 +3,4 @@ main
 *.out
 test_data/*
 core*
+data/*
