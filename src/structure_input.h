@@ -5,9 +5,6 @@
 #include <vector>
 #include <string>
 
-// #ifndef STRUCTURE_H
-// #define STRUCTURE_H
-
 unsigned int rnd_seed_kmc = 1;
 
 int numlayers = 5;
@@ -42,14 +39,12 @@ double layer_3_E_rec_1 = 0.0;
 double layer_3_E_diff_2 = 1.09;
 double layer_3_E_diff_3 = 0.76;
 double layer_3_start_x = 49.3309;
-double layer_3_end_x = 54.33894;
+double layer_3_end_x = 54.33894; // CHANGED
 
 std::string layer_4_type = "contact";
-double layer_4_E_gen_0 = 0.0;
+double layer_4_E_gen_0 = 1.73;
 double layer_4_E_rec_1 = 0.0;
 double layer_4_E_diff_2 = 0.0;
-double layer_4_E_diff_3 = 0.76; // CHANGED
+double layer_4_E_diff_3 = 2.8; // CHANGED
 double layer_4_start_x = 54.33894;
 double layer_4_end_x = 90.0;
-
-// #endif

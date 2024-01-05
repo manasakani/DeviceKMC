@@ -20,8 +20,8 @@ def read_xyz(filename):
                 pass
             elif len(line.split()) == 0:
                 pass
-            elif line.split()[0] == 'd':
-                pass
+            # elif line.split()[0] == 'd':
+            #     pass
             elif line.split()[0] in ['Cell:', 'cell:']:
                 lattice = line.split()[1:4]
             elif len(line.split()) == 6:
@@ -56,6 +56,9 @@ def make_image(names, positions, potential, temperature, structure_folder, imnam
         elif element in ['Ti', 'N', 'Hf', 'O']:
             r, g, b = to_rgb('gray')
             colors.append((r, g, b, 0.1))
+        elif element in ['d']:
+            r, g, b = to_rgb('gray')
+            colors.append((r, g, b, 0.05))
         else:
             r, g, b = to_rgb('gray')
             colors.append((r, g, b, 0.0))

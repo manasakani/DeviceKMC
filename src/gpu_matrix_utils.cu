@@ -344,12 +344,12 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     size_t MVBufferSize;
     void *MVBuffer = 0;
     status = cusparseSpMV_bufferSize(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                          vecY, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &MVBufferSize);
+                          vecY, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &MVBufferSize);  
     gpuErrchk( cudaMalloc((void**)&MVBuffer, sizeof(double) * MVBufferSize) );
 
     // Initialize the residual and conjugate vectors
     // r = A*y - x & p = -r
-    status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+    status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA,                         
                           vecY, zero_d, vecR, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);           // r = A*y
     CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                            // r = -x + r
     CheckCublasError( cublasDcopy(handle_cublas, m, d_r, 1, d_p, 1) );                                    // p = r

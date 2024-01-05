@@ -9,7 +9,7 @@
 #include <omp.h>
 #include <map>
 
-#include <mpi.h>
+// #include <mpi.h>
 
 // forward declaration of KMC Parameters class
 class KMCParameters;
@@ -81,6 +81,7 @@ public:
     std::vector<double> atom_z;
     std::vector<double> atom_ind;
     std::vector<ELEMENT> atom_element;
+    std::vector<int> atom_charge;
 
     // Fields:
     std::vector<int> site_charge;           // charge of each site

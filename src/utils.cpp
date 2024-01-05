@@ -206,6 +206,47 @@ void sort_by_x(std::vector<double> &x, std::vector<double> &y, std::vector<doubl
     elements = std::move(elements_sorted);
 }
 
+void sort_by_xyz(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, std::vector<ELEMENT> &elements, std::vector<double> lattice)
+{
+    const std::size_t size = x.size();
+    std::vector<std::size_t> indices(size);
+    std::iota(indices.begin(), indices.end(), 0);
+
+    auto cmp = [&x, &y, &z](std::size_t i, std::size_t j)
+    {
+        if (x[i] != x[j]) {
+            return x[i] < x[j];
+        }
+        else if (y[i] != y[j]) {
+            return y[i] < y[j];
+        }
+        else {
+            return z[i] < z[j];
+        }
+    };
+
+    std::sort(indices.begin(), indices.end(), cmp);
+
+    std::vector<double> x_sorted(size);
+    std::vector<double> y_sorted(size);
+    std::vector<double> z_sorted(size);
+    std::vector<ELEMENT> elements_sorted(size);
+
+    for (std::size_t i = 0; i < size; ++i)
+    {
+        const std::size_t index = indices[i];
+        x_sorted[i] = x[index];
+        y_sorted[i] = y[index];
+        z_sorted[i] = z[index];
+        elements_sorted[i] = elements[index];
+    }
+
+    x = std::move(x_sorted);
+    y = std::move(y_sorted);
+    z = std::move(z_sorted);
+    elements = std::move(elements_sorted);
+}
+
 void center_coords(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, int N, bool dim[])
 {
     double min_x = *min_element(x.begin(), x.end()); // x[0];

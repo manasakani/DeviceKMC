@@ -11,7 +11,7 @@ Copyright 2023 ETH Zurich and the Computational Nanoelectronics Group. All right
 #include <stdlib.h>
 #include <chrono>
 #include <map>
-#include <mpi.h>
+// #include <mpi.h>
 
 #include "KMCProcess.h"
 #include "utils.h"
@@ -30,23 +30,33 @@ int main(int argc, char **argv)
     // Setup accelerators (GPU/Multicore)
     //***********************************
 
-    int mpi_rank, mpi_size;
-    MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
-    if (!mpi_rank)
-    {
+    // int mpi_rank, mpi_size;
+    // MPI_Init(&argc, &argv);
+    // MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+    // MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+    // if (!mpi_rank)
+    // {
 #ifdef USE_CUDA
     char gpu_string[1000];
     get_gpu_info(gpu_string, 0);
-    // printf("Will use this GPU: %s\n", gpu_string);
-    printf("Using %i MPI process(es) with %s GPU(s)\n", mpi_size, gpu_string);
+    printf("Will use this GPU: %s\n", gpu_string);
+    // printf("Using %i MPI process(es) with %s GPU(s)\n", mpi_size, gpu_string);
     set_gpu(0);
 #else
     std::cout << "Simulation will not use any accelerators.\n";
 #endif
+
+#pragma omp parallel
+{
+    #pragma omp single
+    {
+        int num_threads = omp_get_num_threads();
+        std::cout << "Number of OMP threads: " << num_threads << std::endl;
     }
-    MPI_Barrier(MPI_COMM_WORLD);
+}
+
+    // }
+    // MPI_Barrier(MPI_COMM_WORLD);
 
     //***************************************
     // Parse inputs and setup output logging
@@ -79,12 +89,12 @@ int main(int argc, char **argv)
         }
     }
     else
-    {
+    {   
         xyz_files.push_back(p.atom_xyz_file);
         xyz_files.push_back(p.interstitial_xyz_file);
     }
 
-    if (!mpi_rank){ std::cout << "Constructing device...\n"; }
+    std::cout << "Constructing device...\n"; 
     Device device(xyz_files, p);                                                    // the simulation domain and field solver functions
 
     std::chrono::duration<double> diff_laplacian;
@@ -106,8 +116,8 @@ int main(int argc, char **argv)
     // Initialize the KMC Simulation
     //******************************
 
-    KMCProcess sim(&device, p.freq);                                                // stores the division of the device into KMC regions
-                                                                                    // and the energy landscape parameters
+    KMCProcess sim(device, p.freq);                                                // stores the division of the device into KMC regions
+                                                                                   // update the site-site combinations where events are possible
     //*****************************
     // Setup and handle GPU buffers
     //*****************************
@@ -137,7 +147,7 @@ int main(int argc, char **argv)
     for (int vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
     {
 
-        MPI_Barrier(MPI_COMM_WORLD);                                                // ensure that all MPI ranks have up-to-date gpubufs and loop vars  
+        // MPI_Barrier(MPI_COMM_WORLD);                                                // ensure that all MPI ranks have up-to-date gpubufs and loop vars  
 
         Vd = p.V_switch[vt_counter];
         t = p.t_switch[vt_counter];
@@ -158,7 +168,7 @@ int main(int argc, char **argv)
 
         kmc_time = 0.0;
         kmc_step_count = 0;
-        device.writeSnapshot("snapshot_init.xyz", folder_name);
+        // device.writeSnapshot("snapshot_init.xyz", folder_name);
 
         // ********************************************************
         // ***************** MAIN KMC LOOP ************************
@@ -182,15 +192,25 @@ int main(int argc, char **argv)
             {
                 std::map<std::string, int> chargeMap = device.updateCharge(gpubuf, p.metals);           // update site-resolved charge
                 device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);         // update site-resolved potential
-
                 resultMap.insert(chargeMap.begin(), chargeMap.end());                                   // update output file with collected metrics
             }
             auto t_pot = std::chrono::steady_clock::now();
             diff_pot = t_pot - t0;
 
+            // generate xyz snapshot
+            if (!(kmc_step_count % p.log_freq))
+            {
+                std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
+                device.writeSnapshot(file_name, folder_name);
+            }
+
             // Execute events and update time
-            step_time = sim.executeKMCStep(gpubuf, device);                                             
-            kmc_time += step_time;                                                                      // internal simulation timescale
+            if (p.perturb_structure){                                  
+                step_time = sim.executeKMCStep(gpubuf, device);                                         // execute events on the structure
+                kmc_time += step_time;                                                                  // internal simulation timescale
+            } else {                                                                                    // run in IV or field-solver mode
+                kmc_time = t;
+            }
             auto t_perturb = std::chrono::steady_clock::now();
             diff_perturb = t_perturb - t_pot;
 
@@ -203,6 +223,7 @@ int main(int argc, char **argv)
 
                 auto t_power = std::chrono::steady_clock::now();
                 diff_power = t_power - t_perturb;
+                I_macro = device.imacro;
 
                 // Temperature
                 if (p.solve_heating_global || p.solve_heating_local)                                     // update site-resolved heat
@@ -228,17 +249,6 @@ int main(int argc, char **argv)
             }
             resultMap.clear();
 
-            // Load the macroscopic current in the output buffer
-            I_macro = device.imacro;
-            outputBuffer << "I_macro: " << I_macro << "\n";
-
-            // Compute the total dissipated power --> use reduction
-            double P_diss = 0;
-            for (int i = 0; i < device.N; i++)
-            {
-                P_diss += device.site_power[i];
-            }
-
             // dump print buffer into the output file
             if (!(kmc_step_count % p.output_freq))
             {
@@ -246,13 +256,6 @@ int main(int argc, char **argv)
                 outputBuffer.str(std::string());
             }
             kmc_step_count++;
-
-            // generate xyz snapshot
-            if (!(kmc_step_count % p.log_freq))
-            {
-                std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-                device.writeSnapshot(file_name, folder_name);
-            }
 
             if (I_macro > p.Icc)
             {
@@ -271,6 +274,7 @@ int main(int argc, char **argv)
             outputBuffer << "Total KMC Step: " << diff.count() << "\n";
             outputBuffer << "--------------------------------------";
         } // while (kmc_time < t)
+
 #ifdef USE_CUDA
         gpubuf.sync_GPUToHost(device);
 #endif
@@ -289,5 +293,5 @@ int main(int argc, char **argv)
     return 0;
 
     // Finalize MPI
-    MPI_Finalize();
+    // MPI_Finalize();
 }

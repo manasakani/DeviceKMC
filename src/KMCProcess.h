@@ -14,17 +14,22 @@ class KMCProcess{
 				
 	public:
 	    std::vector<Layer> layers;
-		std::vector<int> site_layer;										// layerID for each site
-		//std::string method;												// simulation type: rejection or rejection free?
-		double freq;                                                   	 	// attempt frequency of this set of events
-		KMCProcess(Device* device, double freq_); 
+		std::vector<int> site_layer;													// layerID for each site
+		//std::string method;															// simulation type: rejection or rejection free?
+		double freq;                                                   	 				// attempt frequency of this set of events
+		
+		std::vector<int> affected_neighborhood;											// indices of the site-neighbor pairs
 
-		// executes one step on the device and returns the time taken for it
-		double executeKMCStep(GPUBuffers gpubuf, Device &device);
-		// double executeKMCStep_gpu(GPUBuffers gpubuf, Device &device);
+		KMCProcess(Device &device, double freq_); 										// constructor divides the device up into layers and initializes events
+		void update_events_and_rates(Device &device, 									// updates all event_types and rates 
+									 EVENTTYPE *event_type, 
+									 double *event_prob); 
+		void execute_event(Device &device, EVENTTYPE sel_event_type, int i, int j);		// executes event of type sel_event_type between i and j			
+		void update_affected_neighborhood(int event_idx, Device &device);				// updates the affected_neighborhood of the KMC step
+		double executeKMCStep(GPUBuffers gpubuf, Device &device);						// executes one step on the device and returns the time taken for it
 		
 	private:
-		RandomNumberGenerator random_generator;							// random number generator object for this KMC process
+		RandomNumberGenerator random_generator;											// random number generator object for this KMC process
 		
 		// Physical Constants
 		double kB = 8.617333262e-5;        // [eV/K]

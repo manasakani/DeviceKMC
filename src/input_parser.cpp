@@ -121,6 +121,11 @@ KMCParameters::KMCParameters(std::string param_file){
 		if (line.find("solve_heating_local ") != std::string::npos) {
 			solve_heating_local = read_bool(line);
 		}
+
+		// Whether to execute events
+		if (line.find("perturb_structure ") != std::string::npos) {
+			perturb_structure = read_bool(line);
+		}
 		
 		// Biasing scheme
 		if (line.find("V_switch ") != std::string::npos) {
@@ -377,8 +382,8 @@ std::vector<std::string> KMCParameters::read_vec_string(std::string line){
 
 void KMCParameters::set_expression_parameters(){
 	high_G = G_coeff * 1;
-	low_G = G_coeff * 1e-7; // [S]
-	// low_G = G_coeff * 0.00000001;																				  	// [S]
+	low_G = G_coeff * 1e-8; // [S]
+	// low_G = G_coeff * 0.00000001;																				// [S]
 	k = 8.987552e9 / epsilon;   																				  	// [N m^2 / C^2]
     k_th_interface = k_th_non_vacancy + (k_th_vacancies - k_th_non_vacancy) * initial_vacancy_concentration; 		// [W/mK]
     tau = k_th_interface / (L_char * L_char * c_p * 1e6);                                                   	 	// Thermal rate constant [1/s]

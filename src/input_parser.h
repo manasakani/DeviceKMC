@@ -48,6 +48,7 @@ public:
     bool solve_current;
     bool solve_heating_global;
     bool solve_heating_local;
+    bool perturb_structure;
     
     // Biasing scheme
     std::vector<double> V_switch;
@@ -94,7 +95,7 @@ public:
 	double h_bar = 1.054571817e-34;    // [Js]
 	double h_bar_eV = 6.582119569e-16; // [eV]
 	double m_0 = 9.11e-31;             // [kg]
-	double eV_to_J = 1.6e-19;          // [C]
+	double eV_to_J = 1.60217663e-19;          // [C]
 	double m_e;			               // [kg]
     
 	// constructor reads the parameters from the input file

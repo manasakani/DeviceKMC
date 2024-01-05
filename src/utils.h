@@ -117,6 +117,9 @@ double site_dist(double pos1x, double pos1y, double pos1z,
 // sort coordinates by x-axis value
 void sort_by_x(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, std::vector<ELEMENT> &elements, std::vector<double> lattice);
 
+// sort coordinates by x-axis value, break ties with y-coordinate, break ties with z-coordinate
+void sort_by_xyz(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, std::vector<ELEMENT> &elements, std::vector<double> lattice);
+
 // shifts the first atom position to 0 in the selected dims. Expects the coordinates to be sorted!
 void center_coords(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, int N, bool dim[]);
 
