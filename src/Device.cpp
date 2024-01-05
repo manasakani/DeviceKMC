@@ -852,22 +852,6 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     M[0] = -loop_G * Vd;                                                                    // max Current extraction (ground)
     M[1] = loop_G * Vd;                                                                     // max Current injection (source)
 
-    // //check incomplete gamma function:
-    // double ans = boost::math::tgamma(1.0, 1.0);
-    // std::cout << ans << "\n";
-    // exit(1);
-
-    // int inde;
-    // std::cout << "printing atom_el\n";
-    // std::ofstream fout1("atom_el_with_int.txt");
-    
-    // for (inde = 0; inde < N_atom; ++inde) {
-    //     fout1 << atom_element[inde] << ' ';
-    // }
-    // // Close the file
-    // fout1.close();
-    // exit(1);
-
 #pragma omp parallel
 {
 
@@ -1027,23 +1011,6 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
             }
         }
 } // #pragma omp parallel region
-
-    // int inde;
-    // std::cout << "printing X\n";
-    // std::cout << "N_full: " << N_full << "\n";
-    // std::ofstream fout1("X_noint.txt");
-    
-    // for (inde = 0; inde < N_full * N_full; ++inde) {
-    //     fout1 << X[inde] << ' ';
-        
-    //     // Add a newline character at the end of each row
-    //     if ((inde + 1) % N_full == 0) {
-    //         fout1 << '\n';
-    //     }
-    // }
-    // Close the file
-    // fout1.close();
-    // exit(1);
 
     // Solve system of linear equations to get a virtual potential distribution which corresponds to this conductance matrix
     // (X is being stored into D_T because we don't want to overwrite it with the LU factors)
@@ -1472,7 +1439,21 @@ void Device::writeSnapshot(std::string filename, std::string foldername)
         fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential[i] << "   " << site_temperature[i] << "\n";
     }
 }
+ // //check incomplete gamma function:
+    // double ans = boost::math::tgamma(1.0, 1.0);
+    // std::cout << ans << "\n";
+    // exit(1);
 
+   // int inde;
+    // std::cout << "printing atom_el\n";
+    // std::ofstream fout1("atom_el_with_int.txt");
+    
+    // for (inde = 0; inde < N_atom; ++inde) {
+    //     fout1 << atom_element[inde] << ' ';
+    // }
+    // // Close the file
+    // fout1.close();
+    // exit(1);
 
     // int inde;
     // std::cout << "printing X\n";
