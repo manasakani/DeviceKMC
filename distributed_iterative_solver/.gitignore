@@ -4,3 +4,4 @@ main
 test_data/*
 core*
 data/*
+*.run
