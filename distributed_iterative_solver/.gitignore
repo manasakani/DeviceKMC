@@ -5,3 +5,4 @@ test_data/*
 core*
 data/*
 *.run
+*.qdrep

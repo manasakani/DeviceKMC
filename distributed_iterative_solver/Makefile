@@ -1,33 +1,33 @@
-CC = g++
-NVCC = nvcc
-CUDA_ROOT = /usr/local/cuda
-MPI_ROOT = /usr/ela/local/linux-local/mpich-3.4.2/gcc/
-MKL_ROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
-PETSC_ROOT = /usr/scratch/mont-fort17/almaeder/libraries/petsc
-PETSC_ARCH_ROOT = /usr/scratch/mont-fort17/almaeder/libraries/petsc/arch-linux-c-debug
-GINKGO_ROOT = /usr/scratch/mont-fort17/almaeder/libraries/ginkgo/build/path/usr/scratch/mont-fort17/almaeder/libraries/ginkgo_install
-
-CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${CUDA_ROOT}/include" -I"${MKL_ROOT}/include" -I"${MPI_ROOT}/include" -I"${GINKGO_ROOT}/include"
-NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I${CUDA_ROOT}/include -I"${MKL_ROOT}/include" -I"${GINKGO_ROOT}/include"
-LDFLAGS = -L"${CUDA_ROOT}/lib64" -L"${MPI_ROOT}/lib" -L"${MKL_ROOT}/lib/intel64" -L"${GINKGO_ROOT}/lib64" 
-LDLIBS = -Wl,--copy-dt-needed-entries -lginkgo -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmkl_intel_lp64 -lmkl_gnu_thread -lm -lmkl_core
-SOURCES= main_ginkgo.cpp utils.cpp utils_gpu.cu
-
-
-# /opt/cray/pe/tpsl/20.03.2/GNU/82/sandybridge/lib
-
+# CC = g++
 # NVCC = nvcc
+# CUDA_ROOT = /usr/local/cuda
+# MPI_ROOT = /usr/ela/local/linux-local/mpich-3.4.2/gcc/
+# MKL_ROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
+# PETSC_ROOT = /usr/scratch/mont-fort17/almaeder/libraries/petsc
+# PETSC_ARCH_ROOT = /usr/scratch/mont-fort17/almaeder/libraries/petsc/arch-linux-c-debug
+# GINKGO_ROOT = /usr/scratch/mont-fort17/almaeder/libraries/ginkgo/build/path/usr/scratch/mont-fort17/almaeder/libraries/ginkgo_install
+
+# CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${CUDA_ROOT}/include" -I"${MKL_ROOT}/include" -I"${MPI_ROOT}/include" -I"${GINKGO_ROOT}/include"
+# NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I${CUDA_ROOT}/include -I"${MKL_ROOT}/include" -I"${GINKGO_ROOT}/include"
+# LDFLAGS = -L"${CUDA_ROOT}/lib64" -L"${MPI_ROOT}/lib" -L"${MKL_ROOT}/lib/intel64" -L"${GINKGO_ROOT}/lib64" 
+# LDLIBS = -Wl,--copy-dt-needed-entries -lginkgo -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmkl_intel_lp64 -lmkl_gnu_thread -lm -lmkl_core
+# SOURCES= main_ginkgo.cpp utils.cpp utils_gpu.cu
+
+
+# /opt/cray/pe/tpsl/20.03.2/GNU/82/sandybridge/lib /opt/cray/pe/lib64
+
+NVCC = nvcc
 
 # madman installed petsc with cuda, but i do not know with which mpi version it was compiled
-# PETSC_DIR=/apps/daint/UES/6.0.UP02/sandbox-ws/petsc-maint
+# PETSC_DIR=/apps/daint/UES/6.0.UP02/sandbox-ws/petsc-maint 
 # PETSC_ARCH=arch-gnu-xc30-daint-cuda
 
-# CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
-# NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
-# LDFLAGS = -L"${MPICH_DIR}/lib" -L"${PETSC_DIR}/${PETSC_ARCH}/lib" -L"${PETSC_DIR}/lib" -L"/opt/cray/pe/lib64"
-# LDLIBS = -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmpich -lpetsc -lm
+CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include" -I"${GINKGO_DIR}/include" -I"${HYPRE_DIR}/include"
+NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
+LDFLAGS = -L"${MPICH_DIR}/lib" -L"${PETSC_DIR}/${PETSC_ARCH}/lib" -L"${PETSC_DIR}/lib" -L"${HYPRE_DIR}/lib64" -L"${GINKGO_DIR}/lib64"
+LDLIBS = -Wl,--copy-dt-needed-entries -lginkgo -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmpich -lpetsc -lm -lHYPRE
 
-# SOURCES= main_petsc.cpp utils.cpp utils_gpu.cu petsc_implementations_to_compare.cpp
+SOURCES= minimal_main_hypre.cpp utils.cpp utils_gpu.cu petsc_implementations_to_compare.cpp ginkgo_implementations_to_compare.cpp
 
 CPP_SOURCES = $(filter %.cpp, $(SOURCES))
 CU_SOURCES = $(filter %.cu, $(SOURCES))

@@ -34,7 +34,9 @@ int main(int argc, char **argv) {
 
     int matsize = 260;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
-    std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
+    //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
+    std::string save_path ="/scratch/snx3000/amaeder/measurements/single_node_libraries/";
+
 
     int matrix_size;
     int nnz;     
@@ -97,7 +99,7 @@ int main(int argc, char **argv) {
     int number_of_kmc_steps = 1;
 
     int max_iterations = 5000;
-    double relative_tolerance = 1e-18;
+    double relative_tolerance = 1e-16;
     double absolute_tolerance = 1e-30;
     double divergence_tolerance = 1e+50;
 
@@ -372,24 +374,24 @@ int main(int argc, char **argv) {
     }
 
     
-    if(rank == 0){
-        for(int method = 0; method < number_of_methods; method++){
-            std::ofstream outputFile_iterations;
-            std::string path_iterations = save_path + method_names[method] + "_iterations" + std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) +"_.txt";
-            outputFile_iterations.open(path_iterations);
-            if(outputFile_iterations.is_open()){
-                for(int i = 0; i < number_of_kmc_steps; i++){
-                    outputFile_iterations << iterations[method][i] << " ";
-                }
-                outputFile_iterations << '\n';
-            }
-            else{
-                std::printf("Error opening file\n");
-            }
-            outputFile_iterations.close();
-        }
+    // if(rank == 0){
+    //     for(int method = 0; method < number_of_methods; method++){
+    //         std::ofstream outputFile_iterations;
+    //         std::string path_iterations = save_path + method_names[method] + "_iterations" + std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) +"_.txt";
+    //         outputFile_iterations.open(path_iterations);
+    //         if(outputFile_iterations.is_open()){
+    //             for(int i = 0; i < number_of_kmc_steps; i++){
+    //                 outputFile_iterations << iterations[method][i] << " ";
+    //             }
+    //             outputFile_iterations << '\n';
+    //         }
+    //         else{
+    //             std::printf("Error opening file\n");
+    //         }
+    //         outputFile_iterations.close();
+    //     }
 
-    }
+    // }
 
     delete[] data;
     delete[] row_ptr;
