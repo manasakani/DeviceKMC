@@ -11,8 +11,6 @@
 #include <cmath>
 
 int main(int argc, char **argv) {
-    // older version of petsc on daint
-    // replace by PetscCall()
     int provided;
     MPI_Init_thread(&argc, &argv, MPI_THREAD_FUNNELED, &provided);
     HYPRE_Initialize();
@@ -26,8 +24,11 @@ int main(int argc, char **argv) {
     std::cout << "Hello World from rank " << rank << std::endl;
 
     int matsize = 80;
-    std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
-    std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
+    // std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
+    // std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
+    std::string data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
+    std::string save_path = "/usr/scratch/mont-fort17/almaeder/kmc_measurements/hypre";
+
 
     int matrix_size;
     int nnz;     
@@ -86,7 +87,7 @@ int main(int argc, char **argv) {
 
     // int number_of_measurements = 20;
     // int number_of_kmc_steps = 50;
-    int number_of_measurements = 1;
+    int number_of_measurements = 30;
     int number_of_kmc_steps = 1;
 
     int max_iterations = 5000;
@@ -150,9 +151,6 @@ int main(int argc, char **argv) {
     int iupper = row_end_index;
     int jlower = row_start_index;
     int jupper = row_end_index;
-
-    // not installed with cuda support
-    // HYPRE_SetMemoryLocation(HYPRE_MEMORY_DEVICE);
 
     HYPRE_MemoryLocation MEMORY_LOCATION = HYPRE_MEMORY_DEVICE;
 

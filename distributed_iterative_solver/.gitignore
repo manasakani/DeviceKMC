@@ -6,3 +6,4 @@ core*
 data/*
 *.run
 *.qdrep
+*.nsys-rep

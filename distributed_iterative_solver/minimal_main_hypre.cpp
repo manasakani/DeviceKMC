@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
 
     std::cout << "Hello World from rank " << rank << std::endl;
 
-    int matrix_size = 1025;
+    int matrix_size = 70630;
     int nnz = matrix_size;  
 
 
