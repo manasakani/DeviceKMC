@@ -3,12 +3,14 @@
 #include "utils.h"
 #include <mpi.h>
 #include <cuda_runtime.h>
+#include <cuda.h>
 #include <HYPRE.h>
 #include <HYPRE_parcsr_ls.h>
 #include <HYPRE_utilities.h>
 #include <HYPRE_krylov.h>
 #include "utils_gpu.h"
 #include <cmath>
+#include "hypre_implementations_to_compare.h"
 
 int main(int argc, char **argv) {
     int provided;
@@ -27,7 +29,7 @@ int main(int argc, char **argv) {
     // std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     // std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
     std::string data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
-    std::string save_path = "/usr/scratch/mont-fort17/almaeder/kmc_measurements/hypre";
+    std::string save_path = "/usr/scratch/mont-fort17/almaeder/kmc_measurements/hypre/";
 
 
     int matrix_size;
@@ -91,7 +93,7 @@ int main(int argc, char **argv) {
     int number_of_kmc_steps = 1;
 
     int max_iterations = 5000;
-    double relative_tolerance = 1e-15;
+    double relative_tolerance = 1e-16;
     double absolute_tolerance = 1e-30;
 
     int *row_ptr_local = new int[rows_per_rank+1];
@@ -107,11 +109,9 @@ int main(int argc, char **argv) {
 
     int *col_indices_local = col_indices + nnz_start_index;
     double *data_local = data + nnz_start_index;
-    double *data_local_d = data_d + nnz_start_index;
 
     int *row_indices_local = new int[nnz_local];
-    double *solution_local_d = solution_d + row_start_index;
-    double *rhs_local_d = rhs_d + row_start_index;
+    double *rhs_local = rhs + row_start_index;
 
 
     for (int i = 0; i < rows_per_rank; ++i) {
@@ -119,69 +119,23 @@ int main(int argc, char **argv) {
             row_indices_local[j] = i;
         }
     }
-    int *nnz_per_row_local = new int[rows_per_rank];
-    for (int i = 0; i < rows_per_rank; ++i) {
-        nnz_per_row_local[i] = row_ptr_local[i+1] - row_ptr_local[i];
-    }
-    int *linear_indices = new int[rows_per_rank];
-    double *solution = new double[rows_per_rank];
-    for (int i = 0; i < rows_per_rank; ++i) {
-        linear_indices[i] = row_start_index + i;
-        solution[i] = 0;
-    }
-    int *nnz_per_row_local_d;
-    int *linear_indices_d;
+
     int *col_indices_local_d;
-    cudaMalloc(&nnz_per_row_local_d, rows_per_rank * sizeof(int));
-    cudaMalloc(&linear_indices_d, rows_per_rank * sizeof(int));
     cudaMalloc(&col_indices_local_d, nnz_local * sizeof(int));
 
-    cudaMemcpy(nnz_per_row_local_d, nnz_per_row_local, rows_per_rank * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(linear_indices_d, linear_indices, rows_per_rank * sizeof(int), cudaMemcpyHostToDevice);
     cudaMemcpy(col_indices_local_d, col_indices_local, nnz_local * sizeof(int), cudaMemcpyHostToDevice);
 
-    HYPRE_IJMatrix      ij_matrix;
-    HYPRE_ParCSRMatrix  parcsr_matrix;
-    HYPRE_IJVector   ij_rhs;
-    HYPRE_ParVector  par_rhs;
-    HYPRE_IJVector   ij_x;
-    HYPRE_ParVector  par_x;
 
-    int ilower = row_start_index;
-    int iupper = row_end_index;
-    int jlower = row_start_index;
-    int jupper = row_end_index;
 
     HYPRE_MemoryLocation MEMORY_LOCATION = HYPRE_MEMORY_DEVICE;
 
-    std::cout << "Creating matrix" << std::endl;
-    HYPRE_IJMatrixCreate(MPI_COMM_WORLD, ilower, iupper, jlower, jupper, &ij_matrix);
-    HYPRE_IJMatrixSetObjectType(ij_matrix, HYPRE_PARCSR);
-    HYPRE_IJMatrixInitialize_v2(ij_matrix, MEMORY_LOCATION);
-
-    HYPRE_IJVectorCreate(MPI_COMM_WORLD, jlower, jupper, &ij_rhs);
-    HYPRE_IJVectorSetObjectType(ij_rhs, HYPRE_PARCSR);
-    HYPRE_IJVectorInitialize_v2(ij_rhs, MEMORY_LOCATION);
-    HYPRE_IJVectorCreate(MPI_COMM_WORLD, jlower, jupper, &ij_x);
-    HYPRE_IJVectorSetObjectType(ij_x, HYPRE_PARCSR);
-    HYPRE_IJVectorInitialize_v2(ij_x, MEMORY_LOCATION);
-
-    HYPRE_Solver pcg_solver;
-    HYPRE_ParCSRPCGCreate(MPI_COMM_WORLD, &pcg_solver);
-    HYPRE_PCGSetMaxIter(pcg_solver, max_iterations);
-    HYPRE_PCGSetTol(pcg_solver, relative_tolerance);
-    HYPRE_PCGSetAbsoluteTol(pcg_solver, absolute_tolerance);
-    HYPRE_PCGSetTwoNorm(pcg_solver, 1);
-    // HYPRE_PCGSetPrintLevel(pcg_solver, 2);
-    // HYPRE_PCGSetLogging(pcg_solver, 1);
 
     int num_iterations;
-    double final_res_norm;
+    double time_taken[number_of_measurements];
 
     std::cout << "Loop Steps" << std::endl;
     for(int step = 0; step < number_of_kmc_steps; step++){
         std::cout << "rank " << rank << " step " << step << std::endl;
-        bool correct_solution_iteration;
 
         std::cout << "Loading data" << std::endl;
         std::string data_filename = data_path + "/A_data"+std::to_string(step)+".bin";
@@ -233,104 +187,42 @@ int main(int argc, char **argv) {
         cudaMemcpy(reference_solution, reference_solution_d, matrix_size * sizeof(double), cudaMemcpyDeviceToHost);
         cudaMemcpy(data, data_d, nnz * sizeof(double), cudaMemcpyDeviceToHost);
 
-
-        if(MEMORY_LOCATION == HYPRE_MEMORY_DEVICE){
-            std::cout << "set matrix" << std::endl;
-            cudaDeviceSynchronize();
-
-            // set matrix
-            HYPRE_IJMatrixSetValues(ij_matrix, rows_per_rank, nnz_per_row_local_d, linear_indices_d,
-                col_indices_local_d, data_local_d);
-            HYPRE_IJMatrixAssemble(ij_matrix);
-            HYPRE_IJMatrixGetObject(ij_matrix, (void **) &parcsr_matrix);
-
-
-            std::cout << "set x" << std::endl;
-            cudaDeviceSynchronize();
-
-            //set x
-            HYPRE_IJVectorSetValues(ij_x, rows_per_rank, linear_indices_d, solution_local_d);
-            HYPRE_IJVectorAssemble(ij_x);
-            HYPRE_IJVectorGetObject(ij_x, (void **) &par_x);
-
-            std::cout << "set rhs" << std::endl;
-            cudaDeviceSynchronize();
-
-            //set rhs
-            HYPRE_IJVectorSetValues(ij_rhs, rows_per_rank, linear_indices_d, rhs_local_d);
-            HYPRE_IJVectorAssemble(ij_rhs);
-            HYPRE_IJVectorGetObject(ij_rhs, (void **) &par_rhs);
+        for(int i = 0; i < number_of_measurements; i++){
+            hypre_test::gpu_solve(
+                data_local,
+                row_ptr_local,
+                col_indices_local,
+                rhs_local,
+                reference_solution,
+                row_start_index,
+                row_end_index,
+                rows_per_rank,
+                max_iterations,
+                relative_tolerance,
+                absolute_tolerance,
+                MEMORY_LOCATION,
+                &num_iterations,
+                &time_taken[i]
+            );
+        }
+        std::string method_name = "hypre";
+        std::ofstream outputFile_times;
+        std::string path_times = save_path + method_name + "_times"+ std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) + "_" + std::to_string(step) 
+                + "_" + std::to_string(size) + "_" + std::to_string(rank) + ".txt";
+        outputFile_times.open(path_times);
+        if(outputFile_times.is_open()){
+            for(int i = 0; i < number_of_measurements; i++){
+                outputFile_times << time_taken[i] << " ";
+            }
+            outputFile_times << '\n';
         }
         else{
-            // set matrix
-            HYPRE_IJMatrixSetValues(ij_matrix, rows_per_rank, nnz_per_row_local, linear_indices,
-                col_indices_local, data_local);
-            HYPRE_IJMatrixAssemble(ij_matrix);
-            HYPRE_IJMatrixGetObject(ij_matrix, (void **) &parcsr_matrix);
-
-            //set x
-            HYPRE_IJVectorSetValues(ij_x, rows_per_rank, linear_indices, solution);
-            HYPRE_IJVectorAssemble(ij_x);
-            HYPRE_IJVectorGetObject(ij_x, (void **) &par_x);
-
-            //set rhs
-            HYPRE_IJVectorSetValues(ij_rhs, rows_per_rank, linear_indices, rhs+row_start_index);
-            HYPRE_IJVectorAssemble(ij_rhs);
-            HYPRE_IJVectorGetObject(ij_rhs, (void **) &par_rhs);
+            std::printf("Error opening file\n");
         }
-
-
-        std::cout << "setup" << std::endl;
-        cudaDeviceSynchronize();
-        // solve
-        HYPRE_ParCSRPCGSetup(pcg_solver, parcsr_matrix, par_rhs, par_x);
-
-        std::cout << "solve" << std::endl;
-
-        MPI_Barrier(MPI_COMM_WORLD);
-        cudaDeviceSynchronize();
-        double time_taken = -omp_get_wtime();
-        HYPRE_ParCSRPCGSolve(pcg_solver, parcsr_matrix, par_rhs, par_x);
-        time_taken += omp_get_wtime();
-        MPI_Barrier(MPI_COMM_WORLD);
-        std::cout << "rank " << rank << " time_taken " << time_taken << std::endl;
-
-        HYPRE_PCGGetNumIterations(pcg_solver, &num_iterations);
-        HYPRE_PCGGetFinalRelativeResidualNorm(pcg_solver, &final_res_norm);
-        std::cout << "Iterations = " << num_iterations << std::endl;
-        std::cout << "Final Relative Residual Norm = " << final_res_norm << std::endl;
-
-
-        if(MEMORY_LOCATION == HYPRE_MEMORY_DEVICE){
-            // get solution
-            HYPRE_IJVectorGetValues(ij_x, rows_per_rank, linear_indices_d, solution_d);
-            cudaMemcpy(solution, solution_d, rows_per_rank * sizeof(double), cudaMemcpyDeviceToHost);
-        }
-        else{
-            // get solution
-            HYPRE_IJVectorGetValues(ij_x, rows_per_rank, linear_indices, solution);
-        }
-
-        
-
-        double difference = 0;
-        double sum_ref = 0;
-        for (int i = 0; i < rows_per_rank; ++i) {
-            difference += std::sqrt( (solution[i] - reference_solution[i+row_start_index]) * (solution[i] - reference_solution[i+row_start_index]) );
-            sum_ref += std::sqrt( (reference_solution[i+row_start_index]) * (reference_solution[i+row_start_index]) );
-        }
-        MPI_Allreduce(MPI_IN_PLACE, &difference, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(MPI_IN_PLACE, &sum_ref, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-        if(rank == 0){
-            std::cout << "difference/sum_ref " << difference/sum_ref << std::endl;
-        }
+        outputFile_times.close();
 
     }
 
-    HYPRE_IJMatrixDestroy(ij_matrix);
-    HYPRE_IJVectorDestroy(ij_rhs);
-    HYPRE_IJVectorDestroy(ij_x);
-    HYPRE_ParCSRPCGDestroy(pcg_solver);
     delete[] row_ptr_local;
     delete[] row_indices_local;
     delete[] data;
@@ -339,9 +231,6 @@ int main(int argc, char **argv) {
     delete[] rhs;
     delete[] reference_solution;
     delete[] diagonal;
-    delete[] nnz_per_row_local;
-    delete[] linear_indices;
-    delete[] solution;
 
     cudaFree(data_d);
     cudaFree(row_ptr_d);
@@ -350,8 +239,6 @@ int main(int argc, char **argv) {
     cudaFree(reference_solution_d);
     cudaFree(diagonal_d);
     cudaFree(solution_d);
-    cudaFree(nnz_per_row_local_d);
-    cudaFree(linear_indices_d);
     cudaFree(col_indices_local_d);
 
     HYPRE_Finalize();

@@ -27,7 +27,7 @@ NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++1
 LDFLAGS = -L"${MPICH_DIR}/lib" -L"${HYPRE_DIR}/lib64" -L"${GINKGO_DIR}/lib64" -L"${CUDA_HOME}/lib64"
 LDLIBS = -Wl,--copy-dt-needed-entries -lginkgo -lcuda -lcudart -lcublas -lcusolver -lcusparse -lm -lHYPRE
 
-SOURCES= main_hypre.cpp utils.cpp utils_gpu.cu ginkgo_implementations_to_compare.cpp
+SOURCES= main_hypre.cpp utils.cpp utils_gpu.cu ginkgo_implementations_to_compare.cpp hypre_implementations_to_compare.cpp
 
 CPP_SOURCES = $(filter %.cpp, $(SOURCES))
 CU_SOURCES = $(filter %.cu, $(SOURCES))
