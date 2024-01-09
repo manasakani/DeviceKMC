@@ -17,6 +17,9 @@ int main(int argc, char **argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
+    cudaError_t set_device_error = cudaSetDevice(0);
+    std::cout << "rank " << rank << " set_device_error " << set_device_error << std::endl;
+
     int matsize = 7;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
