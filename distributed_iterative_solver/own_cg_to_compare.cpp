@@ -57,7 +57,6 @@ void solve_cg_mpi(
     MPI_Barrier(comm);
     std::printf("CG starts\n");
 
-    MPI_Barrier(comm);
     int rank, size;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
@@ -75,12 +74,12 @@ void solve_cg_mpi(
 
     cudaStream_t stream = NULL;
     
+    cublasHandle_t cublasHandle = 0;
+    cublasErrchk(cublasCreate(&cublasHandle));
     
     cusparseHandle_t cusparseHandle = 0;
     cusparseErrchk(cusparseCreate(&cusparseHandle));    
 
-    cublasHandle_t cublasHandle = 0;
-    cublasErrchk(cublasCreate(&cublasHandle));
 
     cudaErrchk(cudaStreamCreate(&stream));
     cusparseErrchk(cusparseSetStream(cusparseHandle, stream));
@@ -96,7 +95,6 @@ void solve_cg_mpi(
     double *Ax_d = NULL;
     double dot;
 
-    cusparseSpMatDescr_t matA = NULL;
     cusparseSpMatDescr_t matA_local = NULL;
 
 
@@ -162,11 +160,11 @@ void solve_cg_mpi(
     cudaErrchk(cudaMemset(x_local_d, 0, rows_per_rank*sizeof(double)));
 
 
-    /* Wrap raw data into cuSPARSE generic API objects */
-    cusparseErrchk(cusparseCreateCsr(&matA, matrix_size, matrix_size,
-                                        nnz, row_indptr_d, col_indices_d, data_d,
-                                        CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-                                        CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
+    // /* Wrap raw data into cuSPARSE generic API objects */
+    // cusparseErrchk(cusparseCreateCsr(&matA, matrix_size, matrix_size,
+    //                                     nnz, row_indptr_d, col_indices_d, data_d,
+    //                                     CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
+    //                                     CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
 
 
     /* Wrap raw data into cuSPARSE generic API objects */
@@ -189,8 +187,7 @@ void solve_cg_mpi(
     cudaErrchk(cudaMalloc((void **)&p_local_d, rows_per_rank * sizeof(double)));
     cudaErrchk(cudaMalloc((void **)&Ax_local_d, rows_per_rank * sizeof(double)));
 
-    cusparseDnVecDescr_t vecx_local = NULL;
-    cusparseErrchk(cusparseCreateDnVec(&vecx_local, rows_per_rank, x_local_d, CUDA_R_64F));
+
     cusparseDnVecDescr_t vecp_local = NULL;
     cusparseErrchk(cusparseCreateDnVec(&vecp_local, rows_per_rank, p_local_d, CUDA_R_64F));
     cusparseDnVecDescr_t vecAx_local = NULL;
@@ -206,8 +203,8 @@ void solve_cg_mpi(
 
     //figure out extra amount of memory needed
     cusparseErrchk(cusparseSpMV_bufferSize(
-        cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecx,
-        &beta, vecAx, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &bufferSize));
+        cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA_local, vecx,
+        &beta, vecAx_local, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &bufferSize));
     cudaErrchk(cudaMalloc(&buffer, bufferSize));
 
 
@@ -340,7 +337,7 @@ void solve_cg_mpi(
     std::cout << "rank " << rank << " time_taken[0] " << time_taken[0] << std::endl;
 
     //copy solution to host
-    cudaErrchk(cudaMemcpy(rhs_local_h, x_local_d, matrix_size * sizeof(double), cudaMemcpyDeviceToHost));
+    cudaErrchk(cudaMemcpy(rhs_local_h, x_local_d, rows_per_rank * sizeof(double), cudaMemcpyDeviceToHost));
 
     double difference = 0;
     double sum_ref = 0;
@@ -354,37 +351,105 @@ void solve_cg_mpi(
         std::cout << "difference/sum_ref " << difference/sum_ref << std::endl;
     }
 
+    cudaErrchk(cudaDeviceSynchronize());
+
+    MPI_Barrier(comm);
+    std::cout << "cusparseHandle" << std::endl;
     cusparseErrchk(cusparseDestroy(cusparseHandle));
+    MPI_Barrier(comm);
+    std::cout << "cublasHandle" << std::endl;
     cublasErrchk(cublasDestroy(cublasHandle));
+    MPI_Barrier(comm);
+    std::cout << "stream" << std::endl;
     cudaErrchk(cudaStreamDestroy(stream));
-    cusparseErrchk(cusparseDestroySpMat(matA));
+    // MPI_Barrier(comm);
+    // std::cout << "matA" << std::endl;
+    // cusparseErrchk(cusparseDestroySpMat(matA));
+    MPI_Barrier(comm);
+    std::cout << "vecx" << std::endl;
     cusparseErrchk(cusparseDestroyDnVec(vecx));
+    MPI_Barrier(comm);
+    std::cout << "vecAx" << std::endl;
     cusparseErrchk(cusparseDestroyDnVec(vecAx));
+    MPI_Barrier(comm);
+    std::cout << "vecp" << std::endl;
     cusparseErrchk(cusparseDestroyDnVec(vecp));
+    MPI_Barrier(comm);
+    std::cout << "matA_local" << std::endl;
+    cusparseErrchk(cusparseDestroySpMat(matA_local));
+    MPI_Barrier(comm);
+    std::cout << "vecAx_local" << std::endl;
+    cusparseErrchk(cusparseDestroyDnVec(vecAx_local));
+    MPI_Barrier(comm);
+    std::cout << "vecp_local" << std::endl;
+    cusparseErrchk(cusparseDestroyDnVec(vecp_local));
+    MPI_Barrier(comm);
+    std::cout << "buffer" << std::endl;
     cudaErrchk(cudaFree(buffer));
+    MPI_Barrier(comm);
+    std::cout << "data_d" << std::endl;
     cudaErrchk(cudaFree(data_d));
+    MPI_Barrier(comm);
+    std::cout << "col_indices_d" << std::endl;
     cudaErrchk(cudaFree(col_indices_d));
+    MPI_Barrier(comm);
+    std::cout << "row_indptr_d" << std::endl;
     cudaErrchk(cudaFree(row_indptr_d));
+    MPI_Barrier(comm);
+    std::cout << "rhs_d" << std::endl;
     cudaErrchk(cudaFree(rhs_d));
+    MPI_Barrier(comm);
+    std::cout << "x_d" << std::endl;
     cudaErrchk(cudaFree(x_d));
+    MPI_Barrier(comm);
+    std::cout << "p_d" << std::endl;
     cudaErrchk(cudaFree(p_d));
+    MPI_Barrier(comm);
+    std::cout << "Ax_d" << std::endl;
     cudaErrchk(cudaFree(Ax_d));
-
+    MPI_Barrier(comm);
+    std::cout << "row_indptr_local_d" << std::endl;
     cudaErrchk(cudaFree(row_indptr_local_d));
+    MPI_Barrier(comm);
+    std::cout << "col_indices_local_d" << std::endl;
     cudaErrchk(cudaFree(col_indices_local_d));
+    MPI_Barrier(comm);
+    std::cout << "data_local_d" << std::endl;
     cudaErrchk(cudaFree(data_local_d));
+    MPI_Barrier(comm);
+    std::cout << "rhs_local_d" << std::endl;
     cudaErrchk(cudaFree(rhs_local_d));
+    MPI_Barrier(comm);
+    std::cout << "x_local_d" << std::endl;
     cudaErrchk(cudaFree(x_local_d));
+    MPI_Barrier(comm);
+    std::cout << "p_local_d" << std::endl;
     cudaErrchk(cudaFree(p_local_d));
+    MPI_Barrier(comm);
+    std::cout << "Ax_local_d" << std::endl;
     cudaErrchk(cudaFree(Ax_local_d));
-
+    MPI_Barrier(comm);
+    std::cout << "row_indptr_local_h" << std::endl;
     delete[] row_indptr_local_h;
+    MPI_Barrier(comm);
+    std::cout << "col_indices_local_h" << std::endl;
     delete[] col_indices_local_h;
-    delete[] data_local_h;
-    delete[] rhs_local_h;
-    delete[] p_local_h;
-    delete[] p_h;
+    MPI_Barrier(comm);
+    std::cout << "data_local_h" << std::endl;
+    // delete[] data_local_h;
+    MPI_Barrier(comm);
+    std::cout << "rhs_local_h" << std::endl;
+    // delete[] rhs_local_h;
+    MPI_Barrier(comm);
+    std::cout << "p_local_h" << std::endl;
+    // delete[] p_local_h;
+    MPI_Barrier(comm);
+    std::cout << "p_h" << std::endl;
+    // delete[] p_h;
 
+    MPI_Barrier(comm);
+    std::cout << "end" << std::endl;
+    MPI_Barrier(comm);
 }
 
 } // namespace own_test

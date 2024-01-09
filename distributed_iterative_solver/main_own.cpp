@@ -21,6 +21,9 @@ int main(int argc, char **argv) {
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
     std::string save_path ="/scratch/snx3000/amaeder/measurements/single_node_libraries/";
+    data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
+
+        
 
 
     int matrix_size;
@@ -60,8 +63,7 @@ int main(int argc, char **argv) {
     int *col_indices = new int[nnz];
     double *rhs = new double[matrix_size];
     double *reference_solution = new double[matrix_size];
-    // precondition the system myself
-    double *diagonal = new double[matrix_size];
+
 
 
     double *data_d;
@@ -196,6 +198,8 @@ int main(int argc, char **argv) {
                 &iteration,
                 &time
             );
+            MPI_Barrier(MPI_COMM_WORLD);
+            std::cout << "rank " << rank << " measurement " << measurement << std::endl;
 
 
         }
@@ -247,7 +251,6 @@ int main(int argc, char **argv) {
     delete[] col_indices;
     delete[] rhs;
     delete[] reference_solution;
-    delete[] diagonal;
     delete[] starting_guess;
 
     cudaFree(data_d);
@@ -257,7 +260,8 @@ int main(int argc, char **argv) {
     cudaFree(reference_solution_d);
     cudaFree(diagonal_d);
 
-
+    cudaDeviceSynchronize();
+    MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
     return 0;
 }

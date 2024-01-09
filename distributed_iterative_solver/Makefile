@@ -14,20 +14,14 @@
 # SOURCES= main_ginkgo.cpp utils.cpp utils_gpu.cu
 
 
-# /opt/cray/pe/tpsl/20.03.2/GNU/82/sandybridge/lib /opt/cray/pe/lib64
-
 NVCC = nvcc
-
-# madman installed petsc with cuda, but i do not know with which mpi version it was compiled
-# PETSC_DIR=/apps/daint/UES/6.0.UP02/sandbox-ws/petsc-maint 
-# PETSC_ARCH=arch-gnu-xc30-daint-cuda
 
 CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${GINKGO_DIR}/include" -I"${HYPRE_DIR}/include" -I"${CUDA_HOME}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include"
 NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
 LDFLAGS = -L"${MPICH_DIR}/lib" -L"${HYPRE_DIR}/lib64" -L"${GINKGO_DIR}/lib64" -L"${CUDA_HOME}/lib64" -L"${PETSC_DIR}/${PETSC_ARCH}/lib"
-LDLIBS = -Wl,--copy-dt-needed-entries -lginkgo -lcuda -lcudart -lcublas -lcusolver -lcusparse -lpetsc -lm -lHYPRE
+LDLIBS = -Wl,--copy-dt-needed-entries -lcuda -lcudart -lcublas -lcusolver -lcusparse -lm -lmpi
 
-SOURCES= main_own.cpp utils.cpp utils_gpu.cu ginkgo_implementations_to_compare.cpp hypre_implementations_to_compare.cpp petsc_implementations_to_compare.cpp own_cg_to_compare.cpp
+SOURCES= main_own.cpp utils.cpp utils_gpu.cu own_cg_to_compare.cpp
 
 CPP_SOURCES = $(filter %.cpp, $(SOURCES))
 CU_SOURCES = $(filter %.cu, $(SOURCES))
@@ -35,6 +29,23 @@ CU_SOURCES = $(filter %.cu, $(SOURCES))
 CPP_OBJ_FILES=$(CPP_SOURCES:.cpp=.o)
 CU_OBJ_FILES =$(CU_SOURCES:.cu=.o)
 BINARY = main
+
+
+# NVCC = nvcc
+
+# CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${GINKGO_DIR}/include" -I"${HYPRE_DIR}/include" -I"${CUDA_HOME}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include"
+# NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
+# LDFLAGS = -L"${MPICH_DIR}/lib" -L"${HYPRE_DIR}/lib64" -L"${GINKGO_DIR}/lib64" -L"${CUDA_HOME}/lib64" -L"${PETSC_DIR}/${PETSC_ARCH}/lib"
+# LDLIBS = -Wl,--copy-dt-needed-entries -lginkgo -lcuda -lcudart -lcublas -lcusolver -lcusparse -lpetsc -lm -lHYPRE
+
+# SOURCES= main_own.cpp utils.cpp utils_gpu.cu ginkgo_implementations_to_compare.cpp hypre_implementations_to_compare.cpp petsc_implementations_to_compare.cpp own_cg_to_compare.cpp
+
+# CPP_SOURCES = $(filter %.cpp, $(SOURCES))
+# CU_SOURCES = $(filter %.cu, $(SOURCES))
+
+# CPP_OBJ_FILES=$(CPP_SOURCES:.cpp=.o)
+# CU_OBJ_FILES =$(CU_SOURCES:.cu=.o)
+# BINARY = main
 
 .PHONY: all
 all: $(BINARY)
