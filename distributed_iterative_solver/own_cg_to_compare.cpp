@@ -62,15 +62,45 @@ void solve_cg_mpi(
     MPI_Comm_size(comm, &size);
     std::printf("rank %d size %d\n", rank, size);
     int rows_per_rank = matrix_size / size;
-
-    if(matrix_size % size != 0){
-        std::printf("Error: not dividable\n");
-        // exit(1);
-    }
-    else{
-        std::printf("Dividable\n");
-    }
+    
+    // if(matrix_size % size != 0){
+    //     std::printf("Error: not dividable\n");
+    //     // exit(1);
+    // }
+    // else{
+    //     std::printf("Dividable\n");
+    // }
     int row_start_index = rank * rows_per_rank;
+    if(rank == size-1){
+        rows_per_rank += matrix_size % size;
+    }
+    std::cout << "rank " << rank << " rows_per_rank " << rows_per_rank << std::endl;
+
+    MPI_Barrier(comm);
+
+
+    int *row_indptr_local_h = new int[rows_per_rank+1];
+
+    for (int i = 0; i < rows_per_rank+1; ++i) {
+        row_indptr_local_h[i] = row_indptr_h[i+row_start_index] - row_indptr_h[row_start_index];
+    }
+    int nnz_local = row_indptr_local_h[rows_per_rank];
+    int *col_indices_local_h = new int[nnz_local];
+    double *data_local_h = new double[nnz_local];
+
+    for (int i = 0; i < nnz_local; ++i) {
+        col_indices_local_h[i] = col_indices_h[i+row_indptr_h[row_start_index]];
+        data_local_h[i] = data_h[i+row_indptr_h[row_start_index]];
+    }
+
+    double *rhs_local_h = new double[rows_per_rank];
+    for (int i = 0; i < rows_per_rank; ++i) {
+        rhs_local_h[i] = rhs_h[i+row_start_index];
+    }
+
+    double *p_local_h = new double[rows_per_rank];
+    double *p_h = new double[matrix_size];
+
 
     cudaStream_t stream = NULL;
     
@@ -130,45 +160,18 @@ void solve_cg_mpi(
     double *x_local_d = NULL;
 
     cudaErrchk(cudaMalloc((void**)&row_indptr_local_d, (rows_per_rank+1)*sizeof(int)));
-    cudaErrchk(cudaMalloc((void**)&col_indices_local_d, nnz*sizeof(int)));
-    cudaErrchk(cudaMalloc((void**)&data_local_d, nnz*sizeof(double)));
+    cudaErrchk(cudaMalloc((void**)&col_indices_local_d, nnz_local*sizeof(int)));
+    cudaErrchk(cudaMalloc((void**)&data_local_d, nnz_local*sizeof(double)));
     cudaErrchk(cudaMalloc((void**)&rhs_local_d, rows_per_rank*sizeof(double)));
     cudaErrchk(cudaMalloc((void**)&x_local_d, rows_per_rank*sizeof(double)));
 
-    int *row_indptr_local_h = new int[rows_per_rank+1];
 
-    for (int i = 0; i < rows_per_rank+1; ++i) {
-        row_indptr_local_h[i] = row_indptr_h[i+rank*rows_per_rank] - row_indptr_h[rank*rows_per_rank];
-    }
-    int nnz_local = row_indptr_local_h[rows_per_rank];
-    int *col_indices_local_h = new int[nnz_local];
-    double *data_local_h = new double[nnz_local];
-
-    for (int i = 0; i < nnz_local; ++i) {
-        col_indices_local_h[i] = col_indices_h[i+row_indptr_h[rank*rows_per_rank]];
-        data_local_h[i] = data_h[i+row_indptr_h[rank*rows_per_rank]];
-    }
-
-    double *rhs_local_h = new double[rows_per_rank];
-    for (int i = 0; i < rows_per_rank; ++i) {
-        rhs_local_h[i] = rhs_h[i+rank*rows_per_rank];
-    }
-
-    double *p_local_h = new double[rows_per_rank];
-    double *p_h = new double[matrix_size];
 
     cudaErrchk(cudaMemcpy(row_indptr_local_d, row_indptr_local_h, (rows_per_rank+1)*sizeof(int), cudaMemcpyHostToDevice));
     cudaErrchk(cudaMemcpy(col_indices_local_d, col_indices_local_h, nnz_local*sizeof(int), cudaMemcpyHostToDevice));
     cudaErrchk(cudaMemcpy(data_local_d, data_local_h, nnz_local*sizeof(double), cudaMemcpyHostToDevice));
     cudaErrchk(cudaMemcpy(rhs_local_d, rhs_local_h, rows_per_rank*sizeof(double), cudaMemcpyHostToDevice));
     cudaErrchk(cudaMemset(x_local_d, 0, rows_per_rank*sizeof(double)));
-
-
-    // /* Wrap raw data into cuSPARSE generic API objects */
-    // cusparseErrchk(cusparseCreateCsr(&matA, matrix_size, matrix_size,
-    //                                     nnz, row_indptr_d, col_indices_d, data_d,
-    //                                     CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-    //                                     CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F));
 
 
     /* Wrap raw data into cuSPARSE generic API objects */
@@ -213,46 +216,14 @@ void solve_cg_mpi(
 
 
 
-    // // calc A*x
-    // cusparseErrchk(cusparseSpMV(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE,
-    //                            &alpha, matA, vecx, &beta, vecAx, CUDA_R_64F,
-    //                            CUSPARSE_SPMV_ALG_DEFAULT, buffer));
-
-    // // r = b - A*x
-    // cublasErrchk(cublasDaxpy(cublasHandle, matrix_size, &alpham1, Ax_d, 1, rhs_d, 1));
-    // cublasErrchk(cublasDdot(cublasHandle, matrix_size, rhs_d, 1, rhs_d, 1, &r1));
-    // std::cout << r1 << std::endl;
-
-    // int k = 1;
-    // while (r1 > relative_tolerance * relative_tolerance && k <= 3) {
-    //     if(k > 1){
-    //         b = r1 / r0;
-    //         cublasErrchk(cublasDscal(cublasHandle, matrix_size, &b, p_d, 1));
-    //         cublasErrchk(cublasDaxpy(cublasHandle, matrix_size, &alpha, rhs_d, 1, p_d, 1));            
-    //     }
-    //     else {
-    //         cublasErrchk(cublasDcopy(cublasHandle, matrix_size, rhs_d, 1, p_d, 1));
-    //     }
-
-    //     cusparseErrchk(cusparseSpMV(
-    //         cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA, vecp,
-    //         &beta, vecAx, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, buffer));
-    
-    //     cublasErrchk(cublasDdot(cublasHandle, matrix_size, p_d, 1, Ax_d, 1, &dot));
-    //     std::cout << dot << std::endl;
-    //     a = r1 / dot;
-
-    //     cublasErrchk(cublasDaxpy(cublasHandle, matrix_size, &a, p_d, 1, x_d, 1));
-    //     na = -a;
-    //     cublasErrchk(cublasDaxpy(cublasHandle, matrix_size, &na, Ax_d, 1, rhs_d, 1));
-
-    //     r0 = r1;
-    //     cublasErrchk(cublasDdot(cublasHandle, matrix_size, rhs_d, 1, rhs_d, 1, &r1));
-    //     cudaErrchk(cudaStreamSynchronize(stream));
-
-    //     k++;
-    // }
-
+    // prepare for allgatherv
+    int recvcounts[size];
+    int displs[size];
+    for (int i = 0; i < size; ++i) {
+        recvcounts[i] = matrix_size / size;
+        displs[i] = i * (matrix_size / size);
+    }
+    recvcounts[size-1] = matrix_size % size;
 
     //begin CG
 
@@ -271,6 +242,7 @@ void solve_cg_mpi(
     // std::cout << norm2_rhs << std::endl;
 
     MPI_Allgather(rhs_local_h, rows_per_rank, MPI_DOUBLE, rhs_h, rows_per_rank, MPI_DOUBLE, comm);
+    //MPI_Allgatherv(rhs_local_h, rows_per_rank, MPI_DOUBLE, rhs_h, recvcounts, displs, MPI_DOUBLE, comm);
     //memcpy
     cudaErrchk(cudaMemcpy(rhs_d, rhs_h, matrix_size * sizeof(double), cudaMemcpyHostToDevice));
     // calc A*x
@@ -304,6 +276,7 @@ void solve_cg_mpi(
         //memcpy
         cudaErrchk(cudaMemcpy(p_local_h, p_local_d, rows_per_rank * sizeof(double), cudaMemcpyDeviceToHost));
         MPI_Allgather(p_local_h, rows_per_rank, MPI_DOUBLE, p_h, rows_per_rank, MPI_DOUBLE, comm);
+        //MPI_Allgatherv(p_local_h, rows_per_rank, MPI_DOUBLE, p_h, recvcounts, displs, MPI_DOUBLE, comm);
         cudaErrchk(cudaMemcpy(p_d, p_h, matrix_size * sizeof(double), cudaMemcpyHostToDevice));
         cusparseErrchk(cusparseSpMV(
             cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA_local, vecp,
@@ -361,104 +334,40 @@ void solve_cg_mpi(
         std::cout << "difference/sum_ref " << difference/sum_ref << std::endl;
     }
 
-    cudaErrchk(cudaDeviceSynchronize());
 
-    MPI_Barrier(comm);
-    std::cout << "cusparseHandle" << std::endl;
     cusparseErrchk(cusparseDestroy(cusparseHandle));
-    MPI_Barrier(comm);
-    std::cout << "cublasHandle" << std::endl;
     cublasErrchk(cublasDestroy(cublasHandle));
-    MPI_Barrier(comm);
-    std::cout << "stream" << std::endl;
     cudaErrchk(cudaStreamDestroy(stream));
-    // MPI_Barrier(comm);
-    // std::cout << "matA" << std::endl;
-    // cusparseErrchk(cusparseDestroySpMat(matA));
-    MPI_Barrier(comm);
-    std::cout << "vecx" << std::endl;
     cusparseErrchk(cusparseDestroyDnVec(vecx));
-    MPI_Barrier(comm);
-    std::cout << "vecAx" << std::endl;
     cusparseErrchk(cusparseDestroyDnVec(vecAx));
-    MPI_Barrier(comm);
-    std::cout << "vecp" << std::endl;
     cusparseErrchk(cusparseDestroyDnVec(vecp));
-    MPI_Barrier(comm);
-    std::cout << "matA_local" << std::endl;
     cusparseErrchk(cusparseDestroySpMat(matA_local));
-    MPI_Barrier(comm);
-    std::cout << "vecAx_local" << std::endl;
     cusparseErrchk(cusparseDestroyDnVec(vecAx_local));
-    MPI_Barrier(comm);
-    std::cout << "vecp_local" << std::endl;
     cusparseErrchk(cusparseDestroyDnVec(vecp_local));
-    MPI_Barrier(comm);
-    std::cout << "buffer" << std::endl;
     cudaErrchk(cudaFree(buffer));
-    MPI_Barrier(comm);
-    std::cout << "data_d" << std::endl;
     cudaErrchk(cudaFree(data_d));
-    MPI_Barrier(comm);
-    std::cout << "col_indices_d" << std::endl;
     cudaErrchk(cudaFree(col_indices_d));
-    MPI_Barrier(comm);
-    std::cout << "row_indptr_d" << std::endl;
     cudaErrchk(cudaFree(row_indptr_d));
-    MPI_Barrier(comm);
-    std::cout << "rhs_d" << std::endl;
     cudaErrchk(cudaFree(rhs_d));
-    MPI_Barrier(comm);
-    std::cout << "x_d" << std::endl;
     cudaErrchk(cudaFree(x_d));
-    MPI_Barrier(comm);
-    std::cout << "p_d" << std::endl;
     cudaErrchk(cudaFree(p_d));
-    MPI_Barrier(comm);
-    std::cout << "Ax_d" << std::endl;
     cudaErrchk(cudaFree(Ax_d));
-    MPI_Barrier(comm);
-    std::cout << "row_indptr_local_d" << std::endl;
     cudaErrchk(cudaFree(row_indptr_local_d));
-    MPI_Barrier(comm);
-    std::cout << "col_indices_local_d" << std::endl;
     cudaErrchk(cudaFree(col_indices_local_d));
-    MPI_Barrier(comm);
-    std::cout << "data_local_d" << std::endl;
     cudaErrchk(cudaFree(data_local_d));
-    MPI_Barrier(comm);
-    std::cout << "rhs_local_d" << std::endl;
     cudaErrchk(cudaFree(rhs_local_d));
-    MPI_Barrier(comm);
-    std::cout << "x_local_d" << std::endl;
     cudaErrchk(cudaFree(x_local_d));
-    MPI_Barrier(comm);
-    std::cout << "p_local_d" << std::endl;
     cudaErrchk(cudaFree(p_local_d));
-    MPI_Barrier(comm);
-    std::cout << "Ax_local_d" << std::endl;
     cudaErrchk(cudaFree(Ax_local_d));
 
     cudaErrchk(cudaFree(r1_d));
     cudaErrchk(cudaFree(dot_d));
 
-    MPI_Barrier(comm);
-    std::cout << "row_indptr_local_h" << std::endl;
     delete[] row_indptr_local_h;
-    MPI_Barrier(comm);
-    std::cout << "col_indices_local_h" << std::endl;
     delete[] col_indices_local_h;
-    MPI_Barrier(comm);
-    std::cout << "data_local_h" << std::endl;
     delete[] data_local_h;
-    MPI_Barrier(comm);
-    std::cout << "rhs_local_h" << std::endl;
     delete[] rhs_local_h;
-    MPI_Barrier(comm);
-    std::cout << "p_local_h" << std::endl;
     delete[] p_local_h;
-    MPI_Barrier(comm);
-    std::cout << "p_h" << std::endl;
     delete[] p_h;
 
 
