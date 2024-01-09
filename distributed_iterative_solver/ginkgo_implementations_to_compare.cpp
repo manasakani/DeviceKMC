@@ -204,4 +204,4 @@ void gpu_solve(
 
 }
 
-}
+} // namespace gko_test

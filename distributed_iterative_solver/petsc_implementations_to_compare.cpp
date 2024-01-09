@@ -1,5 +1,9 @@
 #include "petsc_implementations_to_compare.h"
 #include <petscerror.h>
+
+namespace petsc_test
+{
+
 int cpu_solve(
     int rank,
     double *data_local,
@@ -153,13 +157,14 @@ int gpu_solve(
     }
 
 
-    // // Device context
+    // Device context
     // PetscDevice device;
     // PetscCall(PetscDeviceCreate(PETSC_DEVICE_CUDA, 0, &device));
     // PetscDeviceContext dctx;
     // PetscCall(PetscDeviceContextCreate(&dctx));
     // PetscCall(PetscDeviceContextSetDevice(dctx, device));
     // PetscCall(PetscDeviceContextSynchronize(dctx));
+
     // cudaSetDevice(0);
     // cudaDeviceSynchronize();
     // PetscCall(PetscDeviceContextSynchronize(dctx));
@@ -261,7 +266,7 @@ int gpu_solve(
 
     PetscCall(KSPGetIterationNumber(ksp, iterations));
     // PetscCall(KSPGetSolution(ksp,x));
-    std::cout << "rank " << rank << "iterations " << *iterations << std::endl;
+    std::cout << "rank " << rank << " iterations " << *iterations << std::endl;
     sleep(1);
     std::cout << "rank " << rank << " time_taken " << *time_taken << std::endl;
 
@@ -330,3 +335,5 @@ int gpu_solve(
     PetscCall(KSPDestroy(&ksp));
     return 0;
 }
+
+} // namespace petsc_test

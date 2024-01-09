@@ -1,3 +1,4 @@
+#pragma once
 #include <omp.h>
 #include <mpi.h>
 #include <iostream>
@@ -8,6 +9,9 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <unistd.h> 
+
+namespace petsc_test
+{
 
 int cpu_solve(
     int rank,
@@ -51,3 +55,4 @@ int gpu_solve(
     bool *correct_solution
 );
 
+}  // namespace petsc_test

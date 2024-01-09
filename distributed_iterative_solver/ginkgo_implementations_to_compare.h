@@ -1,3 +1,4 @@
+#pragma once
 #include <ginkgo/ginkgo.hpp>
 #include <cuda_runtime.h>
 #include <mpi.h>
@@ -19,4 +20,4 @@ void gpu_solve(
     double *time_taken,
     bool *correct_solution);
 
-}
+} // namespace gko_test

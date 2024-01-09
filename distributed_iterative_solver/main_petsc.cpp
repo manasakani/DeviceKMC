@@ -95,7 +95,7 @@ int main(int argc, char **argv) {
 
     // int number_of_measurements = 20;
     // int number_of_kmc_steps = 50;
-    int number_of_measurements = 4;
+    int number_of_measurements = 3;
     int number_of_kmc_steps = 1;
 
     int max_iterations = 5000;
@@ -262,7 +262,7 @@ int main(int argc, char **argv) {
         }
         for(int method = 0; method < number_of_methods; method++){
             if(rank == 0){
-                std::cout  << " method " << method_names[method] << std::endl;                
+                std::cout  << "method " << method_names[method] << std::endl;                
             }
             
             double *data_local_copy = new double[nnz_local];
@@ -293,7 +293,7 @@ int main(int argc, char **argv) {
 
             for(int measurement = 0; measurement < number_of_measurements; measurement++){
                 //MPI_Barrier(MPI_COMM_WORLD);
-                gpu_solve(
+                petsc_test::gpu_solve(
                     rank,
                     data_local,
                     row_ptr_local,

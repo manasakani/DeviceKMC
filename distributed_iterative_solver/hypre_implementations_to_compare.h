@@ -27,4 +27,4 @@ void gpu_solve(
     double *time_taken);
 
 
-}
+} // namespace hypre_test

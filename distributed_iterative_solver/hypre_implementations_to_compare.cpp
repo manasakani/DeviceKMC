@@ -209,4 +209,4 @@ void gpu_solve(
 }
 
 
-}
+} // namespace hypre_test
