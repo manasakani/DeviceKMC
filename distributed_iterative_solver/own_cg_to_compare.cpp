@@ -270,7 +270,7 @@ void solve_cg_mpi(
 
     // std::cout << norm2_rhs << std::endl;
 
-    MPI_Allgather(rhs_h, rows_per_rank, MPI_DOUBLE, rhs_local_h, rows_per_rank, MPI_DOUBLE, comm);
+    MPI_Allgather(rhs_local_h, rows_per_rank, MPI_DOUBLE, rhs_h, rows_per_rank, MPI_DOUBLE, comm);
     //memcpy
     cudaErrchk(cudaMemcpy(rhs_d, rhs_h, matrix_size * sizeof(double), cudaMemcpyHostToDevice));
     // calc A*x
@@ -442,24 +442,24 @@ void solve_cg_mpi(
     cudaErrchk(cudaFree(r1_d));
     cudaErrchk(cudaFree(dot_d));
 
-    // MPI_Barrier(comm);
-    // std::cout << "row_indptr_local_h" << std::endl;
-    // delete[] row_indptr_local_h;
-    // MPI_Barrier(comm);
-    // std::cout << "col_indices_local_h" << std::endl;
-    // delete[] col_indices_local_h;
-    // MPI_Barrier(comm);
-    // std::cout << "data_local_h" << std::endl;
-    // delete[] data_local_h;
-    // MPI_Barrier(comm);
-    // std::cout << "rhs_local_h" << std::endl;
-    // delete[] rhs_local_h;
-    // MPI_Barrier(comm);
-    // std::cout << "p_local_h" << std::endl;
-    // delete[] p_local_h;
-    // MPI_Barrier(comm);
-    // std::cout << "p_h" << std::endl;
-    // delete[] p_h;
+    MPI_Barrier(comm);
+    std::cout << "row_indptr_local_h" << std::endl;
+    delete[] row_indptr_local_h;
+    MPI_Barrier(comm);
+    std::cout << "col_indices_local_h" << std::endl;
+    delete[] col_indices_local_h;
+    MPI_Barrier(comm);
+    std::cout << "data_local_h" << std::endl;
+    delete[] data_local_h;
+    MPI_Barrier(comm);
+    std::cout << "rhs_local_h" << std::endl;
+    delete[] rhs_local_h;
+    MPI_Barrier(comm);
+    std::cout << "p_local_h" << std::endl;
+    delete[] p_local_h;
+    MPI_Barrier(comm);
+    std::cout << "p_h" << std::endl;
+    delete[] p_h;
 
 
 

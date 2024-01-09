@@ -7,3 +7,4 @@ data/*
 *.run
 *.qdrep
 *.nsys-rep
+nc.vg*
