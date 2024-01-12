@@ -3,15 +3,15 @@
 //******************************
 
 rnd_seed = 2													// random number for KMCProcess
-restart = 1														// restart calculation
-restart_xyz_file = structure_files/snapshot_t0.xyz				// restart filename
+restart = 0														// restart calculation
+restart_xyz_file = structure_files/snapshot_t300.xyz				// restart filename
 
 atom_xyz_file = structure_files/atoms.xyz						// if not restart, draws from the atom coordinates file
 interstitial_xyz_file = structure_files/interstitials.xyz
 lattice = 93.72586 26.914773122 26.6371955996 					// 1x1 device
 
-pristine = 0													// add initial vacancy concentration if starting from pristine
-initial_vacancy_concentration = 0.05
+pristine = 1													// add initial vacancy concentration if starting from pristine
+initial_vacancy_concentration = 0.05 
 attempt_frequency = 10e13 										// [1/s]
 
 shift = 0														// translate cell across the periodic boundary
@@ -22,7 +22,7 @@ nn_dist = 3.5 													// [Angstrom] neighbor distance
 perturb_structure = 1											// KMC event step ( turn off to only calculate fields )
 solve_potential = 1												// field solvers
 solve_current = 1
-solve_heating_global = 0
+solve_heating_global = 1
 solve_heating_local = 0
 																// for potential solver:
 sigma = 3.5e-10 												// [m] gaussian broadening
@@ -38,11 +38,11 @@ background_temp = 300 											// [K] contact temperature
 
 pbc = 0															// toggle for periodic boundary conditions
 
-V_switch = 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12				// [V] applied bias to right contact
+V_switch = 7 //1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17				// [V] applied bias to right contact
 
-t_switch = 1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1, 1e-1 // [s] timescale for switching
+t_switch = 1e-12 //1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3 // [s] timescale for switching
 
-Icc = 1000*1e6 													// [uA] enforced compliance current
+Icc = 500*1e-6 												// [A] enforced compliance current
 
 Rs = 1e-16 														// [Ohm] series resistance 
 
@@ -52,8 +52,10 @@ output_freq = 1 												// frequency of printing the steps into the output f
 
 verbose = 0							    						// this doesn't do anything yet
 
-num_atoms_first_layer = 144
-num_atoms_contact = 864
+num_atoms_first_layer = 144										// number of contact atoms in the first slice
+num_layers_contact = 6											// number of slices in the contact
+num_atoms_contact = 864											// total number of contact atoms
+num_atoms_reservoir = 540										// number of atoms in the oxygen reservoir
 metals = Ti N													// these atoms will be treated as conductive
 
 // Physical Constants
@@ -76,10 +78,10 @@ k_th_non_vacancy = 0.5                         					// [W/mK]
 k_th_vacancies = 5                             					// [W/mK]
 
 // Power update
-alpha = 0.1, 0.2 												// power dissipation constant [vacancy site, non-vacancy site]
+alpha = 0.1 													// power dissipation constant
 
 // Global thermal model
-dissipation_constant = 10e-7 									// in [J/Ks] Tunable parameter
+dissipation_constant = 10e-6 									// in [J/Ks] Tunable parameter
 small_step = 1e-16
 
 // Local thermal model

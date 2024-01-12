@@ -36,7 +36,9 @@ public:
     double nn_dist;
     bool pbc;
     int num_atoms_first_layer;
+    int num_layers_contact;
     int num_atoms_contact;
+    int num_atoms_reservoir;
     std::vector<ELEMENT> metals;
     
     // Device constants

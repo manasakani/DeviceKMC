@@ -25,6 +25,7 @@ void GPUBuffers::sync_HostToGPU(Device &device){
     gpuErrchk( cudaMemcpy(site_power, device.site_power.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_potential, device.site_potential.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_temperature, device.site_temperature.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(atom_CB_edge, device.atom_CB_edge.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(T_bg, &device.T_bg, 1 * sizeof(double), cudaMemcpyHostToDevice) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
@@ -40,6 +41,7 @@ void GPUBuffers::sync_GPUToHost(Device &device){
     gpuErrchk( cudaMemcpy(device.site_power.data(), site_power, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_potential.data(), site_potential, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_temperature.data(), site_temperature, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.atom_CB_edge.data(), atom_CB_edge, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(&device.T_bg, T_bg, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError()); 

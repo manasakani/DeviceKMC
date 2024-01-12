@@ -18,9 +18,18 @@ __constant__ double E_Vdiff_const[MAX_NUM_LAYERS];
 __constant__ double E_Odiff_const[MAX_NUM_LAYERS];
 
 void get_gpu_info(char *gpu_string, int dev){
- struct cudaDeviceProp dprop;
- cudaGetDeviceProperties(&dprop, dev);
- strcpy(gpu_string,dprop.name);
+    struct cudaDeviceProp dprop;
+    cudaError_t cudaStatus;
+
+    cudaStatus = cudaSetDevice(dev);
+    if (cudaStatus != cudaSuccess) {
+        fprintf(stderr, "cudaSetDevice failed! Error: %s\n", cudaGetErrorString(cudaStatus));
+        // Handle the error or exit the program
+        exit(EXIT_FAILURE);
+    }
+
+    cudaGetDeviceProperties(&dprop, dev);
+    strcpy(gpu_string,dprop.name);
 }
 
 void set_gpu(int dev){
@@ -35,7 +44,7 @@ struct is_defect
 {
     __host__ __device__ bool operator()(const ELEMENT element)
     {
-        return (element != DEFECT);
+        return ((element != DEFECT) && (element != OXYGEN_DEFECT));
     }
 };
 
@@ -104,34 +113,6 @@ __device__ double v_solve_gpu(double r_dist, int charge, const double *sigma, co
 // ********************************************************
 // ******************** KERNELS ***************************
 // ********************************************************
-
-__global__ void remake_atom_list(int N, double *site_x, double *site_y, double *site_z, ELEMENT *metals, const ELEMENT *element, double *site_potential, double *site_power,
-                                 double *atom_x, double *atom_y, double *atom_z, ELEMENT *atom_element, double *atom_potential,
-                                 double *atom_power, int *Natoms)
-{
-    // Removes defects sites from the site list
-    // One thread kernel at the moment
-    int atom_index = 0;
-
-    for (auto i = 0; i < N; i += 1)
-    {
-        if (element[i] == DEFECT || element[i] == OXYGEN_DEFECT)
-        {
-            // do nothing
-        }
-        else
-        {
-            atom_x[atom_index] = site_x[i];
-            atom_y[atom_index] = site_y[i];
-            atom_z[atom_index] = site_z[i];
-            atom_element[atom_index] = element[i];
-            atom_potential[atom_index] = site_potential[i];
-            atom_power[atom_index] = site_power[i];
-            ++atom_index;
-        }
-    }
-    Natoms[0] = atom_index;
-}
 
 __global__ void set_potential(double *A, double *B, int N)
 {
@@ -310,7 +291,7 @@ __global__ void create_K(
     double *X,
     const double *posx, const double *posy, const double *posz,
     const ELEMENT *metals, const ELEMENT *element, const int *site_charge,
-    const double *lattice, const bool pbc, const double high_G, const double low_G_1,
+    const double *lattice, const bool pbc, const double high_G, const double low_G,
     const double nn_dist, const int N, const int num_metals)
 {
 
@@ -345,7 +326,7 @@ __global__ void create_K(
             }
             else
             {
-                X[N * (i) + (j)] = -low_G_1;
+                X[N * (i) + (j)] = -low_G;
             }
         }
     }
@@ -486,7 +467,7 @@ __global__ void add_vector_to_diagonal(
 __global__ void set_ineg(double *ineg, const double *x,
                          const double *m, double Vd, int N, const double *posx, const double *posy, const double *posz,
                          const int pbc, const double *lattice, const double nn_dist,
-                         const double V0, const double *atom_potential, const double t_ox)
+                         const double V0, const double t_ox)
 {
     // ineg is matrix N x N
     // x is matrix (N+2) x (N+2)
@@ -648,9 +629,10 @@ __global__ void update_m(double *m, long minidx, int np2)
 __global__ void create_X(
     double *X,
     const double *posx, const double *posy, const double *posz,
-    const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_potential,
-    const double *lattice, bool pbc, double high_G, double low_G_1,
-    double nn_dist, double m_e, double V0, int num_source_inj, int num_ground_ext, int N, int num_metals, const double t_ox, const double Vd)
+    const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_CB_edge,
+    const double *lattice, bool pbc, double high_G, double low_G, double loop_G,
+    double nn_dist, double m_e, double V0, int num_source_inj, int num_ground_ext, const int num_layers_contact, const int num_atoms_reservoir,
+    int N, int num_metals, const double t_ox, const double Vd)
 {
 
     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
@@ -670,64 +652,81 @@ __global__ void create_X(
         bool ischarged1 = atom_charge[i] != 0;
         bool ischarged2 = atom_charge[j] != 0;
 
-        bool isVacancy1 = element[i] == VACANCY;
-        bool isVacancy2 = element[j] == VACANCY;
+        bool any_vacancy1 = element[i] == VACANCY;
+        bool any_vacancy2 = element[j] == VACANCY;
 
-        bool cvacancy1 = isVacancy1 && !ischarged1;
-        bool cvacancy2 = isVacancy2 && !ischarged2;
-
-        bool vacancy1 = isVacancy1 && ischarged1;
-        bool vacancy2 = isVacancy2 && ischarged2;
-        double dist = site_dist_gpu(posx[i], posy[i], posz[i], posx[j], posy[j], posz[j], lattice[0], lattice[1], lattice[2], pbc);
+        bool cvacancy1 = any_vacancy1 && !ischarged1;
+        bool cvacancy2 = any_vacancy2 && !ischarged2;
         
-        bool neighbor = false;
-        if (dist < nn_dist && i != j)
-            neighbor = true;
+        double dist_angstrom = site_dist_gpu(posx[i], posy[i], posz[i], 
+                                             posx[j], posy[j], posz[j], 
+                                             lattice[0], lattice[1], lattice[2], pbc);
 
-        // direct terms:
+        bool neighbor = (dist_angstrom < nn_dist) && (i != j);
+
+        // direct terms occur between neighbors 
         if (i != j && neighbor)
         {
             if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
             {
                 X[N_full * (i + 2) + (j + 2)] = -high_G;
-                // X[N_full * (j + 2) + (i + 2)] = -high_G;
             }
             else
             {
-                X[N_full * (i + 2) + (j + 2)] = -low_G_1;
-                // X[N_full * (j + 2) + (i + 2)] = -low_G_1;
+                X[N_full * (i + 2) + (j + 2)] = -low_G;
             }
         }
 
-        // // tunneling terms
-        // if (i != j && !neighbor && j > i)
-        // { 
-        //     bool V_V = (vacancy1 && vacancy2) || (vacancy2 && cvacancy1) || (vacancy1 && cvacancy2) || (cvacancy1 && cvacancy2);
+        // tunneling terms
+        if (i != j && !neighbor)
+        { 
+            // contacts, excluding the last layer 
+            bool metal1p = is_in_array_gpu(metals, element[i], num_metals) 
+                                           && (i > ((num_layers_contact - 1)*num_source_inj))
+                                           && (i < (N - (num_layers_contact - 1)*num_ground_ext - num_atoms_reservoir)); 
 
-        //     if (V_V)
-        //     {
-        //         double Vdiff = Vd;
-        //         double xdiff = (1e-10) * (posx[j] - posx[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0
-        //         double b = Vdiff / t_ox;
-        //         double a = 1e18; // zero prob
-        //         if (abs(V0 / b - xdiff) < 1e-18 && xdiff > 0)
-        //         {
-        //             a = 2.0 / 3.0 * sqrt(V0) * xdiff;
-        //         }
-        //         else if (xdiff < V0 / b && xdiff > nn_dist)
-        //         {                                                                     // if Vdiff < 0 then lower prob
-        //             a = -2.0 / 3.0 * (1 / b) * (pow(V0 - b * xdiff, 1.5) - pow(V0, 1.5)); // always +
-        //         }
-        //         else if (xdiff > V0 / b < 0 && xdiff > 0)
-        //         {
-        //             a = -2.0 / 3.0 * (1 / b) * (-1) * pow(V0, 3 / 2); // always +
-        //         }
-        //         double T = exp(-2 * sqrt((2 * m_e * eV_to_J) / (h_bar_sq)) * a);
-        //         double G = 2 * 3.8612e-5 * T;
-        //         X[N_full * (i + 2) + (j + 2)] = -G;
-        //         X[N_full * (j + 2) + (i + 2)] = -G;
-        //     }
-        // }
+            bool metal2p = is_in_array_gpu(metals, element[j], num_metals)
+                                           && (j > ((num_layers_contact - 1)*num_source_inj))
+                                           && (j < (N - (num_layers_contact - 1)*num_ground_ext - num_atoms_reservoir));  
+
+            // types of tunnelling conditions considered
+            bool trap_to_trap = (any_vacancy1 && any_vacancy2);
+            bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
+            bool contact_to_contact = (metal1p && metal2p);
+
+            // compute the WKB tunneling coefficients for all the tunnelling conditions
+            if (trap_to_trap || contact_to_trap || contact_to_contact)   
+            {
+                double local_E_drop = atom_CB_edge[i] - atom_CB_edge[j];              // [eV] difference in energy between the two atoms
+
+                // tunnelling under forward bias || reverse bias
+                if ((Vd > 0 && local_E_drop > 0) ||  (Vd < 0 && local_E_drop < 0))
+                {
+                    if (Vd < 0 && local_E_drop < 0){
+                        local_E_drop*=-1;                                             // switch barrier sign if negative bias
+                    }
+
+                    double E1 = eV_to_J * V0;                                         // [J] Energy distance to CB before tunnelling
+                    double E2 = eV_to_J * V0 - local_E_drop;                          // [J] Energy distance to CB after tunnelling
+                    double prefac = -(sqrt( 2 * m_e / h_bar_sq)) * (2.0 / 3.0);       // [s/(kg^1/2 * m^2)] coefficient inside the exponential
+                    double dist = (1e-10)*dist_angstrom;                              // [m] 3D distance between atoms i and j
+
+                    if (E2 > 0)                                                       // trapezoidal potential barrier (low field)
+                    {                                                           
+                        double T = exp(prefac * (dist / (E1 - E2)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
+                        X[N_full * (i + 2) + (j + 2)] = -2 * 3.8612e-5 * T; // Conductance = - (q^2 / h_bar) * Tij       
+                        X[N_full * (j + 2) + (i + 2)] = -2 * 3.8612e-5 * T;
+                    }
+
+                    if (E2 < 0)                                                        // triangular potential barrier (high field)
+                    {
+                        double T = exp(prefac * (dist / (E1 - E2)) * ( pow(E1, 1.5) ));
+                        X[N_full * (i + 2) + (j + 2)] = -2 * 3.8612e-5 * T; // Conductance = - (q^2 / h_bar) * Tij       
+                        X[N_full * (j + 2) + (i + 2)] = -2 * 3.8612e-5 * T;
+                    }
+                }
+            }
+        }
 
         // NOTE: Is there a data race here?
         // connect the source/ground nodes to the first/last contact layers
@@ -747,8 +746,8 @@ __global__ void create_X(
         __syncthreads();
         if (i == 0 && j == 0)
         {
-            X[0 * N_full + 1] = -high_G*10;
-            X[1 * N_full + 0] = -high_G*10;
+            X[0 * N_full + 1] = -loop_G;
+            X[1 * N_full + 0] = -loop_G;
         }
     }
 }
@@ -777,7 +776,7 @@ __global__ void update_charge(const ELEMENT *element,
                 if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
                     charge[tid] = 0;
                 }
-                if (Vnn >= 3){
+                if (Vnn >= 2){
                     charge[tid] = 0;
                 }
             }
@@ -933,13 +932,13 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 double E = 2 * (potential[i] - potential[j]);
                 double zero_field_energy = E_gen_const[layer[j]]; 
                 event_type_ = VACANCY_GENERATION;
-                double Ekin = kB * (temperature[j] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
+                double Ekin = 0; // kB * (temperature[j] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
 
             // Recombination
-            else if (element[i] == OXYGEN_DEFECT && element[j] == VACANCY) 
+            if (element[i] == OXYGEN_DEFECT && element[j] == VACANCY) 
             {
                 int charge_abs = 2;
                 double self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
@@ -949,7 +948,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 double zero_field_energy = E_rec_const[layer[j]];
 
                 event_type_ = VACANCY_RECOMBINATION;
-                double Ekin = kB * (temperature[i] - (*T_bg)); //kB * (temperature[i] - temperature[j]);
+                double Ekin = 0; //kB * (temperature[i] - (*T_bg)); //kB * (temperature[i] - temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
@@ -961,32 +960,32 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 double self_int_V = 0.0;
                 if (charge[i] != 0)
                 {
-                    double self_int_V = v_solve_gpu(dist, charge[i], sigma, k);
+                    self_int_V = v_solve_gpu(dist, charge[i], sigma, k);
                 }
 
                 event_type_ = VACANCY_DIFFUSION;
                 double E = (charge[i] - charge[j]) * (potential[i] - potential[j] + self_int_V);
                 double zero_field_energy = E_Vdiff_const[layer[j]];  
-                double Ekin = kB * (temperature[i] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
+                double Ekin = 0;//kB * (temperature[i] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
 
             // Ion diffusion
-            else if (element[i] == OXYGEN_DEFECT && element[j] == DEFECT)
+            if (element[i] == OXYGEN_DEFECT && element[j] == DEFECT)
             {
                 int charge_abs = 2;
                 double self_int_V = 0.0;
                 if (charge[i] != 0)
                 {                    
-                    double self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
+                    self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
                 }
 
                 double E = (charge[i] - charge[j]) * (potential[i] - potential[j] - self_int_V);
                 double zero_field_energy = E_Odiff_const[layer[j]];
 
                 event_type_ = ION_DIFFUSION;
-                double Ekin = kB * (temperature[i] - (*T_bg)); //kB * (temperature[i] - temperature[j]);
+                double Ekin = 0; //kB * (temperature[i] - (*T_bg)); //kB * (temperature[i] - temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
             }
@@ -1213,16 +1212,16 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     double *K_left_reduced_d = NULL;
     double *K_right_reduced_d = NULL;
 
-     Assemble_A( gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                 gpubuf.lattice, pbc, nn_dist,
-                 gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
-                 num_metals,
-                 d_high_G, d_low_G,
-                 N, N_left_tot, N_right_tot,
-                 &A_data_d, &gpubuf.Device_row_ptr_d, &gpubuf.Device_col_indices_d, &gpubuf.Device_nnz,
-                 &gpubuf.contact_left_col_indices, &gpubuf.contact_left_row_ptr, &gpubuf.contact_left_nnz,
-                 &gpubuf.contact_right_col_indices, &gpubuf.contact_right_row_ptr, &gpubuf.contact_left_nnz,
-                 &K_left_reduced_d, &K_right_reduced_d);
+    // the sparsity of the graph connectivity (which goes into A) is precomputed and stored in the buffers:
+    Assemble_A( gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+                gpubuf.lattice, pbc, nn_dist,
+                gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
+                num_metals, d_high_G, d_low_G,
+                N, N_left_tot, N_right_tot,
+                &A_data_d, &gpubuf.Device_row_ptr_d, &gpubuf.Device_col_indices_d, &gpubuf.Device_nnz,
+                &gpubuf.contact_left_col_indices, &gpubuf.contact_left_row_ptr, &gpubuf.contact_left_nnz,
+                &gpubuf.contact_right_col_indices, &gpubuf.contact_right_row_ptr, &gpubuf.contact_left_nnz,
+                &K_left_reduced_d, &K_right_reduced_d);
 
     // Prepare the RHS vector: rhs = -K_left_interface * VL - K_right_interface * VR
     // we take the negative and do rhs = K_left_interface * VL + K_right_interface * VR to account for a sign change in v_soln
@@ -1423,14 +1422,19 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
 }
 
 void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
-                      const int N, const int num_source_inj, const int num_ground_ext,
-                      const double Vd, const int pbc, const double high_G, const double low_G,
+                      const int N, const int num_source_inj, const int num_ground_ext, const int num_layers_contact, const int num_atoms_reservoir,
+                      const double Vd, const int pbc, 
+                      const double high_G, const double low_G, const double loop_G, const double tunnel_G,
                       const double nn_dist, const double m_e, const double V0, int num_metals, const double t_ox, double *imacro)
 {
+
+    // ***************************************************************************************
+    // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
+
     int *gpu_index;
-    cudaMalloc((void **)&gpu_index, N * sizeof(int)); // indices of the site array
     int *atom_gpu_index;
-    cudaMalloc((void **)&atom_gpu_index, N * sizeof(int)); // indices of the atom array
+    cudaMalloc((void **)&gpu_index, N * sizeof(int));                                           // indices of the site array
+    cudaMalloc((void **)&atom_gpu_index, N * sizeof(int));                                      // indices of the atom array
 
     thrust::device_ptr<int> gpu_index_ptr = thrust::device_pointer_cast(gpu_index);
     thrust::sequence(gpu_index_ptr, gpu_index_ptr + N, 0);
@@ -1440,45 +1444,45 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     thrust::copy_if(thrust::device, gpubuf.site_y, gpubuf.site_y + N, gpubuf.site_element, gpubuf.atom_y, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + N, gpubuf.site_element, gpubuf.atom_z, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + N, gpubuf.site_element, gpubuf.atom_charge, is_defect());
-    thrust::copy_if(thrust::device, gpubuf.site_potential, gpubuf.site_potential + N, gpubuf.site_element, gpubuf.atom_potential, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + N, gpubuf.site_element, gpubuf.atom_element, is_defect());
     thrust::copy_if(thrust::device, gpu_index, gpu_index + N, gpubuf.site_element, atom_gpu_index, is_defect());
 
+    // ***************************************************************************************
+    // 2. Assemble the transmission matrix (X) with both direct and tunnel connections and the
+    // solution vector (M) which represents the current inflow/outflow
+
     double *gpu_imacro, *gpu_m, *gpu_x, *gpu_ineg, *gpu_diag, *gpu_pdisp, *gpu_A;
-    cudaMalloc((void **)&gpu_imacro, 1 * sizeof(double));                      // IMACRO
-    cudaMalloc((void **)&gpu_m, (N_atom + 2) * sizeof(double));                // M
-    cudaMalloc((void **)&gpu_x, (size_t) (N_atom + 2) * (N_atom + 2) * sizeof(double)); // X
-    cudaMalloc((void **)&gpu_ineg, (size_t) N_atom * N_atom * sizeof(double));          // INEG
-    cudaMalloc((void **)&gpu_diag, (N_atom + 2) * sizeof(double));             // DIAG
-    cudaMalloc((void **)&gpu_pdisp, N_atom * sizeof(double));                  // PDISP
-    cudaMalloc((void **)&gpu_A, (size_t) (N_atom + 1) * (N_atom + 1) * sizeof(double)); // A
+    cudaMalloc((void **)&gpu_imacro, 1 * sizeof(double));                                       // IMACRO
+    cudaMalloc((void **)&gpu_m, (N_atom + 2) * sizeof(double));                                 // M
+    cudaMalloc((void **)&gpu_x, (size_t) (N_atom + 2) * (N_atom + 2) * sizeof(double));         // X
+    cudaMalloc((void **)&gpu_ineg, (size_t) N_atom * N_atom * sizeof(double));                  // INEG
+    cudaMalloc((void **)&gpu_diag, (N_atom + 2) * sizeof(double));                              // DIAG
+    cudaMalloc((void **)&gpu_pdisp, N_atom * sizeof(double));                                   // PDISP
+    cudaMalloc((void **)&gpu_A, (size_t) (N_atom + 1) * (N_atom + 1) * sizeof(double));         // A
 
     cudaMemset(gpu_x, 0, (size_t) (N_atom + 2) * (N_atom + 2) * sizeof(double));
-    cudaDeviceSynchronize();
+    cudaDeviceSynchronize(); //remove this one
 
     cudaMemset(gpu_m, 0, (N_atom + 2) * sizeof(double));
     cudaDeviceSynchronize();
-
-    // Make M vector
-    cudaMemset(gpu_m, 0, (N_atom + 2) * sizeof(double));
-    cudaDeviceSynchronize();
-
     thrust::device_ptr<double> m_ptr = thrust::device_pointer_cast(gpu_m);
     thrust::fill(m_ptr, m_ptr + 1, -high_G * Vd);
     thrust::fill(m_ptr + 1, m_ptr + 2, high_G * Vd);
 
-    // Create X
     int num_threads = 128;
     int blocks_per_row = (N_atom - 1) / num_threads + 1;
     int num_blocks = blocks_per_row * N;
+
+    // fill off diagonals of X
     create_X<<<num_blocks, num_threads>>>(
         gpu_x, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
-        gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_potential,
-        gpubuf.lattice, pbc, high_G, low_G,
-        nn_dist, m_e, V0, num_source_inj, num_ground_ext, N_atom, num_metals, t_ox, Vd);
+        gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
+        gpubuf.lattice, pbc, high_G, low_G, loop_G,
+        nn_dist, m_e, V0, num_source_inj, num_ground_ext, num_layers_contact, num_atoms_reservoir,
+        N_atom, num_metals, t_ox, Vd);
     cudaDeviceSynchronize();
 
-    // Diag X
+    // fill diagonal of X (all rows sum to zero)
     cudaMemset(gpu_diag, 0, (N_atom + 2) * sizeof(double));
     cudaDeviceSynchronize();
     num_threads = 512;
@@ -1490,7 +1494,9 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     set_diag<<<blocks_per_row, num_threads>>>(gpu_x, gpu_diag, N_atom + 2);
     cudaDeviceSynchronize();
 
-    // GESV
+    // ************************************************************
+    // 2. Solve system of linear equations using LU (direct solver)
+
     int lwork = 0;              /* size of workspace */
     double *gpu_work = nullptr; /* device workspace for getrf */
     int *gpu_info = nullptr;    /* error info */
@@ -1514,6 +1520,13 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
 
     CheckCusolverDnError(cusolverDnDgetrs(handle_cusolver, CUBLAS_OP_T, N_atom + 1, 1, gpu_A, N_atom + 1, gpu_ipiv, gpu_m, N_atom + 1, gpu_info));
     cudaDeviceSynchronize();
+
+    // DEBUG
+
+    // check the solution of M against the cpu code here
+
+
+    // DEBUG
 
     // NOTE: M is different from the cpu code in the 4th decimal place!!!
     // Compute I_macro
@@ -1548,7 +1561,7 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     set_ineg<<<num_blocks, num_threads>>>(gpu_ineg, gpu_x, gpu_m, Vd, N_atom,
                                           gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
                                           pbc, gpubuf.lattice, nn_dist,
-                                          V0, gpubuf.atom_potential, t_ox);
+                                          V0, t_ox);
     cudaDeviceSynchronize();
 
     // Update I_neg diagonal
@@ -1594,19 +1607,21 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     cudaFree(atom_gpu_index);
 }
 
-//subtracts event_prob[idx] from each element of event_prob_cum starting from idx
-__global__ void update_cumulative_sum(double* event_prob, double* event_prob_cum, int idx, int N, int nn) {
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+// we tried to update the cumulative sum by subtracting terms, this lead to floating point errors after a few loop iterations
 
-    double num_to_subtract = -1*event_prob[idx];
+// //subtracts event_prob[idx] from each element of event_prob_cum starting from idx
+// __global__ void update_cumulative_sum(double* event_prob, double* event_prob_cum, int idx, int N, int nn) {
+//     int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
-    for (int i = tid; i < N * nn; i += blockDim.x * gridDim.x) {
-        if (i >= idx) {
-            event_prob_cum[i] += num_to_subtract;
-        }
-    }
+//     double num_to_subtract = -1*event_prob[idx];
 
-}
+//     for (int i = tid; i < N * nn; i += blockDim.x * gridDim.x) {
+//         if (i >= idx) {
+//             event_prob_cum[i] += num_to_subtract;
+//         }
+//     }
+
+// }
 
 // double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
 //                             const double *lattice, const int pbc, const double *T_bg, 

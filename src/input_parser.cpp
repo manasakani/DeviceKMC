@@ -71,9 +71,17 @@ KMCParameters::KMCParameters(std::string param_file){
 		if (line.find("num_atoms_first_layer ") != std::string::npos) {
 			num_atoms_first_layer = read_int(line);
 		}
+
+		if (line.find("num_layers_contact ") != std::string::npos) {
+			num_layers_contact = read_int(line);
+		}
 		
 		if (line.find("num_atoms_contact ") != std::string::npos) {
 			num_atoms_contact = read_int(line);
+		}
+
+		if (line.find("num_atoms_reservoir ") != std::string::npos) {
+			num_atoms_reservoir = read_int(line);
 		}
 		
 		if (line.find("initial_vacancy_concentration ") != std::string::npos) {
@@ -382,8 +390,7 @@ std::vector<std::string> KMCParameters::read_vec_string(std::string line){
 
 void KMCParameters::set_expression_parameters(){
 	high_G = G_coeff * 1;
-	low_G = G_coeff * 1e-8; // [S]
-	// low_G = G_coeff * 0.00000001;																				// [S]
+	low_G = G_coeff * 1e-8; 																						// [S]
 	k = 8.987552e9 / epsilon;   																				  	// [N m^2 / C^2]
     k_th_interface = k_th_non_vacancy + (k_th_vacancies - k_th_non_vacancy) * initial_vacancy_concentration; 		// [W/mK]
     tau = k_th_interface / (L_char * L_char * c_p * 1e6);                                                   	 	// Thermal rate constant [1/s]

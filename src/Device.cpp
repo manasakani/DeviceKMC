@@ -46,19 +46,12 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
     this->T_bg = p.background_temp;
 
     // sort and prepare the raw coordinates
-    // sort_by_x(site_x, site_y, site_z, site_element, lattice); // REMOVED
-    sort_by_xyz(site_x, site_y, site_z, site_element, lattice); // REMOVED
+    sort_by_xyz(site_x, site_y, site_z, site_element, lattice);       
     if (p.shift)
         translate_cell(site_x, site_y, site_z, N, lattice, p.shifts);
 
     // populate #interstitials, and #metals
     for (int i = 0; i < N; i++){
-        if (site_element[i] == DEFECT)
-        {
-            this->N_int++;
-        } else {
-            this->N_atom++;
-        }
         if (is_in_vector<ELEMENT>(p.metals, site_element[i]))
         {   
             site_is_metal.push_back(1);
@@ -101,14 +94,17 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
     site_power.resize(N, 0);
     site_temperature.resize(N, T_bg);
 
-    std::cout << "Loaded " << N << " sites into device" << " : " << N_atom << " atoms and " << N_int << " interstitials " << "\n";
+    // Re-identify the atomic sites (differentiate from the vacancy sites and oxygen ions)
+    updateAtomLists();
+    atom_CB_edge.resize(N_atom, 0);
+
+    std::cout << "Loaded " << N << " sites into device" << " : " << N_atom << " atoms and " << N-N_atom << " interstitials " << "\n";
 
 }
 
 void Device::constructSiteNeighborList()
 {
     
-    //auto t0 = std::chrono::steady_clock::now();
     #pragma omp parallel
     {
     int local_max_nn = 0;
@@ -141,9 +137,6 @@ void Device::constructSiteNeighborList()
     }
 
     }
-    //auto t_f = std::chrono::steady_clock::now();
-    //std::chrono::duration<double> diff_f = t_f - t0;
-    //std::cout << "Time to build neighbor list: " << diff_f.count() << "\n";
 
     site_neighbors.is_constructed = 1;
     std::cout << "Maximum number of neighbors in device is: " << this->max_num_neighbors << "\n";
@@ -164,7 +157,7 @@ void Device::updateAtomLists()
     #pragma omp parallel for ordered schedule(static, 1)
     for (auto i = 0; i < N; i++)
     {
-	    if (site_element[i] != DEFECT && site_element[i] != OXYGEN_DEFECT) // MODIFIED
+	    if ((site_element[i] != DEFECT) && (site_element[i] != OXYGEN_DEFECT)) // defects and Oxygen ions are not included
         {
             #pragma omp ordered
             {
@@ -178,8 +171,8 @@ void Device::updateAtomLists()
             }
         }
     }
-
     this->N_atom = atom_count;
+
 }
 
 // construct laplacian and steady state laplacian
@@ -187,15 +180,14 @@ void Device::constructLaplacian(KMCParameters &p)
 {
     print("Constructing graph Laplacian");
 
-    // Get the number of interface atoms
-    int N_left_tot = get_num_in_contacts(p.num_atoms_contact, "left");
-    int N_right_tot = get_num_in_contacts(N_metals - p.num_atoms_contact, "right");
-    N_interface = N - N_left_tot - N_right_tot;
+    int N_left_tot = get_num_in_contacts(p.num_atoms_contact, "left");                      // # atoms in the left contact
+    int N_right_tot = get_num_in_contacts(N_metals - p.num_atoms_contact, "right");         // # atoms in the left contact (including Ti)
+    N_interface = N - N_left_tot - N_right_tot; 
 
     // Initialize the laplacian and inverse of the laplacian
-    laplacian.resize(N_interface * N_interface);
-    laplacian_ss.resize(N_interface * N_interface);
-    index_mapping.resize(N * N);
+    laplacian.resize(N_interface * N_interface);                                            // Laplacian (connectivity) matrix 
+    laplacian_ss.resize(N_interface * N_interface);                                         // Laplacian modified for steady state
+    index_mapping.resize(N * N);                                                    
 
     // Inverse laplacian
     int *ipiv_L_T = (int *)malloc(N_interface * sizeof(int));
@@ -392,6 +384,123 @@ void Device::constructLaplacian(KMCParameters &p)
     free(B_L_ss);
 }
 
+// Solve the Laplace equation to get the CB edge along the device
+void Device::setLaplacePotential(KMCParameters &p, double Vd)
+{
+
+    // Re-identify the atomic sites (differentiate from the vacancy sites and oxygen ions)
+    updateAtomLists();
+
+    int N_left_tot = p.num_atoms_contact; 
+    int N_right_tot = p.num_atoms_contact + p.num_atoms_reservoir;              // change eventually to just first layer
+    int N_interface = N_atom - N_left_tot - N_right_tot;
+    double *K = (double *)calloc(N_atom * N_atom, sizeof(double));
+    double *VL = (double *)malloc(N_left_tot * sizeof(double));
+    double *VR = (double *)malloc(N_right_tot * sizeof(double));
+    double *Ksub = (double *)calloc(N_interface, sizeof(double));
+    int *ipiv = (int *)calloc(N_interface, sizeof(int));
+    int one = 1;
+    int info, cntr;
+
+#pragma omp parallel
+    {
+
+#pragma omp for
+        for (int i = 0; i < N_left_tot; i++)
+        {
+            VL[i] = p.q*Vd/2;
+        }
+
+#pragma omp for
+        for (int i = 0; i < N_right_tot; i++)
+        {
+            VR[i] = -p.q*Vd/2;
+        }
+
+#pragma omp for
+        for (int i = 0; i < N_atom; i++)
+        {
+            for (int j = i; j < N_atom; j++) 
+            {
+                double dist_angstrom = site_dist(atom_x[i], atom_y[i], atom_z[i],
+                                                 atom_x[j], atom_y[j], atom_z[j], 
+                                                 lattice, pbc);                              // [Angstrom] 3D distance between atoms i and j
+                
+                bool neighbor = (dist_angstrom < p.nn_dist) && (i != j);
+                if (i != j && neighbor)
+                {
+                    bool metal1 = is_in_vector<ELEMENT>(p.metals, atom_element[i]);
+                    bool metal2 = is_in_vector<ELEMENT>(p.metals, atom_element[j]);
+
+                    if (metal1 || metal2)
+                    {
+                        K[N_atom * i + j] = -p.high_G;
+                        K[N_atom * j + i] = -p.high_G;
+                    }
+                    else
+                    {
+                        K[N_atom * i + j] = -p.low_G;
+                        K[N_atom * j + i] = -p.low_G;
+                    }
+                }
+            }
+        }
+    
+#pragma omp for
+        for (int i = 0; i < N_atom; i++)
+        {
+            for (int j = 0; j < N_atom; j++)
+            {
+                if (i != j)
+                {
+                    K[i * N_atom + i] += -1 * K[i * N_atom + j];
+                }
+            }
+        }
+
+#pragma omp for
+        for (int i = N_left_tot; i < N_atom - N_right_tot; i++)
+        {
+            for (int j = 0; j < N_left_tot; j++)
+            {
+                Ksub[i - N_left_tot] += K[i * N_atom + j] * VL[j];
+            }
+            for (int j = N_atom - N_right_tot; j < N_atom; j++)
+            {
+                Ksub[i - N_left_tot] += K[i * N_atom + j] * VR[j - (N_atom - N_right_tot)];
+            }
+        }
+
+    } // thread meetup
+
+    // Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub
+    double* D = K + (N_left_tot * N_atom) + N_left_tot;
+    gesv(&N_interface, &one, D, &N_atom, ipiv, Ksub, &N_interface, &info);
+
+#pragma omp parallel for
+    for (int i = 0; i < N_atom; i++)
+    {
+        if (i < N_left_tot)
+        {
+            atom_CB_edge[i] = VL[i];
+        }
+        else if ((i >= N_left_tot) && (i < (N_atom - N_right_tot)))
+        {
+            atom_CB_edge[i] = -1 * Ksub[i - N_left_tot];
+        }
+        else if (i >= (N_atom - N_right_tot))
+        {
+            atom_CB_edge[i] = VR[i - (N_atom - N_right_tot)];
+        }
+    }
+
+    free(K);
+    free(VL);
+    free(VR);
+    free(Ksub);
+    free(ipiv);
+}
+
 // returns number of sites of element
 int Device::get_num_of_element(ELEMENT element_)
 {
@@ -496,10 +605,12 @@ void Device::makeSubstoichiometric(double vacancy_concentration)
     while (num_V_add > 0)
     {
         random_num = random_generator.getRandomNumber();
-        loc = random_num * N;
-        if (site_element[loc] == O_EL)
+        loc = random_num * N_atom;                           //changed to N_atom
+
+        if (atom_element[loc] == O_EL)
         {
-            site_element[loc] = VACANCY;
+            atom_element[loc] = VACANCY;
+            site_element[atom_ind[loc]] = VACANCY;
             num_V_add--;
         }
     }
@@ -510,18 +621,18 @@ std::map<std::string, int> Device::updateCharge(GPUBuffers gpubuf, std::vector<E
 {
     std::map<std::string, int> result;
 
-#ifdef USE_CUDA
+// #ifdef USE_CUDA
 
-    gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
+//     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
 
-    update_charge_gpu(gpubuf.site_element,
-                      gpubuf.site_charge,
-                      gpubuf.neigh_idx,
-                      gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_);
+//     update_charge_gpu(gpubuf.site_element,
+//                       gpubuf.site_charge,
+//                       gpubuf.neigh_idx,
+//                       gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_);
 
-    gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
+//     gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
 
-#else
+// #else
     int Vnn;
     int uncharged_V_counter = 0;
     int V_counter = 0;
@@ -582,7 +693,7 @@ std::map<std::string, int> Device::updateCharge(GPUBuffers gpubuf, std::vector<E
     result["Uncharged oxygen ions"] = uncharged_Od_counter;
     result["Charged oxygen ions"] = Od_counter - uncharged_Od_counter;
 
-#endif
+// #endif
     return result;
 }
 
@@ -606,8 +717,8 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
 {
 
     std::map<std::string, int> result;
-    int N_left_tot = num_atoms_contact; // get_num_in_contacts(num_atoms_contact, "left");
-    int N_right_tot = num_atoms_contact; //get_num_in_contacts(num_atoms_contact, "right"); 
+    int N_left_tot = num_atoms_contact;
+    int N_right_tot = num_atoms_contact; 
     int N_interface = N - N_left_tot - N_right_tot;
 
     int one = 1;
@@ -673,12 +784,6 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
                 }
             }
         }
-                
-    //@Alex Maeder: the matrix is D, which is indexed as above. To output D to a file:
-    //int N_sq = N*N;
-    //const std::string filename = "testK_wDiag.txt";
-    //writeArrayToFile(K, N_sq, filename);
-        
 
 #pragma omp for
         for (int i = N_left_tot; i < N - N_right_tot; i++)
@@ -700,6 +805,11 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
     // do Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub
     gesv(&N_interface, &one, D, &N, ipiv, Ksub, &N_interface, &info);
     // the negative internal voltages are now contained in Ksub
+
+    if (info)
+    {
+        std::cout << "WARNING: Info for gesv in background_potential is " << info << "\n";
+    }
 
 // assign potentials to sites:
 #pragma omp parallel for
@@ -793,6 +903,7 @@ void Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t ha
     gpubuf.sync_GPUToHost(*this); // comment out to avoid memory copy in GPU-only implementation
 
 #else
+
     // circuit-model-based potential solver
     background_potential(handle_cusolver, p.num_atoms_contact, Vd, lattice, p.G_coeff, p.high_G, p.low_G, p.metals, kmc_step_count);
 
@@ -807,42 +918,46 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 {
     std::map<std::string, double> result;
 
-#ifdef USE_CUDA
+// #ifdef USE_CUDA
 
-    int num_source_inj = p.num_atoms_first_layer;
-    int num_ground_ext = num_source_inj;
+//     int num_source_inj = p.num_atoms_first_layer;
+//     int num_ground_ext = num_source_inj;
+        // double loop_G = p.high_G * 10000;                                                       // 'conductance' of the driver term for the NESS (converge to high value)
+        // double high_G = p.high_G * 0.0001;                                                     // 'conductance' between metallic connections
+        // double low_G = p.low_G * 0.0001;                                                        // 'conductance' between insulating connections
+        // double tunnel_G = 1;                                                                    // coefficient for tunneling conductance terms
 
-    gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
+//     gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
 
-    update_power_gpu(handle, handle_cusolver, gpubuf, N, num_source_inj, num_ground_ext,
-                     Vd, pbc, p.high_G, p.low_G,
-                     nn_dist, p.m_e, p.V0, p.metals.size(), p.t_ox, &imacro);
+//     update_power_gpu(handle, handle_cusolver, gpubuf, N, num_source_inj, num_ground_ext, p.num_layers_contact, p.num_atoms_reservoir,
+//                      Vd, pbc, p.high_G, p.low_G, loop_G, tunnel_G,
+//                      nn_dist, p.m_e, p.V0, p.metals.size(), p.t_ox, &imacro);
 
-    gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
+//     gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
 
-    // Postprocessing to get the total dissipated power
-    double P_disp_tot = 0.0;
-#pragma omp parallel for reduction(+ : P_disp_tot)
-    for (int i = 0; i < N; i++)
-    {
-        P_disp_tot += site_power[i];
-    }
+//     // Postprocessing to get the total dissipated power
+//     double P_disp_tot = 0.0;
+// // #pragma omp parallel for reduction(+ : P_disp_tot)
+//     for (int i = 0; i < N; i++)
+//     {
+//         P_disp_tot += site_power[i];
+//     }
 
-    result["Total dissipated power"] = P_disp_tot;
-    result["Current in uA"] = imacro * 1e6;
+//     result["Total dissipated power [mW]"] = P_disp_tot*1e3;
+//     result["Current [uA]"] = imacro * 1e6;
     
-#else
+// #else
 
     // Re-identify the atomic sites (differentiate from the vacancy sites and oxygen ions)
     updateAtomLists();
 
     double loop_G = p.high_G * 10000;                                                       // 'conductance' of the driver term for the NESS (converge to high value)
-    double high_G = p.high_G * 100;                                                         // 'conductance' between metallic connections
+    double high_G = p.high_G * 0.0001;                                                     // 'conductance' between metallic connections
     double low_G = p.low_G * 0.0001;                                                        // 'conductance' between insulating connections
-    double tunnel_G = 0.01;                                                                 // coefficient for tunneling conductance terms
+    double tunnel_G = 1;                                                                    // coefficient for tunneling conductance terms
 
     int num_source_inj = p.num_atoms_first_layer;                                           // number of injection nodes (tied to source)
-    int num_ground_ext = num_source_inj;                                                    // number of extraction nodes (tied to ground)
+    int num_ground_ext = p.num_atoms_first_layer;                                           // number of extraction nodes (tied to ground)
     int N_full = N_atom + 1 + 1;                                                            // total number of nodes, including injection and extraction
     int Nsub = N_full - 1;              
     double *M = (double *)calloc(N_full, sizeof(double));                                   // virtual potential vector
@@ -860,7 +975,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 #pragma omp for 
         for (int i = 0; i < N_atom; i++)
         {
-            for (int j = i; j < N_atom; j++)
+            for (int j = i; j < N_atom; j++)  
             {
 
                 double dist_angstrom = site_dist(atom_x[i], atom_y[i], atom_z[i],
@@ -875,70 +990,50 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                     bool any_vacancy1 =  atom_element[i] == VACANCY;
                     bool any_vacancy2 =  atom_element[j] == VACANCY;
 
-                    // contacts, excluding the last layer
+                    // contacts, excluding the last layer 
                     bool metal1p = is_in_vector<ELEMENT>(p.metals, atom_element[i]) 
-                                                     && (atom_ind[i] > (5*num_source_inj))
-                                                     && (atom_ind[i] < (N - 5*num_ground_ext - 540)); 
+                                                     && (i > ((p.num_layers_contact - 1)*num_source_inj))
+                                                     && (i < (N_atom - (p.num_layers_contact - 1)*num_ground_ext - p.num_atoms_reservoir)); 
 
                     bool metal2p = is_in_vector<ELEMENT>(p.metals, atom_element[j])
-                                                     && (atom_ind[j] > (5*num_source_inj))
-                                                     && (atom_ind[j] < (N - 5*num_ground_ext - 540));   // REMOVE HARDCODE
+                                                     && (j > ((p.num_layers_contact - 1)*num_source_inj))
+                                                     && (j < (N_atom - (p.num_layers_contact - 1)*num_ground_ext - p.num_atoms_reservoir));  
 
                     // types of tunnelling conditions considered
                     bool trap_to_trap = (any_vacancy1 && any_vacancy2);
                     bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
                     bool contact_to_contact = (metal1p && metal2p);
-
-                    bool same_contact = ((atom_ind[i] < p.num_atoms_contact) && (atom_ind[j] < p.num_atoms_contact)) 
-                                     || ((atom_ind[i] > N - p.num_atoms_contact) && atom_ind[j] > (N - p.num_atoms_contact));
                     
                     // compute the WKB tunneling coefficients for all the tunnelling conditions
-                    if ((trap_to_trap || contact_to_trap || contact_to_contact) && !same_contact)       
+                    if (trap_to_trap || contact_to_trap || contact_to_contact)   
                     {
-                        // determine the distance over which the field drops
-                        double xdist, x1, x2;
-                        double start_x = atom_x[p.num_atoms_contact];
-                        double end_x = atom_x[N_atom - p.num_atoms_contact - 540];          // REMOVE HARDCODE for Ti
-                        x1 = atom_x[i]; x2 = atom_x[j];
-                        if (atom_x[i] < start_x) { x1 = start_x;}                           // shift x-position to across the voltage drops
-                        if (atom_x[i] > end_x) { x1 = end_x; } 
-                        if (atom_x[j] < start_x) { x2 = start_x; } 
-                        if (atom_x[j] > end_x) { x2 = end_x; } 
-                        xdist = (1e-10) * (x2 - x1);                                        // [m] component of distance in direction of applied voltage
+                        double local_E_drop = atom_CB_edge[i] - atom_CB_edge[j];            // [eV] difference in energy between the two atoms
 
-                        // tunnelling under forward bias
-                        if (xdist > 0 && Vd > 0) 
+                        // tunnelling under forward bias || reverse bias
+                        if ((Vd > 0 && local_E_drop > 0) ||  (Vd < 0 && local_E_drop < 0))
                         {
-                            
-                            double local_V_drop = Vd * std::min(1.0, xdist / p.t_ox);       // [V] Applied electric field between the two sites 
+                            if (Vd < 0 && local_E_drop < 0){
+                                local_E_drop*=-1;                                           // switch barrier sign if negative bias
+                            }
+
                             double E1 = p.q * p.V0;                                         // [J] Energy distance to CB before tunnelling
-                            double E2 = p.q * (p.V0 - local_V_drop);                        // [J] Energy distance to CB after tunnelling
+                            double E2 = p.q * p.V0 - local_E_drop;                          // [J] Energy distance to CB after tunnelling
                             double prefac = -(sqrt( 2 * p.m_e ) / p.h_bar) * (2.0 / 3.0);   // [s/(kg^1/2 * m^2)] coefficient inside the exponential
                             double dist = (1e-10)*dist_angstrom;                            // [m] 3D distance between atoms i and j
 
-                            if (E2 > 0)                                                     // trapezoidal potential barrier (low field condition)
-                            {            
-                                // Conductance = - (q^2 / h_bar) * Tij                                                      
+                            if (E2 > 0)                                                     // trapezoidal potential barrier (low field)
+                            {                                                           
                                 double T = exp(prefac * (dist / (E1 - E2)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
-                                X[N_full * (i + 2) + (j + 2)] = -2 * 3.8612e-5 * tunnel_G * T;
-                                X[N_full * (j + 2) + (i + 2)] = -2 * 3.8612e-5 * tunnel_G * T;
+                                X[N_full * (i + 2) + (j + 2)] = -2 * 3.8612e-5 * tunnel_G * T; // Conductance = - (q^2 / h_bar) * Tij       
+                                X[N_full * (j + 2) + (i + 2)] = -2 * 3.8612e-5 * tunnel_G * T; 
                             }
 
                             if (E2 < 0)                                                     // triangular potential barrier (high field)
                             {
-                                // Conductance = - (q^2 / h_bar) * Tij
                                 double T = exp(prefac * (dist / (E1 - E2)) * ( pow(E1, 1.5) ));
-                                X[N_full * (i + 2) + (j + 2)] = -2 * 3.8612e-5 * tunnel_G * T;
-                                // T = exp(-1 * prefac * (dist / (E1 - E2)) * ( pow(E1, 1.5) ));
+                                X[N_full * (i + 2) + (j + 2)] = -2 * 3.8612e-5 * tunnel_G * T; // Conductance = - (q^2 / h_bar) * Tij       
                                 X[N_full * (j + 2) + (i + 2)] = -2 * 3.8612e-5 * tunnel_G * T;
                             }
-                        }
-
-                        // tunneling under reverse bias
-                        if ((atom_x[j] < atom_x[i]) && Vd < 0)
-                        {
-                            std::cout << "Reverse bias tunneling terms not implemented yet!";
-                            exit(1);
                         }
                     }
                 }
@@ -1010,7 +1105,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
                 D_T[i * Nsub + j] = X[i * N_full + j];
             }
         }
-} // #pragma omp parallel region
+} // #pragma omp parallel region 
 
     // Solve system of linear equations to get a virtual potential distribution which corresponds to this conductance matrix
     // (X is being stored into D_T because we don't want to overwrite it with the LU factors)
@@ -1031,7 +1126,8 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
         for (int i = 0; i < N_atom; i++)
         {
             double I_pos_current = X[1 * N_full + (i + 2)] * (M[i + 2] - M[1]);             // injected  (M[1] = Vd)
-            // I_pos_current = X[0 * N_full + (i + 2)] * (M[0] - M[i + 2]);                 // extracted (M[0] = 0)
+            // double I_pos_current = X[0 * N_full + (i + 2)] * (M[0] - M[i + 2]);          // extracted (M[0] = 0)
+
             if ((I_pos_current > 0 && Vd > 0) || (I_pos_current < 0 && Vd < 0))
             {
                 I_macro += I_pos_current;
@@ -1041,9 +1137,12 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
 
     this->imacro = I_macro;
     double Geq = std::abs(I_macro / Vd);
-    result["Current in uA"] = I_macro * 1e6;
-    result["Conductance in uS"] = Geq * 1e6;
-    // std::cout << I_macro * 1e6 << "\n";
+    result["Current [uA]"] = I_macro * 1e6;
+    result["Conductance [uS]"] = Geq * 1e6;
+    // std::cout << std::fixed << std::setprecision(16) << I_macro * 1e6 << "\n";
+    // std::cout << std::fixed << std::setprecision(16) << Geq * 1e6 << "\n";
+    // std::cout << "exiting after Imacro\n";
+    // exit(1);
 
 // *** Calculate the dissipated power ***
 
@@ -1059,7 +1158,7 @@ if (p.solve_heating_local || p.solve_heating_global)
 
     #pragma omp parallel private(I_cal, i, j)
     {
-        // shifting the virtual potential by its minimum
+        // shifting the virtual potential by its minimum so we can take differences
         #pragma omp for
         for (i = 0; i < N_full; i++)
         {
@@ -1067,35 +1166,24 @@ if (p.solve_heating_local || p.solve_heating_global)
         }
 
         // Collect the forward currents into I_neg
-        #pragma omp for // collapse(2)
+        #pragma omp for collapse(2)
         for (i = 0; i < N_atom; i++)
         {
-            int count = 0;
             for (j = 0; j < N_atom; j++)
             {
-
-                double distNeighbor = site_dist(atom_x[i], atom_y[i], atom_z[i],
-                                                atom_x[j], atom_y[j], atom_z[j], lattice, pbc);
-
-                double neighbor = distNeighbor < nn_dist;
-                double xdiff = (1e-10) * (atom_x[j] - atom_x[i]); // potential accross the x-direction => if x_j < x_i then Vdiff < 0
-
                 I_neg[i * N_atom + j] = 0;
                 I_cal = X[N_full * (i + 2) + (j + 2)] * (M[i + 2] - M[j + 2]); // current flows from j to i
 
-                if (I_cal < 0 && Vd > 0 && i != j && neighbor)
+                if (I_cal < 0 && Vd > 0)
                 {
                     I_neg[i * N_atom + j] = -I_cal;
                 }
-
-                else if (I_cal < 0 && Vd > 0 && xdiff < p.t_ox * p.V0 / Vd && xdiff > nn_dist && !neighbor)
-                { // excluding Fowler Nordheim tunneling
+                else if (I_cal > 0 && Vd < 0)
+                {
                     I_neg[i * N_atom + j] = -I_cal;
                 }
             }
         }
-
-    // Check whether there a negative entries in the X matrix
 
     // diagonals of I_neg
     #pragma omp for
@@ -1130,13 +1218,9 @@ if (p.solve_heating_local || p.solve_heating_global)
             {
                 alpha = 0.0;
             }
-            else if (vacancy)
-            {
-                alpha = 1;//0.1;
-            }
             else
             {
-                alpha = 1;//0.1;
+                alpha = 0.1;
             }
 
             site_power[atom_ind[i]] = -1 * alpha * P_disp[i];
@@ -1150,7 +1234,8 @@ if (p.solve_heating_local || p.solve_heating_global)
             P_disp_tot += site_power[i];
         }
 
-    result["Total dissipated power"] = P_disp_tot;
+    result["Total dissipated power [mW]"] = P_disp_tot*1e3;
+    // std::cout << "Total dissipated power [mW]" << P_disp_tot*1e3 << "\n";
     free(I_neg);
 
 } // if (p.solve_heating_local || p.solve_heating_global)
@@ -1161,7 +1246,7 @@ if (p.solve_heating_local || p.solve_heating_global)
     free(ipiv_T);
 
     // To do: put alpha in the parameter file
-#endif
+// #endif
 
     return result;
 }
@@ -1194,7 +1279,7 @@ std::map<std::string, double> Device::updateTemperature(GPUBuffers &gpubuf, KMCP
 
 // #else
 
-    result["Global temperature in K"] = p.background_temp;
+    result["Global temperature [K]"] = p.background_temp;
 
     if (p.solve_heating_global)
     {
@@ -1203,6 +1288,7 @@ std::map<std::string, double> Device::updateTemperature(GPUBuffers &gpubuf, KMCP
     }
     else if (p.solve_heating_local)
     {
+
         // use this to modify the rates
         if (step_time > 1e3 * p.delta_t)
         {
@@ -1229,37 +1315,31 @@ std::map<std::string, double> Device::updateTemperature(GPUBuffers &gpubuf, KMCP
 }
 
 // update the global temperature using the global temperature model
-// @param: step_time: time of the kmc time step
-//         small_step: descretization time step
 std::map<std::string, double> Device::updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
                                                               double background_temp, double t_ox, double A, double c_p)
 {
-    // Map
     std::map<std::string, double> result;
 
-    double P_tot = 0.0;
-    double C_thermal = A * t_ox * c_p * (1e6); // [J/K]
-    double T_global = T_bg;
-
-// Calculate the total power dissipated in the lattice and at every site:
-#pragma omp parallel for reduction(+ : P_tot)
+    double C_thermal = A * t_ox * c_p * (1e6);                                              // [J/K]
+    double number_steps = event_time / small_step;                                          // number of discrete steps within the KMC event time
+    double P_tot;                                                                           // total dissipated power
+    #pragma omp parallel for reduction(+ : P_tot)
     for (int i = 0; i < N; i++)
     {
         P_tot += site_power[i];
     }
 
-    int num_steps = event_time / small_step;
-    double T_upd = 0;
-
-    for (int i = 0; i < num_steps; i++)
-    {
-        T_upd = (-1) * dissipation_constant * 1 / C_thermal * small_step * (T_global - background_temp) + 1 / C_thermal * P_tot * small_step + T_global;
-        T_global = T_upd;
-    }
-
-    result["Total dissipated power in mW"] = P_tot * 1e3;
-    result["Global temperature in K"] = T_global;
-    T_bg = T_global;
+    // Solve the capacitative heat equation 
+    double a_coeff = -dissipation_constant*1/C_thermal*small_step + 1;                      // geometric series coefficients
+    double b_coeff = dissipation_constant*1/C_thermal*small_step*background_temp; 
+    double c_coeff = b_coeff + P_tot/C_thermal * small_step;
+    double T_intermediate = T_bg;
+    double T_bg_test = c_coeff * (1.0 - pow(a_coeff, number_steps)) / (1.0-a_coeff) + pow(a_coeff, number_steps) * T_intermediate;
+        
+    // update the global temperature attribute
+    this->T_bg = T_bg_test;
+    result["Global temperature [K]"] = T_bg;
+    // std::cout << "Global temperature [K]: " << T_bg << "\n";
     return result;
 }
 
@@ -1348,7 +1428,7 @@ std::map<std::string, double> Device::updateLocalTemperature(double background_t
         }
 //    }
     T_bg = T_tot / (N - 2*num_atoms_contact);
-    result["Global temperature in K"] = T_bg;
+    result["Global temperature [K]"] = T_bg;
     free(T_vec);
     return result;
 }
@@ -1421,7 +1501,7 @@ std::map<std::string, double> Device::updateLocalTemperatureSteadyState(double b
 //    }
 
     T_bg = T_tot / (N - 2*num_atoms_contact);
-    result["Global temperature in K"] = T_bg;
+    result["Global temperature [K]"] = T_bg;
     return result;
 }
 
@@ -1436,9 +1516,31 @@ void Device::writeSnapshot(std::string filename, std::string foldername)
 
     for (int i = 0; i < N; i++)
     {
-        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential[i] << "   " << site_temperature[i] << "\n";
+        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential[i] << "   " << site_power[i] << "\n";
     }
 }
+
+
+// double local_V_drop = Vd * std::min(1.0, xdist / p.t_ox);    // [V] Applied electric field between the two sites 
+// // determine the distance over which the field drops
+                        // double xdist, x1, x2;
+                        // double start_x = atom_x[p.num_atoms_contact];
+                        // double end_x = atom_x[N_atom - p.num_atoms_contact - 540];          // REMOVE HARDCODE for Ti
+                        // x1 = atom_x[i]; x2 = atom_x[j];
+                        // if (atom_x[i] < start_x) { x1 = start_x;}                           // shift x-position to across the voltage drops
+                        // if (atom_x[i] > end_x) { x1 = end_x; } 
+                        // if (atom_x[j] < start_x) { x2 = start_x; } 
+                        // if (atom_x[j] > end_x) { x2 = end_x; } 
+                        // xdist = (1e-10) * (x2 - x1);                                        // [m] component of distance in direction of applied voltage
+
+ // std::cout << "printing cb-edge and then exiting\n";
+    // std::ofstream fout1("cb_edge.txt");
+    // for (int i = 0; i < N; i++){
+    //     fout1 << site_CB_edge[i] << ' ';
+    // }
+    // fout1.close();
+    // exit(1);
+
  // //check incomplete gamma function:
     // double ans = boost::math::tgamma(1.0, 1.0);
     // std::cout << ans << "\n";

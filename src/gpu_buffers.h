@@ -16,7 +16,8 @@ public:
     int *site_charge = nullptr;
     double *site_power, *site_potential, *site_temperature = nullptr;
     double *T_bg = nullptr;
-    double *atom_power, *atom_potential = nullptr;
+    double *atom_power = nullptr;//, *atom_potential = nullptr;
+    double *atom_CB_edge = nullptr;
     int *atom_charge = nullptr;
     int *Natom_;
 
@@ -47,6 +48,7 @@ public:
     int num_metal_types_ = 0;
     int N_ = 0;                                     // number of sites in the device
     int nn_ = 0;                                    // maximum number of neighbors in the device
+    int N_atom_ = 0;                                // number of atomic sites in the device
 
     // helper variables stored on host:
     std::vector<double> E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host;
@@ -60,17 +62,19 @@ public:
     // copy back just some device attribute vectors:
     void copy_power_fromGPU(std::vector<double> &power);
     void copy_charge_toGPU(std::vector<int> &charge);
+    // void copy_atom_CB_edge_to_GPU();        ///IMPLEMENT THIS BEFORE DOING MULTIPLE V POINTS
 
     // constructor allocates nothing (used for CPU-only code):
     GPUBuffers(){};
 
     // constructor allocates arrays in GPU memory
-    GPUBuffers(std::vector<Layer> layers, std::vector<int> site_layer_in, double freq_in, int N,
+    GPUBuffers(std::vector<Layer> layers, std::vector<int> site_layer_in, double freq_in, int N, int N_atom,
                std::vector<double> site_x_in,  std::vector<double> site_y_in,  std::vector<double> site_z_in,
                int nn, double sigma_in, double k_in, std::vector<double> lattice_in, std::vector<int> neigh_idx_in, std::vector<ELEMENT> metals,
                int num_metals_types) {
                 
         this->N_ = N;
+        this->N_atom_ = N_atom;
         this->nn_ = nn;
         this->num_metal_types_ = num_metals_types;
 
@@ -119,10 +123,11 @@ public:
         gpuErrchk( cudaMalloc((void **)&Natom_, 1 * sizeof(int)));
         gpuErrchk( cudaMalloc((void **)&atom_element, N_ * sizeof(ELEMENT)) );
         gpuErrchk( cudaMalloc((void **)&atom_x, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void **)&atom_y, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void **)&atom_y, N_ * sizeof(double)) );             // CHANGE THESE TO NATOM
         gpuErrchk( cudaMalloc((void **)&atom_z, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void **)&atom_power, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void **)&atom_potential, N_ * sizeof(double)) );
+        // gpuErrchk( cudaMalloc((void **)&atom_potential, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void **)&atom_CB_edge, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void **)&atom_charge, N_ * sizeof(int)) );
 
         cudaDeviceSynchronize();
@@ -138,7 +143,7 @@ public:
         gpuErrchk( cudaMemcpy(freq, &freq_in, 1 * sizeof(double), cudaMemcpyHostToDevice) );
         gpuErrchk( cudaMemcpy(lattice, lattice_in.data(), 3 * sizeof(double), cudaMemcpyHostToDevice) );
         gpuErrchk( cudaMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
-
+    
         cudaDeviceSynchronize();
         
 #endif

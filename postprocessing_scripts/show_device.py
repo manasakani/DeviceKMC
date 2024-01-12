@@ -20,8 +20,8 @@ def read_xyz(filename):
                 pass
             elif len(line.split()) == 0:
                 pass
-            # elif line.split()[0] == 'd':
-            #     pass
+            elif line.split()[0] == 'd':
+                pass
             elif line.split()[0] in ['Cell:', 'cell:']:
                 lattice = line.split()[1:4]
             elif len(line.split()) == 6:
@@ -68,7 +68,7 @@ def make_image(names, positions, potential, temperature, structure_folder, imnam
     fig = plt.figure(figsize=(5, 6), tight_layout=True)
 
     ax = fig.add_subplot(3, 1, 1)
-    ax.scatter(x, y, c=colors, s=2)
+    ax.scatter(x, y, c=colors, s=1)
     ax.grid(False)
     ax.get_xaxis().set_ticks([])
 

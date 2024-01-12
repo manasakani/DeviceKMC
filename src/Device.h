@@ -54,11 +54,12 @@ class Device
 {
 
 public:
+
     int N = 0;                              // number of sites in this device
+    int N_atom = 0;                         // number of atoms in this device
     int N_metals = 0;                       // number of atoms identified as metals
     int max_num_neighbors = 0;              // maximum number of neighbors per site
     Graph site_neighbors;                   // list of neighbors of each site (including defects)
-    Graph atom_neighbors;                   // list of neighbors of each atom (excluding defects)
     std::vector<int> neigh_idx;             // neighbors for the event list setup
     double nn_dist;                         // neighbor distance
     double sigma;                           // gaussian width for potential solver
@@ -82,12 +83,13 @@ public:
     std::vector<double> atom_ind;
     std::vector<ELEMENT> atom_element;
     std::vector<int> atom_charge;
+    std::vector<double> atom_CB_edge;       // [eV] the conduction band edge of each atom
 
     // Fields:
-    std::vector<int> site_charge;           // charge of each site
-    std::vector<double> site_potential;     // potential of each site
-    std::vector<double> site_power;         // power of each site
-    std::vector<double> site_temperature;   // temperature of each site
+    std::vector<int> site_charge;           // [q] charge of each site
+    std::vector<double> site_potential;     // [V] potential of each site
+    std::vector<double> site_power;         // [W] power dissipated at each site
+    std::vector<double> site_temperature;   // [K] temperature of each site
 
     std::vector<double> laplacian;          // laplacian matrix
     std::vector<double> laplacian_ss;       // steady state laplacian
@@ -96,37 +98,17 @@ public:
     // Construct the device from the structure (in the xyz files) and simulation parameters
     Device(std::vector<std::string> &xyz_files, KMCParameters &p);
 
-    // get number of sites with this element
-    int get_num_of_element(ELEMENT element_);
-
-    // find the number of site objects located in the contacts
-    int get_num_in_contacts(int num_atoms_contact, std::string contact_name_);
-
-    // returns true if neighbor
-    bool is_neighbor(int i, int j);
-
-    // returns true if thing is in vector of given things
-    template <typename T>
-    bool is_in_vector(std::vector<T> things_, T thing_);
-
     // remove a specific percentage of oxygen from the lattice (convert to vacancies)
     void makeSubstoichiometric(double vacancy_concentration);
 
     // construct inverse of the laplacian and the steady state laplacian
     void constructLaplacian(KMCParameters &p);
 
-    // update the arrays of just the atoms (re-identify the defects)
-    void updateAtomLists();
+    // Solve the Laplace equation to get the CB edge along the device
+    void setLaplacePotential(KMCParameters &p, double Vd);
 
     // update the charge of each vacancy and ion
     std::map<std::string, int> updateCharge(GPUBuffers gpubuf, std::vector<ELEMENT> metals);
-
-    // resistive-network solver for the background potential
-    void background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
-                              double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals, int kmc_step_num);
-
-    // n-body poisson solver for the charged atoms
-    void poisson_gridless(int num_atoms_contact, std::vector<double> lattice);
 
     // update the potential of each site
     void updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, KMCParameters &p, double Vd,
@@ -137,6 +119,33 @@ public:
 
     // update the temperature of each site
     std::map<std::string, double> updateTemperature(GPUBuffers &gpubuf, KMCParameters &p, double step_time);
+
+    // write an xyz file with [element, x, y, z, potential, temperature] data
+    void writeSnapshot(std::string filename, std::string foldername);
+
+private:
+
+    int N_interface = 0;
+    RandomNumberGenerator random_generator; // random number generator object for this device
+    double kB = 8.617333262e-5;             // [eV/K]
+    double q = 1.60217663e-19;              // [C]
+    double h_bar_sq = 4.3957e-67;           // [(Js)^2]
+    double m_0 = 9.11e-31;                  // [kg]
+    double eV_to_J = 1.6e-19;               // [C]
+    const double T_1 = 50;                  // [K] Normalization T_1 < background_temperature!!!
+
+    // initialize site_neighbors depending on nn_dist
+    void constructSiteNeighborList();
+
+    // update the arrays of just the atoms (re-identify the defects)
+    void updateAtomLists();
+
+    // resistive-network solver for the background potential
+    void background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
+                              double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals, int kmc_step_num);
+
+    // n-body poisson solver for the charged atoms
+    void poisson_gridless(int num_atoms_contact, std::vector<double> lattice);
 
     // update the global temperature
     std::map<std::string, double> updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
@@ -150,22 +159,17 @@ public:
     std::map<std::string, double> updateLocalTemperatureSteadyState(double background_temp, double delta_t, double tau, double power_adjustment_term, double k_th_interface,
                                                                     double k_th_vacancies, double num_atoms_contact, std::vector<ELEMENT> metals);
 
-    // write an xyz file with [element, x, y, z, potential, temperature] data
-    void writeSnapshot(std::string filename, std::string foldername);
+    // get number of sites with this element
+    int get_num_of_element(ELEMENT element_);
 
-private:
-    int N_atom = 0; // number of atoms in this device
-    int N_int = 0;  // number of available interstitial (defect) sites
-    int N_interface = 0;
-    RandomNumberGenerator random_generator; // random number generator object for this device
-    double kB = 8.617333262e-5;             // [eV/K]
-    double q = 1.60217663e-19;              // [C]
-    double h_bar_sq = 4.3957e-67;           // [(Js)^2]
-    double m_0 = 9.11e-31;                  // [kg]
-    double eV_to_J = 1.6e-19;               // [C]
-    const double T_1 = 50;                  // [K] Normalization T_1 < background_temperature!!!
+    // find the number of site objects located in the contacts
+    int get_num_in_contacts(int num_atoms_contact, std::string contact_name_);
 
-    // initialize site_neighbors depending on nn_dist
-    void constructSiteNeighborList();
+    // returns true if neighbor
+    bool is_neighbor(int i, int j);
+
+    // returns true if thing is in vector of given things
+    template <typename T>
+    bool is_in_vector(std::vector<T> things_, T thing_);
 
 };

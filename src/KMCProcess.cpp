@@ -94,15 +94,8 @@ void KMCProcess::update_events_and_rates(Device &device, EVENTTYPE *event_type, 
                 double E = 2 * (device.site_potential[i] - device.site_potential[j]);
                 double zero_field_energy = layers[site_layer[j]].E_gen_0;
                 event_type_ = VACANCY_GENERATION;
-                double Ekin = kB * (device.site_temperature[j] - device.T_bg); //double Ekin = kB * (device.site_temperature[j] - device.site_temperature[i]);
+                double Ekin = 0; //kB * (device.site_temperature[j] - device.T_bg); //double Ekin = kB * (device.site_temperature[j] - device.site_temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
-                
-                // if (EA < 0.8){
-                // std::cout << "energy to generate this vacancy: " << EA << " : " << zero_field_energy << "\n";
-                // std::cout << "i: " << i << " j: " << j << "\n";
-                // std::cout << "xi: " << device.site_x[i] << " xj: " << device.site_x[j] << "\n";
-                // std::cout << "E: " << E << " " << device.site_potential[i] << " " << device.site_potential[j] << "\n";
-                // }
                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
             }
 
@@ -117,7 +110,7 @@ void KMCProcess::update_events_and_rates(Device &device, EVENTTYPE *event_type, 
                 double zero_field_energy = layers[site_layer[j]].E_rec_1;
 
                 event_type_ = VACANCY_RECOMBINATION;
-                double Ekin = kB * (device.site_temperature[i] - device.T_bg); //double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
+                double Ekin = 0; //kB * (device.site_temperature[i] - device.T_bg); //double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
             }
@@ -135,14 +128,14 @@ void KMCProcess::update_events_and_rates(Device &device, EVENTTYPE *event_type, 
                 event_type_ = VACANCY_DIFFUSION;
                 double E = (device.site_charge[i] - device.site_charge[j]) * (device.site_potential[i] - device.site_potential[j] + self_int_V);
                 double zero_field_energy = layers[site_layer[i]].E_diff_2;
-                double Ekin = kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[j] - device.site_temperature[i]);
+                double Ekin = 0; //kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[j] - device.site_temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
                 // std::cout << "energy for moving this vacancy: " << EA << " : " << zero_field_energy << "\n";
                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
             }
 
             // Ion diffusion
-            else if (device.site_element[i] == OXYGEN_DEFECT && device.site_element[j] == DEFECT) // CHANGE TO IF
+            if (device.site_element[i] == OXYGEN_DEFECT && device.site_element[j] == DEFECT) 
             {
                 int charge_abs = 2;
                 double self_int_V = 0.0;
@@ -155,7 +148,7 @@ void KMCProcess::update_events_and_rates(Device &device, EVENTTYPE *event_type, 
 
                 event_type_ = ION_DIFFUSION;
 
-                double Ekin = kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[i] - device.site_temperature[j]);
+                double Ekin = 0; //kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[i] - device.site_temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
             }

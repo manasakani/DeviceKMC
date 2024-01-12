@@ -124,7 +124,7 @@ int main(int argc, char **argv)
 
 #ifdef USE_CUDA
     GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,                         // handles GPU memory management of the device attributes
-                      device.N, device.site_x, device.site_y, device.site_z,
+                      device.N, device.N_atom, device.site_x, device.site_y, device.site_z,
                       device.max_num_neighbors, device.sigma, device.k, 
                       device.lattice, device.neigh_idx, p.metals, p.metals.size());
     initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_contact);
@@ -157,6 +157,9 @@ int main(int argc, char **argv)
         outputBuffer << "Applied Voltage = " << Vd << " V\n";
         outputBuffer << "--------------------------------\n";
 
+        // solve the Laplace Equation to get the CB edge energy at this voltage
+        device.setLaplacePotential(p, Vd);
+
         const std::string folder_name = "Results_" + std::to_string(Vd);
         const bool folder_already_exists = location_exists(folder_name);
         if (folder_already_exists)
@@ -168,15 +171,14 @@ int main(int argc, char **argv)
 
         kmc_time = 0.0;
         kmc_step_count = 0;
-        // device.writeSnapshot("snapshot_init.xyz", folder_name);
 
         // ********************************************************
         // ***************** MAIN KMC LOOP ************************
         // **** Update fields and execute events on structure *****
         // ********************************************************
-#ifdef USE_CUDA
-        gpubuf.sync_HostToGPU(device);
-#endif
+// #ifdef USE_CUDA
+//         gpubuf.sync_HostToGPU(device);
+// #endif
         while (kmc_time < t)
         {
             outputBuffer << "--------------\n";
@@ -197,6 +199,14 @@ int main(int argc, char **argv)
             auto t_pot = std::chrono::steady_clock::now();
             diff_pot = t_pot - t0;
 
+            // int charge_sum = 0;
+            // for(auto c : device.site_charge)
+            // {
+            //     charge_sum += c;
+            // }
+            // std::cout << "sum of charges: " << charge_sum << "\n";
+            // exit(21);
+
             // generate xyz snapshot
             if (!(kmc_step_count % p.log_freq))
             {
@@ -208,7 +218,7 @@ int main(int argc, char **argv)
             if (p.perturb_structure){                                  
                 step_time = sim.executeKMCStep(gpubuf, device);                                         // execute events on the structure
                 kmc_time += step_time;                                                                  // internal simulation timescale
-            } else {                                                                                    // run in IV or field-solver mode
+            } else {                                                                                    // run in IV or field-solver testing
                 kmc_time = t;
             }
             auto t_perturb = std::chrono::steady_clock::now();
@@ -275,12 +285,15 @@ int main(int argc, char **argv)
             outputBuffer << "--------------------------------------";
         } // while (kmc_time < t)
 
-#ifdef USE_CUDA
-        gpubuf.sync_GPUToHost(device);
-#endif
+// Get device attributes from GPU memory
+// #ifdef USE_CUDA
+//         gpubuf.sync_GPUToHost(device);
+// #endif
+
         const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
         device.writeSnapshot(file_name, folder_name);
     } // for (int vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
+
 
 #ifdef USE_CUDA
     gpubuf.freeGPUmemory();
