@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     cudaError_t set_device_error = cudaSetDevice(0);
     std::cout << "rank " << rank << " set_device_error " << set_device_error << std::endl;
 
-    int matsize = 80;
+    int matsize = 260;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
     std::string save_path ="/scratch/snx3000/amaeder/measurements/single_node_libraries/";
@@ -47,7 +47,13 @@ int main(int argc, char **argv) {
         nnz = 16481266;
     }
 
+    // int number_of_measurements = 20;
+    // int number_of_kmc_steps = 50;
+    int number_of_measurements = 2;
+    int number_of_kmc_steps = 1;
 
+    int max_iterations = 5000;
+    double relative_tolerance = 1e-16;
 
     int rows_per_rank = matrix_size / size;
     int remainder = matrix_size % size;
@@ -83,13 +89,7 @@ int main(int argc, char **argv) {
     cudaMalloc(&reference_solution_d, matrix_size * sizeof(double));
     cudaMalloc(&diagonal_d, matrix_size * sizeof(double));
 
-    // int number_of_measurements = 20;
-    // int number_of_kmc_steps = 50;
-    int number_of_measurements = 1;
-    int number_of_kmc_steps = 1;
 
-    int max_iterations = 5000;
-    double relative_tolerance = 1e-16;
 
 
     int iterations[number_of_kmc_steps];

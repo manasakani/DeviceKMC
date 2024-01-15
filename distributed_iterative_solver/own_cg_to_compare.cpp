@@ -60,7 +60,6 @@ void solve_cg_mpi(
     int rank, size;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
-    std::printf("rank %d size %d\n", rank, size);
     int rows_per_rank = matrix_size / size;
     
     // if(matrix_size % size != 0){
@@ -74,10 +73,6 @@ void solve_cg_mpi(
     if(rank == size-1){
         rows_per_rank += matrix_size % size;
     }
-    std::cout << "rank " << rank << " rows_per_rank " << rows_per_rank << std::endl;
-
-    MPI_Barrier(comm);
-
 
     int *row_indptr_local_h = new int[rows_per_rank+1];
 
@@ -223,7 +218,7 @@ void solve_cg_mpi(
         recvcounts[i] = matrix_size / size;
         displs[i] = i * (matrix_size / size);
     }
-    recvcounts[size-1] = matrix_size % size;
+    recvcounts[size-1] += matrix_size % size;
 
     //begin CG
 
@@ -241,8 +236,8 @@ void solve_cg_mpi(
 
     // std::cout << norm2_rhs << std::endl;
 
-    MPI_Allgather(rhs_local_h, rows_per_rank, MPI_DOUBLE, rhs_h, rows_per_rank, MPI_DOUBLE, comm);
-    //MPI_Allgatherv(rhs_local_h, rows_per_rank, MPI_DOUBLE, rhs_h, recvcounts, displs, MPI_DOUBLE, comm);
+    //MPI_Allgather(rhs_local_h, rows_per_rank, MPI_DOUBLE, rhs_h, rows_per_rank, MPI_DOUBLE, comm);
+    MPI_Allgatherv(rhs_local_h, rows_per_rank, MPI_DOUBLE, rhs_h, recvcounts, displs, MPI_DOUBLE, comm);
     //memcpy
     cudaErrchk(cudaMemcpy(rhs_d, rhs_h, matrix_size * sizeof(double), cudaMemcpyHostToDevice));
     // calc A*x
@@ -275,8 +270,8 @@ void solve_cg_mpi(
         //allgather
         //memcpy
         cudaErrchk(cudaMemcpy(p_local_h, p_local_d, rows_per_rank * sizeof(double), cudaMemcpyDeviceToHost));
-        MPI_Allgather(p_local_h, rows_per_rank, MPI_DOUBLE, p_h, rows_per_rank, MPI_DOUBLE, comm);
-        //MPI_Allgatherv(p_local_h, rows_per_rank, MPI_DOUBLE, p_h, recvcounts, displs, MPI_DOUBLE, comm);
+        //MPI_Allgather(p_local_h, rows_per_rank, MPI_DOUBLE, p_h, rows_per_rank, MPI_DOUBLE, comm);
+        MPI_Allgatherv(p_local_h, rows_per_rank, MPI_DOUBLE, p_h, recvcounts, displs, MPI_DOUBLE, comm);
         cudaErrchk(cudaMemcpy(p_d, p_h, matrix_size * sizeof(double), cudaMemcpyHostToDevice));
         cusparseErrchk(cusparseSpMV(
             cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA_local, vecp,
@@ -334,7 +329,6 @@ void solve_cg_mpi(
         std::cout << "difference/sum_ref " << difference/sum_ref << std::endl;
     }
 
-
     cusparseErrchk(cusparseDestroy(cusparseHandle));
     cublasErrchk(cublasDestroy(cublasHandle));
     cudaErrchk(cudaStreamDestroy(stream));
@@ -371,10 +365,6 @@ void solve_cg_mpi(
     delete[] p_h;
 
 
-
-    MPI_Barrier(comm);
-    std::cout << "end" << std::endl;
-    MPI_Barrier(comm);
 }
 
 } // namespace own_test
