@@ -20,11 +20,11 @@ int main(int argc, char **argv) {
     cudaError_t set_device_error = cudaSetDevice(0);
     std::cout << "rank " << rank << " set_device_error " << set_device_error << std::endl;
 
-    int matsize = 260;
+    int matsize = 80;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
     std::string save_path ="/scratch/snx3000/amaeder/measurements/single_node_libraries/";
-    // data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
+    data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
 
         
 
@@ -49,11 +49,11 @@ int main(int argc, char **argv) {
 
     // int number_of_measurements = 20;
     // int number_of_kmc_steps = 50;
-    int number_of_measurements = 2;
+    int number_of_measurements = 10;
     int number_of_kmc_steps = 1;
 
     int max_iterations = 5000;
-    double relative_tolerance = 1e-16;
+    double relative_tolerance = 1e-15;
 
     int rows_per_rank = matrix_size / size;
     int remainder = matrix_size % size;
@@ -177,23 +177,53 @@ int main(int argc, char **argv) {
 
 
 
+        double *data_copy = new double[nnz];
+        int *row_ptr_copy = new int[matrix_size+1];
+        int *col_indices_copy = new int[nnz];
+        double *rhs_copy = new double[matrix_size];
+        double *reference_solution_copy = new double[matrix_size];
+        double *starting_guess_copy = new double[matrix_size];
 
+        #pragma omp parallel for
+        for(int i = 0; i < nnz; i++){
+            data_copy[i] = data[i];
+        }
+        #pragma omp parallel for
+        for(int i = 0; i < matrix_size+1; i++){
+            row_ptr_copy[i] = row_ptr[i];
+        }
+        #pragma omp parallel for
+        for(int i = 0; i < nnz; i++){
+            col_indices_copy[i] = col_indices[i];
+        }
+        #pragma omp parallel for
+        for(int i = 0; i < matrix_size; i++){
+            rhs_copy[i] = rhs[i];
+            reference_solution_copy[i] = reference_solution[i];
+            starting_guess_copy[i] = starting_guess[i];
+        }
 
         std::cout << "rank " << rank << " starting measurement" << std::endl;
         for(int measurement = 0; measurement < number_of_measurements; measurement++){
             MPI_Barrier(MPI_COMM_WORLD);
 
+            // for (int i = 0; i < matrix_size; ++i) {
+            //     starting_guess[i] = reference_solution[i];
+            // }
+
+
+            //MPI_Barrier(MPI_COMM_WORLD);
+
             int iteration;
             double time;
             std::cout << "rank " << rank << " measurement " << measurement << std::endl;
-            own_test::solve_cg_mpi(
-                data,
-                col_indices,
-                row_ptr,
-                rhs,
-                reference_solution,
-                starting_guess,
-                nnz,
+            own_test::solve_cg_rma_fetch_whole(
+                data_copy,
+                col_indices_copy,
+                row_ptr_copy,
+                rhs_copy,
+                reference_solution_copy,
+                starting_guess_copy,
                 matrix_size,
                 relative_tolerance,
                 max_iterations,
@@ -201,11 +231,61 @@ int main(int argc, char **argv) {
                 &iteration,
                 &time
             );
-            MPI_Barrier(MPI_COMM_WORLD);
-            std::cout << "rank " << rank << " measurement " << measurement << std::endl;
+
+            // own_test::solve_cg(
+            //     data,
+            //     col_indices,
+            //     row_ptr,
+            //     rhs,
+            //     reference_solution,
+            //     starting_guess,
+            //     nnz,
+            //     matrix_size,
+            //     relative_tolerance
+            // );
+
+            // MPI_Barrier(MPI_COMM_WORLD);
+
+            // bool not_overwritten = true;
+            // double eps = 1e-20;
+            // for(int i = 0; i < nnz; i++){
+            //     if(std::abs(data[i] - data_copy[i]) > eps){
+            //         not_overwritten = false;
+            //     }
+            // }
+            // for(int i = 0; i < matrix_size+1; i++){
+            //     if(std::abs(row_ptr[i] - row_ptr_copy[i]) > eps){
+            //         not_overwritten = false;
+            //     }
+            // }
+            // for(int i = 0; i < nnz; i++){
+            //     if(std::abs(col_indices[i] - col_indices_copy[i]) > eps){
+            //         not_overwritten = false;
+            //     }
+            // }
+            // for(int i = 0; i < matrix_size; i++){
+            //     if(std::abs(rhs[i] - rhs_copy[i]) > eps){
+            //         not_overwritten = false;
+            //     }
+            //     if(std::abs(reference_solution[i] - reference_solution_copy[i]) > eps){
+            //         not_overwritten = false;
+            //     }
+            //     if(std::abs(starting_guess[i] - starting_guess_copy[i]) > eps){
+            //         not_overwritten = false;
+            //     }
+            // }
+            // std::cout << "rank " << rank << " not_overwritten " << not_overwritten << std::endl;
+
 
 
         }
+
+        delete[] data_copy;
+        delete[] row_ptr_copy;
+        delete[] col_indices_copy;
+        delete[] rhs_copy;
+        delete[] reference_solution_copy;
+        delete[] starting_guess_copy;
 
         // delete[] row_ptr_local;
         // delete[] row_indices_local;

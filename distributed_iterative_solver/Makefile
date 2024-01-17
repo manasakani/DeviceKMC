@@ -16,12 +16,14 @@
 
 NVCC = nvcc
 
-CCFLAGS = -O0 -g -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${GINKGO_DIR}/include" -I"${HYPRE_DIR}/include" -I"${CUDA_HOME}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include"
+CCFLAGS = -O2 -g -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${GINKGO_DIR}/include" -I"${HYPRE_DIR}/include" -I"${CUDA_HOME}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include"
 NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
 LDFLAGS = -L"${MPICH_DIR}/lib" -L"${HYPRE_DIR}/lib64" -L"${GINKGO_DIR}/lib64" -L"${CUDA_HOME}/lib64" -L"${PETSC_DIR}/${PETSC_ARCH}/lib"
 LDLIBS = -Wl,--copy-dt-needed-entries -lcuda -lcudart -lcublas -lcusolver -lcusparse -lm -lmpich
 
-SOURCES= main_own.cpp utils.cpp utils_gpu.cu own_cg_to_compare.cpp
+SOURCES= distributed_object_test_main.cpp utils.cpp
+#utils_gpu.cu own_simple_cg.cpp own_simple_rma_cg.cpp
+
 
 CPP_SOURCES = $(filter %.cpp, $(SOURCES))
 CU_SOURCES = $(filter %.cu, $(SOURCES))
