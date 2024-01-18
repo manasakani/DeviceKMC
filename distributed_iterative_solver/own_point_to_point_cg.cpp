@@ -3,7 +3,7 @@
 
 namespace own_test{
 
-void solve_cg_nonblocking_point_to_point_whole(
+void solve_cg_nonblocking_point_to_point(
     double *data_h,
     int *col_indices_h,
     int *row_indptr_h,

@@ -57,7 +57,7 @@ void solve_cg_rma_fetch_whole(
     int *steps_taken,
     double *time_taken);
 
-void solve_cg_nonblocking_point_to_point_whole(
+void solve_cg_nonblocking_point_to_point(
     double *data_h,
     int *col_indices_h,
     int *row_indptr_h,
@@ -80,7 +80,10 @@ void solve_cg(
     double *starting_guess_h,
     int nnz,
     int matrix_size,
-    double restol);
+    double relative_tolerance,
+    int max_iterations,
+    int *steps_taken,
+    double *time_taken);
 
 } // namespace own_test
 

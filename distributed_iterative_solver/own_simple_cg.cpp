@@ -594,7 +594,10 @@ void solve_cg(
     double *starting_guess_h,
     int nnz,
     int matrix_size,
-    double restol)
+    double relative_tolerance,
+    int max_iterations,
+    int *steps_taken,
+    double *time_taken)
 {
 
     cudaStream_t stream = NULL;
@@ -622,7 +625,6 @@ void solve_cg(
 
     cusparseSpMatDescr_t matA = NULL;
 
-    const int max_iter = 100000;
     double a, b, na;
     double alpha, beta, alpham1, r0, r1;
     size_t bufferSize = 0;
@@ -678,7 +680,7 @@ void solve_cg(
     //begin CG
     cudaErrchk(cudaStreamSynchronize(stream));
     cudaErrchk(cudaDeviceSynchronize());
-
+    time_taken[0] = -omp_get_wtime();
     // dot_h of rhs for convergence check
     double norm2_rhs = 0;
     cublasErrchk(cublasDdot(cublasHandle, matrix_size, rhs_d, 1, rhs_d, 1, &norm2_rhs));
@@ -694,7 +696,7 @@ void solve_cg(
 
 
     int k = 1;
-    while (r1 / norm2_rhs > restol * restol && k <= max_iter) {
+    while (r1 / norm2_rhs > relative_tolerance * relative_tolerance && k <= max_iterations) {
         if(k > 1){
             b = r1 / r0;
             cublasErrchk(cublasDscal(cublasHandle, matrix_size, &b, p_d, 1));
@@ -723,11 +725,14 @@ void solve_cg(
     }
 
     std::printf("iteration = %3d, residual = %e\n", k, sqrt(r1));
+    steps_taken[0] = k;
 
 
     //end CG
     cudaErrchk(cudaDeviceSynchronize());
     cudaErrchk(cudaStreamSynchronize(stream));
+    time_taken[0] += omp_get_wtime();
+    std::cout << "time_taken[0] " << time_taken[0] << std::endl;
 
     //copy solution to host
     double *x_h = new double[matrix_size];

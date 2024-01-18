@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     cudaError_t set_device_error = cudaSetDevice(0);
     std::cout << "rank " << rank << " set_device_error " << set_device_error << std::endl;
 
-    int matsize = 80;
+    int matsize = 260;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
     std::string save_path ="/scratch/snx3000/amaeder/measurements/single_node_libraries/";
@@ -194,32 +194,35 @@ int main(int argc, char **argv) {
             int iteration;
             double time;
             std::cout << "rank " << rank << " measurement " << measurement << std::endl;
-            own_test::solve_cg_nonblocking_point_to_point_whole(
-                data_copy,
-                col_indices_copy,
-                row_ptr_copy,
-                rhs_copy,
-                reference_solution_copy,
-                starting_guess_copy,
+            // own_test::solve_cg_nonblocking_point_to_point(
+            //     data_copy,
+            //     col_indices_copy,
+            //     row_ptr_copy,
+            //     rhs_copy,
+            //     reference_solution_copy,
+            //     starting_guess_copy,
+            //     matrix_size,
+            //     relative_tolerance,
+            //     max_iterations,
+            //     MPI_COMM_WORLD,
+            //     &iteration,
+            //     &time
+            // );
+
+            own_test::solve_cg(
+                data,
+                col_indices,
+                row_ptr,
+                rhs,
+                reference_solution,
+                starting_guess,
+                nnz,
                 matrix_size,
                 relative_tolerance,
                 max_iterations,
-                MPI_COMM_WORLD,
                 &iteration,
                 &time
             );
-
-            // own_test::solve_cg(
-            //     data,
-            //     col_indices,
-            //     row_ptr,
-            //     rhs,
-            //     reference_solution,
-            //     starting_guess,
-            //     nnz,
-            //     matrix_size,
-            //     relative_tolerance
-            // );
 
             // MPI_Barrier(MPI_COMM_WORLD);
 
