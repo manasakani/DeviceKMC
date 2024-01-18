@@ -71,6 +71,20 @@ void solve_cg_nonblocking_point_to_point(
     int *steps_taken,
     double *time_taken);
 
+void solve_cg_nonblocking_point_to_point_fetch_specific(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm,
+    int *steps_taken,
+    double *time_taken);
+
 void solve_cg(
     double *data_h,
     int *col_indices_h,

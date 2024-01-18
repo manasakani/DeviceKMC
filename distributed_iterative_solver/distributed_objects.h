@@ -6,6 +6,7 @@
 #include <iostream>
 #include "cudaerrchk.h"
 #include "utils.h"
+#include <unistd.h>
 
 class Distributed_vector{
     public:
@@ -56,7 +57,11 @@ class Distributed_vector{
         for(int k = 0; k < number_of_neighbours; k++){
             int neighbour_idx = neighbours[k];
             vec_h[k] = new double[counts[neighbour_idx]];
+            for(int i = 0; i < counts[neighbour_idx]; i++){
+                vec_h[k][i] = 0.0;
+            }
             cudaErrchk(cudaMalloc(&vec_d[k], counts[neighbour_idx]*sizeof(double)));
+            cudaErrchk(cudaMemset(vec_d[k], 0, counts[neighbour_idx]*sizeof(double)));
             cusparseErrchk(cusparseCreateDnVec(&descriptors[k], counts[neighbour_idx], vec_d[k], CUDA_R_64F));
 
         }
@@ -104,6 +109,7 @@ class Distributed_matrix{
         // of size number_of_neighbours
         int *nnz_per_neighbour;
         int *nnz_cols_per_neighbour;
+        int *nnz_rows_per_neighbour;
     
         // by default, we assume that the matrix is stored in CSR format
         // first matrix is own piece
@@ -120,9 +126,16 @@ class Distributed_matrix{
         cusparseSpMatDescr_t *descriptors;
         cusparseHandle_t cusparseHandle;
 
-
         // Data types for MPI
-        //int **cols_per_neighbour;
+        // assumes symmetric matrix
+        // indices to recv from neighbours
+        int **cols_per_neighbour;
+        // indices to send to neighbours
+        int **rows_per_neighbour;
+        // indices to fetch from neighbours
+        double **send_buffer;
+        double **recv_buffer;
+
         //MPI_Datatype *fetch_types;
 
     Distributed_matrix(
@@ -181,19 +194,11 @@ class Distributed_matrix{
 
 
         nnz_per_neighbour = new int[number_of_neighbours];
-        nnz_cols_per_neighbour = new int[number_of_neighbours];
         std::cout << rank << " " << "Constructing nnz per neighbour" << std::endl;
         construct_nnz_per_neighbour(col_indices, row_ptr);
         std::cout << rank << " " << "NNZ per neighbour: ";
         for(int k = 0; k < number_of_neighbours; k++){
             std::cout << nnz_per_neighbour[k] << " ";
-        }
-        std::cout << std::endl;
-        std::cout << rank << " " << "Constructing nnz cols per neighbour" << std::endl;
-        construct_nnz_cols_per_neighbour(col_indices, row_ptr);
-        std::cout << rank << " " << "NNZ cols per neighbour: ";
-        for(int k = 0; k < number_of_neighbours; k++){
-            std::cout << nnz_cols_per_neighbour[k] << " ";
         }
         std::cout << std::endl;
 
@@ -205,17 +210,55 @@ class Distributed_matrix{
             data_h[k] = new double[nnz_per_neighbour[k]];
             col_indices_h[k] = new int[nnz_per_neighbour[k]];
             // numbers of rows are constant
-            row_ptr_h[k] = new int[counts[rank]+1];
+            row_ptr_h[k] = new int[rows_this_rank+1];
         }
         std::cout << rank << " " << "Splitting CSR" << std::endl;
         // split data, indices and row_ptr
         split_csr(col_indices, row_ptr, data);
 
+
+        nnz_cols_per_neighbour = new int[number_of_neighbours];
+        std::cout << rank << " " << "Constructing nnz cols per neighbour" << std::endl;
+        construct_nnz_cols_per_neighbour();
+        std::cout << rank << " " << "NNZ cols per neighbour: ";
+        for(int k = 0; k < number_of_neighbours; k++){
+            std::cout << nnz_cols_per_neighbour[k] << " ";
+        }
+        std::cout << std::endl;
+
+
+        nnz_rows_per_neighbour = new int[number_of_neighbours];
+        std::cout << rank << " " << "Constructing nnz rows per neighbour: ";
+        construct_nnz_rows_per_neighbour();
+        std::cout << rank << " " << "NNZ rows per neighbour: ";
+        for(int k = 0; k < number_of_neighbours; k++){
+            std::cout << nnz_rows_per_neighbour[k] << " ";
+        }
+        std::cout << std::endl;
+        cols_per_neighbour = new int*[number_of_neighbours];
+        rows_per_neighbour = new int*[number_of_neighbours];
+        for(int k = 0; k < number_of_neighbours; k++){
+            cols_per_neighbour[k] = new int[nnz_cols_per_neighbour[k]];
+            rows_per_neighbour[k] = new int[nnz_rows_per_neighbour[k]];
+        }
+
+        std::cout << rank << " " << "Prepare indices to fetch: " << std::endl;
+        construct_cols_per_neighbour();
+        construct_rows_per_neighbour();
+
+        MPI_Barrier(comm);
+        std::cout << rank << " " << "Prepare buffers to fetch into: " << std::endl;
+        // excluding itself
+        send_buffer = new double*[number_of_neighbours-1];
+        recv_buffer = new double*[number_of_neighbours-1];
+        for(int k = 0; k < number_of_neighbours-1; k++){
+            send_buffer[k] = new double[nnz_rows_per_neighbour[k+1]];
+            recv_buffer[k] = new double[nnz_cols_per_neighbour[k+1]];
+        }
+
+
         std::cout << rank << " " << "Allocating device memory and copy" << std::endl;
         // allocate device memory
-
-
-
 
         buffer_size = new size_t[number_of_neighbours];
         buffer_d = new double*[number_of_neighbours];
@@ -227,10 +270,10 @@ class Distributed_matrix{
             int neighbour_idx = neighbours[k];
             cudaErrchk(cudaMalloc(&data_d[k], nnz_per_neighbour[k]*sizeof(double)));
             cudaErrchk(cudaMalloc(&col_indices_d[k], nnz_per_neighbour[k]*sizeof(int)));
-            cudaErrchk(cudaMalloc(&row_ptr_d[k], (counts[rank]+1)*sizeof(int)));
+            cudaErrchk(cudaMalloc(&row_ptr_d[k], (rows_this_rank+1)*sizeof(int)));
             cudaErrchk(cudaMemcpy(data_d[k], data_h[k], nnz_per_neighbour[k]*sizeof(double), cudaMemcpyHostToDevice));
             cudaErrchk(cudaMemcpy(col_indices_d[k], col_indices_h[k], nnz_per_neighbour[k]*sizeof(int), cudaMemcpyHostToDevice));
-            cudaErrchk(cudaMemcpy(row_ptr_d[k], row_ptr_h[k], (counts[rank]+1)*sizeof(int), cudaMemcpyHostToDevice));
+            cudaErrchk(cudaMemcpy(row_ptr_d[k], row_ptr_h[k], (rows_this_rank+1)*sizeof(int), cudaMemcpyHostToDevice));
 
             double *vec_in_d;
             double *vec_out_d;
@@ -238,15 +281,15 @@ class Distributed_matrix{
             cusparseDnVecDescr_t vec_out;
 
             cudaErrchk(cudaMalloc(&vec_in_d, counts[neighbour_idx]*sizeof(double)));
-            cudaErrchk(cudaMalloc(&vec_out_d, counts[rank]*sizeof(double)));
+            cudaErrchk(cudaMalloc(&vec_out_d, rows_this_rank*sizeof(double)));
             cusparseErrchk(cusparseCreateDnVec(&vec_in, counts[neighbour_idx], vec_in_d, CUDA_R_64F));
-            cusparseErrchk(cusparseCreateDnVec(&vec_out, counts[rank], vec_out_d, CUDA_R_64F));
+            cusparseErrchk(cusparseCreateDnVec(&vec_out, rows_this_rank, vec_out_d, CUDA_R_64F));
 
 
             /* Wrap raw data into cuSPARSE generic API objects */
             cusparseErrchk(cusparseCreateCsr(
                 &descriptors[k],
-                counts[rank],
+                rows_this_rank,
                 counts[neighbour_idx],
                 nnz_per_neighbour[k],
                 row_ptr_d[k],
@@ -289,8 +332,22 @@ class Distributed_matrix{
         delete[] data_h;
         delete[] col_indices_h;
         delete[] row_ptr_h;
+        delete[] nnz_rows_per_neighbour;
+
+        for(int k = 0; k < number_of_neighbours; k++){
+            delete[] cols_per_neighbour[k];
+            delete[] rows_per_neighbour[k];
+        }
+        delete[] cols_per_neighbour;
+        delete[] rows_per_neighbour;
 
 
+        for(int k = 0; k < number_of_neighbours-1; k++){
+            delete[] send_buffer[k];
+            delete[] recv_buffer[k];
+        }
+        delete[] send_buffer;
+        delete[] recv_buffer;
         for(int k = 0; k < number_of_neighbours; k++){
             cudaErrchk(cudaFree(data_d[k]));
             cudaErrchk(cudaFree(col_indices_d[k]));
@@ -373,45 +430,7 @@ class Distributed_matrix{
 
         }
 
-        void construct_nnz_cols_per_neighbour(
-            int *col_indices,
-            int *row_ptr
-        )
-        {
-            int *tmp_col_flag = new int[matrix_size];
-            for(int col_idx = 0; col_idx < matrix_size; col_idx++){
-                tmp_col_flag[col_idx] = 0;
-            }
 
-            // difficult to do in parallel
-            for(int i = 0; i < rows_this_rank; i++){
-                for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
-                    int col_idx = col_indices[j];
-                    tmp_col_flag[col_idx] = 1;
-                }
-            }
-
-            for(int i = 0; i < number_of_neighbours; i++){
-                nnz_cols_per_neighbour[i] = 0;
-            }
-
-            // inner loop is technically not needed
-            // could be done directly in the loop above
-            // with modulo
-            for(int col_idx = 0; col_idx < matrix_size; col_idx++){
-                if(tmp_col_flag[col_idx] == 0){
-                    continue;
-                }
-                for(int k = 0; k < number_of_neighbours; k++){
-                    int neighbour_idx = neighbours[k];
-                    if(col_idx >= displacements[neighbour_idx] && col_idx < displacements[neighbour_idx] + counts[neighbour_idx]){
-                        nnz_cols_per_neighbour[k] += tmp_col_flag[col_idx];
-                    }
-                }
-            }
-
-            delete[] tmp_col_flag;
-        }
 
         void split_csr(
             int *col_indices,
@@ -456,5 +475,128 @@ class Distributed_matrix{
 
         }
 
+        // void construct_nnz_cols_per_neighbour(
+        //     int *col_indices,
+        //     int *row_ptr
+        // )
+        // {
+        //     int *tmp_col_flag = new int[matrix_size];
+        //     for(int col_idx = 0; col_idx < matrix_size; col_idx++){
+        //         tmp_col_flag[col_idx] = 0;
+        //     }
+
+        //     // difficult to do in parallel
+        //     for(int i = 0; i < rows_this_rank; i++){
+        //         for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+        //             int col_idx = col_indices[j];
+        //             tmp_col_flag[col_idx] = 1;
+        //         }
+        //     }
+
+        //     for(int i = 0; i < number_of_neighbours; i++){
+        //         nnz_cols_per_neighbour[i] = 0;
+        //     }
+
+        //     // inner loop is technically not needed
+        //     // could be done directly in the loop above
+        //     // with modulo
+        //     for(int col_idx = 0; col_idx < matrix_size; col_idx++){
+        //         if(tmp_col_flag[col_idx] == 0){
+        //             continue;
+        //         }
+        //         for(int k = 0; k < number_of_neighbours; k++){
+        //             int neighbour_idx = neighbours[k];
+        //             if(col_idx >= displacements[neighbour_idx] && col_idx < displacements[neighbour_idx] + counts[neighbour_idx]){
+        //                 nnz_cols_per_neighbour[k] += tmp_col_flag[col_idx];
+        //             }
+        //         }
+        //     }
+
+        //     delete[] tmp_col_flag;
+        // }
+
+        void construct_nnz_cols_per_neighbour(
+        )
+        {
+            for(int k = 0; k < number_of_neighbours; k++){
+                nnz_cols_per_neighbour[k] = 0;
+                int neighbour_idx = neighbours[k];
+                bool *cols_per_neighbour_flags = new bool[counts[neighbour_idx]];
+                for(int i = 0; i < counts[neighbour_idx]; i++){
+                    cols_per_neighbour_flags[i] = false;
+                }
+                for(int i = 0; i < rows_this_rank; i++){
+                    for(int j = row_ptr_h[k][i]; j < row_ptr_h[k][i+1]; j++){
+                        int col_idx = col_indices_h[k][j];
+                        cols_per_neighbour_flags[col_idx] = true;
+                    }
+                }
+                for(int i = 0; i < counts[neighbour_idx]; i++){
+                    if(cols_per_neighbour_flags[i]){
+                        nnz_cols_per_neighbour[k]++;
+                    }
+                }
+                delete[] cols_per_neighbour_flags;
+            }
+        }
+
+        void construct_nnz_rows_per_neighbour()
+        {
+            for(int i = 0; i < number_of_neighbours; i++){
+                nnz_rows_per_neighbour[i] = 0;
+            }
+            for(int i = 0; i < rows_this_rank; i++){
+                for(int k = 0; k < number_of_neighbours; k++){
+                    if(row_ptr_h[k][i+1] - row_ptr_h[k][i] > 0){
+                        nnz_rows_per_neighbour[k]++;
+                    }
+                }
+            }
+        }
+
+        void construct_rows_per_neighbour()
+        {
+            int *tmp_nnz_rows_per_neighbour = new int[number_of_neighbours];
+            for(int i = 0; i < number_of_neighbours; i++){
+                tmp_nnz_rows_per_neighbour[i] = 0;
+            }
+            for(int i = 0; i < rows_this_rank; i++){
+                for(int k = 0; k < number_of_neighbours; k++){
+                    if(row_ptr_h[k][i+1] - row_ptr_h[k][i] > 0){
+                        rows_per_neighbour[k][tmp_nnz_rows_per_neighbour[k]] = i;
+                        tmp_nnz_rows_per_neighbour[k]++;
+                    }
+                }
+            }
+            delete[] tmp_nnz_rows_per_neighbour;
+        }   
+
+
+        void construct_cols_per_neighbour()
+        {
+
+            for(int k = 0; k < number_of_neighbours; k++){
+                int neighbour_idx = neighbours[k];
+                bool *cols_per_neighbour_flags = new bool[counts[neighbour_idx]];
+                for(int i = 0; i < counts[neighbour_idx]; i++){
+                    cols_per_neighbour_flags[i] = false;
+                }
+                for(int i = 0; i < rows_this_rank; i++){
+                    for(int j = row_ptr_h[k][i]; j < row_ptr_h[k][i+1]; j++){
+                        int col_idx = col_indices_h[k][j];
+                        cols_per_neighbour_flags[col_idx] = true;
+                    }
+                }
+                int tmp_nnz_cols = 0;
+                for(int i = 0; i < counts[neighbour_idx]; i++){
+                    if(cols_per_neighbour_flags[i]){
+                        cols_per_neighbour[k][tmp_nnz_cols] = i;
+                        tmp_nnz_cols++;
+                    }
+                }
+                delete[] cols_per_neighbour_flags;
+            }
+
+        }   
 
 };
