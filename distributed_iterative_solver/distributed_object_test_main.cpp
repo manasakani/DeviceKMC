@@ -65,7 +65,15 @@ int main(int argc, char **argv) {
         data_local[i] = data[i+row_ptr[displacements[rank]]];
     }
 
-    distributed_matrix A_distributed(
+
+    cudaStream_t stream = NULL;
+    cusparseHandle_t cusparseHandle = 0;
+    cusparseErrchk(cusparseCreate(&cusparseHandle));    
+    cudaErrchk(cudaStreamCreate(&stream));
+    cusparseErrchk(cusparseSetStream(cusparseHandle, stream));
+    cublasErrchk(cublasSetStream(cublasHandle, stream));
+
+    Distributed_matrix A_distributed(
         matrix_size,
         nnz_local,
         counts,
@@ -73,7 +81,8 @@ int main(int argc, char **argv) {
         col_indices_local,
         row_ptr_local,
         data_local,
-        MPI_COMM_WORLD
+        MPI_COMM_WORLD,
+        cusparseHandle
     );
 
     // // assert both matrices are equal
@@ -101,8 +110,10 @@ int main(int argc, char **argv) {
             save_path+"/A_col_indices" +
             std::to_string(size)+ "_"+std::to_string(rank)+"_"+std::to_string(k)+".bin");        
     }
-
+    std::cout << "saved" << std::endl;
+    sleep(0.2);
     for(int i = 0; i < size; i++){
+        std::cout << "rank, counts: " << rank << " " << counts[i] << std::endl;
         if(i == rank){
             std::cout << "rank, NNZ per neighbour: " << rank;
             for(int k = 0; k < A_distributed.number_of_neighbours; k++){
@@ -110,9 +121,12 @@ int main(int argc, char **argv) {
             }        
             std::cout << std::endl;   
         }
-        sleep(1);
+        std::cout << "rank, counts: " << rank << " " << counts[i] << std::endl;
+        sleep(0.2);
         MPI_Barrier(MPI_COMM_WORLD);
     }
+
+
 
 
     delete[] counts;
@@ -123,7 +137,8 @@ int main(int argc, char **argv) {
     delete[] row_ptr_local;
     delete[] col_indices_local;
     delete[] data_local;
-
+    cusparseErrchk(cusparseDestroy(cusparseHandle));
+    cudaErrchk(cudaStreamDestroy(stream));
     MPI_Finalize();
     return 0;
 }

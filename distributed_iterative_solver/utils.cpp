@@ -1,5 +1,27 @@
 #include "utils.h"
 
+void split_matrix(
+    int matrix_size,
+    int size,
+    int *counts,
+    int *displacements)
+{
+    int rows_per_rank = matrix_size / size;    
+    for (int i = 0; i < size; ++i) {
+        if(i < matrix_size % size){
+            counts[i] = rows_per_rank+1;
+        }
+        else{
+            counts[i] = rows_per_rank;
+        }
+    }
+    displacements[0] = 0;
+    for (int i = 1; i < size; ++i) {
+        displacements[i] = displacements[i-1] + counts[i-1];
+    }
+
+}
+
 template <typename T>
 void save_bin_array(T* array, int numElements, const std::string& filename) {
     std::ofstream file(filename, std::ios::binary);

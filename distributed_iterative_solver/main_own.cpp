@@ -53,7 +53,7 @@ int main(int argc, char **argv) {
     int number_of_kmc_steps = 1;
 
     int max_iterations = 5000;
-    double relative_tolerance = 1e-15;
+    double relative_tolerance = 1e-12;
 
     int rows_per_rank = matrix_size / size;
     int remainder = matrix_size % size;
@@ -154,29 +154,6 @@ int main(int argc, char **argv) {
 
 
 
-        // int *row_ptr_local = new int[rows_per_rank+1];
-        // for (int i = 0; i < rows_per_rank+1; ++i) {
-        //     row_ptr_local[i] = row_ptr[i+row_start_index] - row_ptr[row_start_index];
-        // }
-        // int nnz_local = row_ptr_local[rows_per_rank];
-        // int nnz_start_index = row_ptr[row_start_index];
-        // int nnz_end_index = nnz_start_index + nnz_local;
-        // std::cout << "rank " << rank << " nnz_local " << nnz_local << std::endl;
-        // std::cout << "rank " << rank << " nnz_start_index " << nnz_start_index << std::endl;
-        // std::cout << "rank " << rank << " nnz_end_index " << nnz_end_index << std::endl;
-
-        // int *col_indices_local = col_indices + nnz_start_index;
-        // double *data_local = data + nnz_start_index;
-
-        // int *row_indices_local = new int[nnz_local];
-        // for (int i = 0; i < rows_per_rank; ++i) {
-        //     for (int j = row_ptr_local[i]; j < row_ptr_local[i+1]; ++j) {
-        //         row_indices_local[j] = i;
-        //     }
-        // }
-
-
-
         double *data_copy = new double[nnz];
         int *row_ptr_copy = new int[matrix_size+1];
         int *col_indices_copy = new int[nnz];
@@ -208,16 +185,16 @@ int main(int argc, char **argv) {
             MPI_Barrier(MPI_COMM_WORLD);
 
             // for (int i = 0; i < matrix_size; ++i) {
-            //     starting_guess[i] = reference_solution[i];
+            //     starting_guess_copy[i] = reference_solution[i];
             // }
 
 
-            //MPI_Barrier(MPI_COMM_WORLD);
+            MPI_Barrier(MPI_COMM_WORLD);
 
             int iteration;
             double time;
             std::cout << "rank " << rank << " measurement " << measurement << std::endl;
-            own_test::solve_cg_rma_fetch_whole(
+            own_test::solve_cg_nonblocking_point_to_point_whole(
                 data_copy,
                 col_indices_copy,
                 row_ptr_copy,

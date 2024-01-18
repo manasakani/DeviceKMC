@@ -3,6 +3,12 @@
 #include <fstream>
 #include <cmath>
 
+void split_matrix(
+    int matrix_size,
+    int size,
+    int *counts,
+    int *displacements);
+
 template <typename T>
 void save_bin_array(T* array, int numElements, const std::string& filename);
 

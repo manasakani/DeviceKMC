@@ -21,8 +21,7 @@ NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++1
 LDFLAGS = -L"${MPICH_DIR}/lib" -L"${HYPRE_DIR}/lib64" -L"${GINKGO_DIR}/lib64" -L"${CUDA_HOME}/lib64" -L"${PETSC_DIR}/${PETSC_ARCH}/lib"
 LDLIBS = -Wl,--copy-dt-needed-entries -lcuda -lcudart -lcublas -lcusolver -lcusparse -lm -lmpich
 
-SOURCES= distributed_object_test_main.cpp utils.cpp
-#utils_gpu.cu own_simple_cg.cpp own_simple_rma_cg.cpp
+SOURCES= main_own.cpp utils.cpp utils_gpu.cu own_simple_cg.cpp own_simple_rma_cg.cpp own_point_to_point_cg.cpp
 
 
 CPP_SOURCES = $(filter %.cpp, $(SOURCES))
