@@ -20,11 +20,11 @@ int main(int argc, char **argv) {
     cudaError_t set_device_error = cudaSetDevice(0);
     std::cout << "rank " << rank << " set_device_error " << set_device_error << std::endl;
 
-    int matsize = 7;
+    int matsize = 260;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
-    std::string save_path ="/scratch/snx3000/amaeder/measurements/single_node_libraries/";
-    data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
+    std::string save_path ="/scratch/snx3000/amaeder/measurements/own_260/";
+    // data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
 
         
 
@@ -42,14 +42,13 @@ int main(int argc, char **argv) {
     }
     else{
         data_path = "/scratch/snx3000/amaeder/kmc_random";
-        save_path = "/scratch/snx3000/amaeder/measurements/random_scaling/";
         matrix_size = 262144;
         nnz = 16481266;
     }
 
     // int number_of_measurements = 20;
     // int number_of_kmc_steps = 50;
-    int number_of_measurements = 10;
+    int number_of_measurements = 22;
     int number_of_kmc_steps = 1;
 
     int max_iterations = 5000;
@@ -92,7 +91,7 @@ int main(int argc, char **argv) {
 
 
 
-    int iterations[number_of_kmc_steps];
+    // int iterations[number_of_kmc_steps];
 
     double *starting_guess = new double[matrix_size];
     for (int i = 0; i < matrix_size; ++i) {
@@ -102,8 +101,6 @@ int main(int argc, char **argv) {
 
     for(int step = 0; step < number_of_kmc_steps; step++){
         std::cout << "rank " << rank << " step " << step << std::endl;
-
-        double times[number_of_measurements];
 
         std::string data_filename = data_path + "/A_data"+std::to_string(step)+".bin";
         std::string row_ptr_filename = data_path + "/A_row_ptr"+std::to_string(step)+".bin";
@@ -179,22 +176,93 @@ int main(int argc, char **argv) {
             reference_solution_copy[i] = reference_solution[i];
             starting_guess_copy[i] = starting_guess[i];
         }
-
+        int iteration;
         std::cout << "rank " << rank << " starting measurement" << std::endl;
+        double times_solve_cg[number_of_measurements];
+        double times_solve_cg_allgatherv_mpi[number_of_measurements];
+        double times_solve_cg_nonblocking_point_to_point[number_of_measurements];
+        double times_solve_cg_nonblocking_point_to_point_fetch_specific[number_of_measurements];
+        double times_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype[number_of_measurements];
+        double times_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing[number_of_measurements];
+        if(size < 2){
+            for(int measurement = 0; measurement < number_of_measurements; measurement++){
+                MPI_Barrier(MPI_COMM_WORLD);
+
+                std::cout << "rank " << rank << " solve_cg " << measurement << std::endl;
+                own_test::solve_cg(
+                    data,
+                    col_indices,
+                    row_ptr,
+                    rhs,
+                    reference_solution,
+                    starting_guess,
+                    nnz,
+                    matrix_size,
+                    relative_tolerance,
+                    max_iterations,
+                    &iteration,
+                    &times_solve_cg[measurement]);
+            }
+
+        }
+
         for(int measurement = 0; measurement < number_of_measurements; measurement++){
             MPI_Barrier(MPI_COMM_WORLD);
-
-            // for (int i = 0; i < matrix_size; ++i) {
-            //     starting_guess_copy[i] = reference_solution[i];
-            // }
-
-
-
+            std::cout << "rank " << rank << " solve_cg_allgatherv_mpi " << measurement << std::endl;
+            own_test::solve_cg_allgatherv_mpi(
+                data_copy,
+                col_indices_copy,
+                row_ptr_copy,
+                rhs_copy,
+                reference_solution_copy,
+                starting_guess_copy,
+                matrix_size,
+                relative_tolerance,
+                max_iterations,
+                MPI_COMM_WORLD,
+                &iteration,
+                &times_solve_cg_allgatherv_mpi[measurement]
+            );
+        }
+        for(int measurement = 0; measurement < number_of_measurements; measurement++){
             MPI_Barrier(MPI_COMM_WORLD);
-
-            int iteration;
-            double time;
-            std::cout << "rank " << rank << " measurement " << measurement << std::endl;
+            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point " << measurement << std::endl;
+            own_test::solve_cg_nonblocking_point_to_point(
+                data_copy,
+                col_indices_copy,
+                row_ptr_copy,
+                rhs_copy,
+                reference_solution_copy,
+                starting_guess_copy,
+                matrix_size,
+                relative_tolerance,
+                max_iterations,
+                MPI_COMM_WORLD,
+                &iteration,
+                &times_solve_cg_nonblocking_point_to_point[measurement]
+            );
+        }
+        for(int measurement = 0; measurement < number_of_measurements; measurement++){
+            MPI_Barrier(MPI_COMM_WORLD);
+            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_fetch_specific " << measurement << std::endl;
+            own_test::solve_cg_nonblocking_point_to_point_fetch_specific(
+                data_copy,
+                col_indices_copy,
+                row_ptr_copy,
+                rhs_copy,
+                reference_solution_copy,
+                starting_guess_copy,
+                matrix_size,
+                relative_tolerance,
+                max_iterations,
+                MPI_COMM_WORLD,
+                &iteration,
+                &times_solve_cg_nonblocking_point_to_point_fetch_specific[measurement]
+            );
+        }
+        for(int measurement = 0; measurement < number_of_measurements; measurement++){
+            MPI_Barrier(MPI_COMM_WORLD);
+            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype " << measurement << std::endl;
             own_test::solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype(
                 data_copy,
                 col_indices_copy,
@@ -207,59 +275,28 @@ int main(int argc, char **argv) {
                 max_iterations,
                 MPI_COMM_WORLD,
                 &iteration,
-                &time
+                &times_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype[measurement]
             );
-
-            // own_test::solve_cg(
-            //     data,
-            //     col_indices,
-            //     row_ptr,
-            //     rhs,
-            //     reference_solution,
-            //     starting_guess,
-            //     nnz,
-            //     matrix_size,
-            //     relative_tolerance,
-            //     max_iterations,
-            //     &iteration,
-            //     &time
-            // );
-
-            // MPI_Barrier(MPI_COMM_WORLD);
-
-            // bool not_overwritten = true;
-            // double eps = 1e-20;
-            // for(int i = 0; i < nnz; i++){
-            //     if(std::abs(data[i] - data_copy[i]) > eps){
-            //         not_overwritten = false;
-            //     }
-            // }
-            // for(int i = 0; i < matrix_size+1; i++){
-            //     if(std::abs(row_ptr[i] - row_ptr_copy[i]) > eps){
-            //         not_overwritten = false;
-            //     }
-            // }
-            // for(int i = 0; i < nnz; i++){
-            //     if(std::abs(col_indices[i] - col_indices_copy[i]) > eps){
-            //         not_overwritten = false;
-            //     }
-            // }
-            // for(int i = 0; i < matrix_size; i++){
-            //     if(std::abs(rhs[i] - rhs_copy[i]) > eps){
-            //         not_overwritten = false;
-            //     }
-            //     if(std::abs(reference_solution[i] - reference_solution_copy[i]) > eps){
-            //         not_overwritten = false;
-            //     }
-            //     if(std::abs(starting_guess[i] - starting_guess_copy[i]) > eps){
-            //         not_overwritten = false;
-            //     }
-            // }
-            // std::cout << "rank " << rank << " not_overwritten " << not_overwritten << std::endl;
-
-
-
         }
+        for(int measurement = 0; measurement < number_of_measurements; measurement++){
+            MPI_Barrier(MPI_COMM_WORLD);
+            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing " << measurement << std::endl;
+            own_test::solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing(
+                data_copy,
+                col_indices_copy,
+                row_ptr_copy,
+                rhs_copy,
+                reference_solution_copy,
+                starting_guess_copy,
+                matrix_size,
+                relative_tolerance,
+                max_iterations,
+                MPI_COMM_WORLD,
+                &iteration,
+                &times_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing[measurement]
+            );
+        }
+
 
         delete[] data_copy;
         delete[] row_ptr_copy;
@@ -267,26 +304,100 @@ int main(int argc, char **argv) {
         delete[] rhs_copy;
         delete[] reference_solution_copy;
         delete[] starting_guess_copy;
+        if(size < 2){
+            std::ofstream outputFile_solve_cg;
+            std::string path_solve_cg = save_path + "solve_cg" +
+                std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) 
+                +"_" + std::to_string(size) +"_" + std::to_string(rank) +"_.txt";
+            outputFile_solve_cg.open(path_solve_cg);
+            if(outputFile_solve_cg.is_open()){
+                for(int i = 0; i < number_of_measurements; i++){
+                    outputFile_solve_cg << times_solve_cg[i] << " ";
+                }
+                outputFile_solve_cg << '\n';
+            }
+            else{
+                std::printf("Error opening file\n");
+            }
+            outputFile_solve_cg.close();
+        }
+        std::ofstream outputFile_solve_cg_allgatherv_mpi;
+        std::string path_solve_cg_allgatherv_mpi = save_path + "solve_cg_allgatherv_mpi" +
+            std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) 
+            +"_" + std::to_string(size) +"_" + std::to_string(rank) +"_.txt";
+        outputFile_solve_cg_allgatherv_mpi.open(path_solve_cg_allgatherv_mpi);
+        if(outputFile_solve_cg_allgatherv_mpi.is_open()){
+            for(int i = 0; i < number_of_measurements; i++){
+                outputFile_solve_cg_allgatherv_mpi << times_solve_cg_allgatherv_mpi[i] << " ";
+            }
+            outputFile_solve_cg_allgatherv_mpi << '\n';
+        }
+        else{
+            std::printf("Error opening file\n");
+        }
+        outputFile_solve_cg_allgatherv_mpi.close();
+        std::ofstream outputFile_solve_cg_nonblocking_point_to_point;
+        std::string path_solve_cg_nonblocking_point_to_point = save_path + "solve_cg_nonblocking_point_to_point" +
+            std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) 
+            +"_" + std::to_string(size) +"_" + std::to_string(rank) +"_.txt";
+        outputFile_solve_cg_nonblocking_point_to_point.open(path_solve_cg_nonblocking_point_to_point);
+        if(outputFile_solve_cg_nonblocking_point_to_point.is_open()){
+            for(int i = 0; i < number_of_measurements; i++){
+                outputFile_solve_cg_nonblocking_point_to_point << times_solve_cg_nonblocking_point_to_point[i] << " ";
+            }
+            outputFile_solve_cg_nonblocking_point_to_point << '\n';
+        }
+        else{
+            std::printf("Error opening file\n");
+        }
+        outputFile_solve_cg_nonblocking_point_to_point.close();
+        std::ofstream outputFile_solve_cg_nonblocking_point_to_point_fetch_specific;
+        std::string path_solve_cg_nonblocking_point_to_point_fetch_specific = save_path + "solve_cg_nonblocking_point_to_point_fetch_specific" +
+            std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) 
+            +"_" + std::to_string(size) +"_" + std::to_string(rank) +"_.txt";
+        outputFile_solve_cg_nonblocking_point_to_point_fetch_specific.open(path_solve_cg_nonblocking_point_to_point_fetch_specific);
+        if(outputFile_solve_cg_nonblocking_point_to_point_fetch_specific.is_open()){
+            for(int i = 0; i < number_of_measurements; i++){
+                outputFile_solve_cg_nonblocking_point_to_point_fetch_specific << times_solve_cg_nonblocking_point_to_point_fetch_specific[i] << " ";
+            }
+            outputFile_solve_cg_nonblocking_point_to_point_fetch_specific << '\n';
+        }
+        else{
+            std::printf("Error opening file\n");
+        }
+        outputFile_solve_cg_nonblocking_point_to_point_fetch_specific.close();
+        std::ofstream outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype;
+        std::string path_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype = save_path + "solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype" +
+            std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) 
+            +"_" + std::to_string(size) +"_" + std::to_string(rank) +"_.txt";
+        outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype.open(path_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype);
+        if(outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype.is_open()){
+            for(int i = 0; i < number_of_measurements; i++){
+                outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype << times_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype[i] << " ";
+            }
+            outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype << '\n';
+        }
+        else{
+            std::printf("Error opening file\n");
+        }
+        outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype.close();
+        std::ofstream outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing;
+        std::string path_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing = save_path + "solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing" +
+            std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) 
+            +"_" + std::to_string(size) +"_" + std::to_string(rank) +"_.txt";
+        outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing.open(path_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing);
+        if(outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing.is_open()){
+            for(int i = 0; i < number_of_measurements; i++){
+                outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing << times_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing[i] << " ";
+            }
+            outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing << '\n';
+        }
+        else{
+            std::printf("Error opening file\n");
+        }
+        outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing.close();
 
-        // delete[] row_ptr_local;
-        // delete[] row_indices_local;
 
-        // for(int method = 0; method < number_of_methods; method++){
-        //     std::ofstream outputFile_times;
-        //     std::string path_times = save_path + method_names[method] + "_gpu_times"+ std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) + "_" + std::to_string(step) 
-        //         + "_" + std::to_string(size) + "_" + std::to_string(rank) + ".txt";
-        //     outputFile_times.open(path_times);
-        //     if(outputFile_times.is_open()){
-        //         for(int i = 0; i < number_of_measurements; i++){
-        //             outputFile_times << times[method][i] << " ";
-        //         }
-        //         outputFile_times << '\n';
-        //     }
-        //     else{
-        //         std::printf("Error opening file\n");
-        //     }
-        //     outputFile_times.close();
-        // }
 
     }
 
