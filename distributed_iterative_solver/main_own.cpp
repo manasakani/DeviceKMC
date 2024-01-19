@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
             int iteration;
             double time;
             std::cout << "rank " << rank << " measurement " << measurement << std::endl;
-            own_test::solve_cg_nonblocking_point_to_point_fetch_specific(
+            own_test::solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype(
                 data_copy,
                 col_indices_copy,
                 row_ptr_copy,

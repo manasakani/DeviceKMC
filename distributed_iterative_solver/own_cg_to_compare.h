@@ -3,6 +3,7 @@
 #include <omp.h>
 
 #include "utils.h"
+#include "utils_gpu.h"
 #include <cuda_runtime.h>
 #include <cuda.h>
 #include <cusparse.h>
@@ -72,6 +73,34 @@ void solve_cg_nonblocking_point_to_point(
     double *time_taken);
 
 void solve_cg_nonblocking_point_to_point_fetch_specific(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm,
+    int *steps_taken,
+    double *time_taken);
+
+void solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm,
+    int *steps_taken,
+    double *time_taken);
+
+void solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing(
     double *data_h,
     int *col_indices_h,
     int *row_indptr_h,

@@ -27,3 +27,15 @@ void symmetric_precondition_matrix_gpu(
     double *diagonal_values_inv_sqrt,
     int matrix_size
 );
+
+void pack_gpu(
+    double *packed_buffer,
+    double *unpacked_buffer,
+    int *indices,
+    int number_of_elements);
+
+void unpack_gpu(
+    double *unpacked_buffer,
+    double *packed_buffer,
+    int *indices,
+    int number_of_elements);

@@ -129,14 +129,22 @@ class Distributed_matrix{
         // Data types for MPI
         // assumes symmetric matrix
         // indices to recv from neighbours
-        int **cols_per_neighbour;
+        int **cols_per_neighbour_h;
         // indices to send to neighbours
-        int **rows_per_neighbour;
+        int **rows_per_neighbour_h;
         // indices to fetch from neighbours
-        double **send_buffer;
-        double **recv_buffer;
+        double **send_buffer_h;
+        double **recv_buffer_h;
 
-        //MPI_Datatype *fetch_types;
+        int **cols_per_neighbour_d;
+        // indices to send to neighbours
+        int **rows_per_neighbour_d;
+        // indices to fetch from neighbours
+        double **send_buffer_d;
+        double **recv_buffer_d;
+
+        MPI_Datatype *send_types;
+        MPI_Datatype *recv_types;
 
     Distributed_matrix(
         int matrix_size,
@@ -235,26 +243,66 @@ class Distributed_matrix{
             std::cout << nnz_rows_per_neighbour[k] << " ";
         }
         std::cout << std::endl;
-        cols_per_neighbour = new int*[number_of_neighbours];
-        rows_per_neighbour = new int*[number_of_neighbours];
+        cols_per_neighbour_h = new int*[number_of_neighbours];
+        rows_per_neighbour_h = new int*[number_of_neighbours];
         for(int k = 0; k < number_of_neighbours; k++){
-            cols_per_neighbour[k] = new int[nnz_cols_per_neighbour[k]];
-            rows_per_neighbour[k] = new int[nnz_rows_per_neighbour[k]];
+            cols_per_neighbour_h[k] = new int[nnz_cols_per_neighbour[k]];
+            rows_per_neighbour_h[k] = new int[nnz_rows_per_neighbour[k]];
         }
 
         std::cout << rank << " " << "Prepare indices to fetch: " << std::endl;
         construct_cols_per_neighbour();
         construct_rows_per_neighbour();
 
-        MPI_Barrier(comm);
+        cols_per_neighbour_d = new int*[number_of_neighbours];
+        rows_per_neighbour_d = new int*[number_of_neighbours];
+        for(int k = 0; k < number_of_neighbours; k++){
+            cudaErrchk(cudaMalloc(&cols_per_neighbour_d[k], nnz_cols_per_neighbour[k]*sizeof(int)));
+            cudaErrchk(cudaMalloc(&rows_per_neighbour_d[k], nnz_rows_per_neighbour[k]*sizeof(int)));
+            cudaErrchk(cudaMemcpy(cols_per_neighbour_d[k], cols_per_neighbour_h[k], nnz_cols_per_neighbour[k]*sizeof(int), cudaMemcpyHostToDevice));
+            cudaErrchk(cudaMemcpy(rows_per_neighbour_d[k], rows_per_neighbour_h[k], nnz_rows_per_neighbour[k]*sizeof(int), cudaMemcpyHostToDevice));
+        }
+
+
         std::cout << rank << " " << "Prepare buffers to fetch into: " << std::endl;
         // excluding itself
-        send_buffer = new double*[number_of_neighbours-1];
-        recv_buffer = new double*[number_of_neighbours-1];
+        send_buffer_h = new double*[number_of_neighbours-1];
+        recv_buffer_h = new double*[number_of_neighbours-1];
+        send_buffer_d = new double*[number_of_neighbours-1];
+        recv_buffer_d = new double*[number_of_neighbours-1];
         for(int k = 0; k < number_of_neighbours-1; k++){
-            send_buffer[k] = new double[nnz_rows_per_neighbour[k+1]];
-            recv_buffer[k] = new double[nnz_cols_per_neighbour[k+1]];
+            send_buffer_h[k] = new double[nnz_rows_per_neighbour[k+1]];
+            recv_buffer_h[k] = new double[nnz_cols_per_neighbour[k+1]];
+            cudaErrchk(cudaMalloc(&send_buffer_d[k], nnz_rows_per_neighbour[k+1]*sizeof(double)));
+            cudaErrchk(cudaMalloc(&recv_buffer_d[k], nnz_cols_per_neighbour[k+1]*sizeof(double)));
         }
+
+        std::cout << "Create custom datatypes" << std::endl;
+        send_types = new MPI_Datatype[number_of_neighbours-1];
+        recv_types = new MPI_Datatype[number_of_neighbours-1];
+        for(int k = 0; k < number_of_neighbours-1; k++){
+            int *lengths = new int[nnz_rows_per_neighbour[k+1]];
+            for(int i = 0; i < nnz_rows_per_neighbour[k+1]; i++){
+                lengths[i] = 1;
+            }
+            MPI_Type_indexed(nnz_rows_per_neighbour[k+1], lengths,
+                            rows_per_neighbour_h[k+1], MPI_DOUBLE, &send_types[k]);
+            MPI_Type_commit(&send_types[k]);
+            delete[] lengths;
+        }
+        for(int k = 0; k < number_of_neighbours-1; k++){
+            int *lengths = new int[nnz_cols_per_neighbour[k+1]];
+            for(int i = 0; i < nnz_cols_per_neighbour[k+1]; i++){
+                lengths[i] = 1;
+            }
+            MPI_Type_indexed(nnz_cols_per_neighbour[k+1],lengths,
+                            cols_per_neighbour_h[k+1], MPI_DOUBLE, &recv_types[k]);
+            MPI_Type_commit(&recv_types[k]);
+            delete[] lengths;
+        }
+
+        int *blocklengths = new int[number_of_neighbours-1];
+        std::memset(blocklengths, 1, (number_of_neighbours-1)*sizeof(int));
 
 
         std::cout << rank << " " << "Allocating device memory and copy" << std::endl;
@@ -314,6 +362,8 @@ class Distributed_matrix{
             cudaErrchk(cudaFree(vec_out_d));
         }
 
+
+
         std::cout << rank << " " << "Done" << std::endl;
     }
 
@@ -335,19 +385,37 @@ class Distributed_matrix{
         delete[] nnz_rows_per_neighbour;
 
         for(int k = 0; k < number_of_neighbours; k++){
-            delete[] cols_per_neighbour[k];
-            delete[] rows_per_neighbour[k];
+            delete[] cols_per_neighbour_h[k];
+            delete[] rows_per_neighbour_h[k];
         }
-        delete[] cols_per_neighbour;
-        delete[] rows_per_neighbour;
+        delete[] cols_per_neighbour_h;
+        delete[] rows_per_neighbour_h;
 
+        for(int k = 0; k < number_of_neighbours; k++){
+            cudaErrchk(cudaFree(cols_per_neighbour_d[k]));
+            cudaErrchk(cudaFree(rows_per_neighbour_d[k]));
+        }
+        delete[] cols_per_neighbour_d;
+        delete[] rows_per_neighbour_d;
 
         for(int k = 0; k < number_of_neighbours-1; k++){
-            delete[] send_buffer[k];
-            delete[] recv_buffer[k];
+            delete[] send_buffer_h[k];
+            delete[] recv_buffer_h[k];
+            cudaErrchk(cudaFree(send_buffer_d[k]));
+            cudaErrchk(cudaFree(recv_buffer_d[k]));
         }
-        delete[] send_buffer;
-        delete[] recv_buffer;
+        delete[] send_buffer_h;
+        delete[] recv_buffer_h;
+        delete[] send_buffer_d;
+        delete[] recv_buffer_d;
+
+        for(int k = 0; k < number_of_neighbours-1; k++){
+            MPI_Type_free(&send_types[k]);
+            MPI_Type_free(&recv_types[k]);
+        }
+        delete[] send_types;
+        delete[] recv_types;
+
         for(int k = 0; k < number_of_neighbours; k++){
             cudaErrchk(cudaFree(data_d[k]));
             cudaErrchk(cudaFree(col_indices_d[k]));
@@ -563,7 +631,7 @@ class Distributed_matrix{
             for(int i = 0; i < rows_this_rank; i++){
                 for(int k = 0; k < number_of_neighbours; k++){
                     if(row_ptr_h[k][i+1] - row_ptr_h[k][i] > 0){
-                        rows_per_neighbour[k][tmp_nnz_rows_per_neighbour[k]] = i;
+                        rows_per_neighbour_h[k][tmp_nnz_rows_per_neighbour[k]] = i;
                         tmp_nnz_rows_per_neighbour[k]++;
                     }
                 }
@@ -590,7 +658,7 @@ class Distributed_matrix{
                 int tmp_nnz_cols = 0;
                 for(int i = 0; i < counts[neighbour_idx]; i++){
                     if(cols_per_neighbour_flags[i]){
-                        cols_per_neighbour[k][tmp_nnz_cols] = i;
+                        cols_per_neighbour_h[k][tmp_nnz_cols] = i;
                         tmp_nnz_cols++;
                     }
                 }

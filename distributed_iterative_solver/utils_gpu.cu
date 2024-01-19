@@ -1,5 +1,66 @@
 #include "utils_gpu.h"
 
+__global__ void _pack_gpu(
+    double *packed_buffer,
+    double *unpacked_buffer,
+    int *indices,
+    int number_of_elements
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for(int i = idx; i < number_of_elements; i += blockDim.x * gridDim.x){
+        packed_buffer[i] = unpacked_buffer[indices[i]];
+    }
+}
+
+void pack_gpu(
+    double *packed_buffer,
+    double *unpacked_buffer,
+    int *indices,
+    int number_of_elements
+)
+{
+    int block_size = 1024;
+    int num_blocks = (number_of_elements + block_size - 1) / block_size;
+    _pack_gpu<<<num_blocks, block_size>>>(
+        packed_buffer,
+        unpacked_buffer,
+        indices,
+        number_of_elements
+    );
+}
+
+__global__ void _unpack_gpu(
+    double *unpacked_buffer,
+    double *packed_buffer,
+    int *indices,
+    int number_of_elements
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for(int i = idx; i < number_of_elements; i += blockDim.x * gridDim.x){
+        unpacked_buffer[indices[i]] = packed_buffer[i];
+    }
+}
+
+void unpack_gpu(
+    double *unpacked_buffer,
+    double *packed_buffer,
+    int *indices,
+    int number_of_elements
+)
+{
+    int block_size = 1024;
+    int num_blocks = (number_of_elements + block_size - 1) / block_size;
+    _unpack_gpu<<<num_blocks, block_size>>>(
+        unpacked_buffer,
+        packed_buffer,
+        indices,
+        number_of_elements
+    );
+}
+
+
 __global__ void _extract_diagonal_gpu(
     double *data,
     int *col_indices,
@@ -20,6 +81,9 @@ __global__ void _extract_diagonal_gpu(
     }
 
 }
+
+
+
 void extract_diagonal_gpu(
     double *data,
     int *col_indices,
