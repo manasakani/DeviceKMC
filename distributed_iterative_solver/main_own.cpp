@@ -20,11 +20,11 @@ int main(int argc, char **argv) {
     cudaError_t set_device_error = cudaSetDevice(0);
     std::cout << "rank " << rank << " set_device_error " << set_device_error << std::endl;
 
-    int matsize = 260;
+    int matsize = 7;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
     std::string save_path ="/scratch/snx3000/amaeder/measurements/own_260/";
-    // data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
+    data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
 
         
 
@@ -397,29 +397,10 @@ int main(int argc, char **argv) {
         }
         outputFile_solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing.close();
 
-
-
     }
 
-    
-    // if(rank == 0){
-    //     for(int method = 0; method < number_of_methods; method++){
-    //         std::ofstream outputFile_iterations;
-    //         std::string path_iterations = save_path + method_names[method] + "_iterations" + std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) +"_.txt";
-    //         outputFile_iterations.open(path_iterations);
-    //         if(outputFile_iterations.is_open()){
-    //             for(int i = 0; i < number_of_kmc_steps; i++){
-    //                 outputFile_iterations << iterations[method][i] << " ";
-    //             }
-    //             outputFile_iterations << '\n';
-    //         }
-    //         else{
-    //             std::printf("Error opening file\n");
-    //         }
-    //         outputFile_iterations.close();
-    //     }
 
-    // }
+
 
     delete[] data;
     delete[] row_ptr;

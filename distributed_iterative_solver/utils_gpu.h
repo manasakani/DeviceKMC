@@ -1,4 +1,5 @@
-
+#pragma once
+#include <cuda_runtime.h>
 
 void extract_diagonal_gpu(
     double *data,
@@ -39,3 +40,10 @@ void unpack_gpu(
     double *packed_buffer,
     int *indices,
     int number_of_elements);
+
+void unpack_gpu(
+    double *unpacked_buffer,
+    double *packed_buffer,
+    int *indices,
+    int number_of_elements,
+    cudaStream_t stream);

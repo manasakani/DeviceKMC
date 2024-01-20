@@ -225,9 +225,6 @@ void solve_cg_allgather_mpi(
         cudaErrchk(cudaMemcpy(&r_norm2, r_norm2_d, sizeof(double), cudaMemcpyDeviceToHost));
         //allreduce
         MPI_Allreduce(MPI_IN_PLACE, &r_norm2, 1, MPI_DOUBLE, MPI_SUM, comm);
-        // std::cout << r_norm2 << std::endl;
-        cudaErrchk(cudaStreamSynchronize(stream));
-
         k++;
     }
 
@@ -523,8 +520,6 @@ void solve_cg_allgatherv_mpi(
         cudaErrchk(cudaMemcpy(&r_norm2, r_norm2_d, sizeof(double), cudaMemcpyDeviceToHost));
         //allreduce
         MPI_Allreduce(MPI_IN_PLACE, &r_norm2, 1, MPI_DOUBLE, MPI_SUM, comm);
-        // std::cout << r_norm2 << std::endl;
-        cudaErrchk(cudaStreamSynchronize(stream));
 
         k++;
     }
@@ -719,8 +714,6 @@ void solve_cg(
 
         r0 = r1;
         cublasErrchk(cublasDdot(cublasHandle, matrix_size, rhs_d, 1, rhs_d, 1, &r1));
-        cudaErrchk(cudaStreamSynchronize(stream));
-
         k++;
     }
 

@@ -60,6 +60,23 @@ void unpack_gpu(
     );
 }
 
+void unpack_gpu(
+    double *unpacked_buffer,
+    double *packed_buffer,
+    int *indices,
+    int number_of_elements,
+    cudaStream_t stream
+)
+{
+    int block_size = 1024;
+    int num_blocks = (number_of_elements + block_size - 1) / block_size;
+    _unpack_gpu<<<num_blocks, block_size, 0, stream>>>(
+        unpacked_buffer,
+        packed_buffer,
+        indices,
+        number_of_elements
+    );
+}
 
 __global__ void _extract_diagonal_gpu(
     double *data,
