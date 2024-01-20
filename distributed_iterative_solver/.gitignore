@@ -9,3 +9,4 @@ data/*
 *.nsys-rep
 nc.vg*
 images/*
+__pycache__/*
