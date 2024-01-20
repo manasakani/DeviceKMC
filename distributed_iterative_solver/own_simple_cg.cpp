@@ -228,16 +228,16 @@ void solve_cg_allgather_mpi(
         k++;
     }
 
+    //end CG
+    cudaErrchk(cudaDeviceSynchronize());
+    cudaErrchk(cudaStreamSynchronize(stream));
+    time_taken[0] += omp_get_wtime();
+
     steps_taken[0] = k;
     if(rank == 0){
         std::printf("iteration = %3d, residual = %e\n", k, sqrt(r_norm2));
     }
 
-
-    //end CG
-    cudaErrchk(cudaDeviceSynchronize());
-    cudaErrchk(cudaStreamSynchronize(stream));
-    time_taken[0] += omp_get_wtime();
 
     std::cout << "rank " << rank << " time_taken[0] " << time_taken[0] << std::endl;
 
@@ -524,16 +524,16 @@ void solve_cg_allgatherv_mpi(
         k++;
     }
 
+    //end CG
+    cudaErrchk(cudaDeviceSynchronize());
+    cudaErrchk(cudaStreamSynchronize(stream));
+    time_taken[0] += omp_get_wtime();
+
     steps_taken[0] = k;
     if(rank == 0){
         std::printf("iteration = %3d, residual = %e\n", k, sqrt(r_norm2));
     }
 
-
-    //end CG
-    cudaErrchk(cudaDeviceSynchronize());
-    cudaErrchk(cudaStreamSynchronize(stream));
-    time_taken[0] += omp_get_wtime();
 
     std::cout << "rank " << rank << " time_taken[0] " << time_taken[0] << std::endl;
 
@@ -717,15 +717,15 @@ void solve_cg(
         k++;
     }
 
-    std::printf("iteration = %3d, residual = %e\n", k, sqrt(r1));
-    steps_taken[0] = k;
-
-
     //end CG
     cudaErrchk(cudaDeviceSynchronize());
     cudaErrchk(cudaStreamSynchronize(stream));
     time_taken[0] += omp_get_wtime();
     std::cout << "time_taken[0] " << time_taken[0] << std::endl;
+
+    std::printf("iteration = %3d, residual = %e\n", k, sqrt(r1));
+    steps_taken[0] = k;
+
 
     //copy solution to host
     double *x_h = new double[matrix_size];

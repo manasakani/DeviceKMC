@@ -148,6 +148,7 @@ void gpu_solve(
 
     // Take timings.
     comm.synchronize();
+    cudaDeviceSynchronize();
     ValueType t_solver_generate_end = gko::experimental::mpi::get_walltime();
 
     // Apply the distributed solver, this is the same as in the non-distributed
@@ -155,8 +156,9 @@ void gpu_solve(
     Ainv->apply(b, x);
 
     // Take timings.
-    comm.synchronize();
+    cudaDeviceSynchronize();
     ValueType t_end = gko::experimental::mpi::get_walltime();
+    comm.synchronize();
 
     // Get the residual.
     auto res_norm = gko::as<vec>(logger->get_residual_norm());
@@ -189,7 +191,7 @@ void gpu_solve(
     if (comm.rank() == 0) {
         // write(std::cout, res_norm);
         // clang-format off
-        std::cout << sum_difference/sum_solution << std::endl;
+        std::cout << "difference/sum_ref " << sum_difference/sum_solution << std::endl;
         std::cout << "Num rows in matrix: " << num_rows
                   << "\nNum ranks: " << comm.size()
                   << "\nIteration count: " << logger->get_num_iterations()

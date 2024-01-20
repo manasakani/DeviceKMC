@@ -286,16 +286,17 @@ void solve_cg_nonblocking_point_to_point(
         k++;
     }
 
+    //end CG
+    cudaErrchk(cudaDeviceSynchronize());
+    cudaErrchk(cudaStreamSynchronize(stream));
+    time_taken[0] += omp_get_wtime();
+
     steps_taken[0] = k;
     if(rank == 0){
         std::printf("iteration = %3d, residual = %e\n", k, sqrt(r_norm2));
     }
 
 
-    //end CG
-    cudaErrchk(cudaDeviceSynchronize());
-    cudaErrchk(cudaStreamSynchronize(stream));
-    time_taken[0] += omp_get_wtime();
 
     std::cout << "rank " << rank << " time_taken[0] " << time_taken[0] << std::endl;
 
@@ -651,16 +652,16 @@ void solve_cg_nonblocking_point_to_point_fetch_specific(
         k++;
     }
 
+    //end CG
+    cudaErrchk(cudaDeviceSynchronize());
+    cudaErrchk(cudaStreamSynchronize(stream));
+    time_taken[0] += omp_get_wtime();
+
     steps_taken[0] = k;
     if(rank == 0){
         std::printf("iteration = %3d, residual = %e\n", k, sqrt(r_norm2));
     }
 
-
-    //end CG
-    cudaErrchk(cudaDeviceSynchronize());
-    cudaErrchk(cudaStreamSynchronize(stream));
-    time_taken[0] += omp_get_wtime();
 
     std::cout << "rank " << rank << " time_taken[0] " << time_taken[0] << std::endl;
 
@@ -986,16 +987,16 @@ void solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype(
         k++;
     }
 
+    //end CG
+    cudaErrchk(cudaDeviceSynchronize());
+    cudaErrchk(cudaStreamSynchronize(stream));
+    time_taken[0] += omp_get_wtime();
+
     steps_taken[0] = k;
     if(rank == 0){
         std::printf("iteration = %3d, residual = %e\n", k, sqrt(r_norm2));
     }
 
-
-    //end CG
-    cudaErrchk(cudaDeviceSynchronize());
-    cudaErrchk(cudaStreamSynchronize(stream));
-    time_taken[0] += omp_get_wtime();
 
     std::cout << "rank " << rank << " time_taken[0] " << time_taken[0] << std::endl;
 
@@ -1345,16 +1346,16 @@ void solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing(
         k++;
     }
 
+    //end CG
+    cudaErrchk(cudaDeviceSynchronize());
+    cudaErrchk(cudaStreamSynchronize(stream));
+    time_taken[0] += omp_get_wtime();
+
     steps_taken[0] = k;
     if(rank == 0){
         std::printf("iteration = %3d, residual = %e\n", k, sqrt(r_norm2));
     }
 
-
-    //end CG
-    cudaErrchk(cudaDeviceSynchronize());
-    cudaErrchk(cudaStreamSynchronize(stream));
-    time_taken[0] += omp_get_wtime();
 
     std::cout << "rank " << rank << " time_taken[0] " << time_taken[0] << std::endl;
 

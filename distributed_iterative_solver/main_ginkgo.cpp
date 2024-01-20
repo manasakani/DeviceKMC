@@ -22,10 +22,28 @@ int main(int argc, char* argv[])
 
 
 
-    // std::string data_path = "/usr/scratch/mont-fort17/almaeder/kmc_80k/system_K";
-    int matsize = 80;
+    int matsize = 260;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
-    std::string save_path ="/scratch/snx3000/amaeder/measurements/single_node_libraries/";
+    //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
+    std::string save_path ="/scratch/snx3000/amaeder/measurements/own_260/";
+    data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
+
+    int matrix_size;
+    int nnz;     
+    if(matsize == 7){
+        save_path = "/scratch/snx3000/amaeder/measurements/dump/";
+        matrix_size = 7302;
+        nnz = 186684;        
+    }
+    else if(matsize == 80){
+        matrix_size = 70630;
+        nnz = 1719652;        
+    }
+    else{
+        data_path = "/scratch/snx3000/amaeder/kmc_random";
+        matrix_size = 262144;
+        nnz = 16481266;
+    } 
     int step = 0;
     std::string data_filename = data_path + "/A_data"+std::to_string(step)+".bin";
     std::string row_ptr_filename = data_path + "/A_row_ptr"+std::to_string(step)+".bin";
@@ -33,20 +51,14 @@ int main(int argc, char* argv[])
     std::string rhs_filename = data_path + "/A_rhs"+std::to_string(step)+".bin";
     std::string solution_filename = data_path + "/solution"+std::to_string(step)+".bin";
 
-    int matrix_size = 70630;
-    int nnz = 1719652;    
 
+    int counts[size];
+    int displacements[size];
+    int rows_per_rank = matrix_size / size;    
+    split_matrix(matrix_size, size, counts, displacements);
 
-    int rows_per_rank = matrix_size / size;
-    int remainder = matrix_size % size;
-    int row_start_index = rank * rows_per_rank;
-    int row_end_index = row_start_index + rows_per_rank;
-    if (rank == size-1) {
-        row_end_index += remainder;
-        rows_per_rank += remainder;
-    }
-    std::cout << "rank " << rank << " row_start_index " << row_start_index << std::endl;
-    std::cout << "rank " << rank << " row_end_index " << row_end_index << std::endl;
+    int row_start_index = displacements[rank];
+    rows_per_rank = counts[rank];
 
     // load custom matrix
     double *data = new double[nnz];
@@ -69,13 +81,11 @@ int main(int argc, char* argv[])
     int nnz_local = row_ptr_local[rows_per_rank];
     int nnz_start_index = row_ptr[row_start_index];
     int nnz_end_index = nnz_start_index + nnz_local;
-    // std::cout << "rank " << rank << " nnz_local " << nnz_local << std::endl;
-    // std::cout << "rank " << rank << " nnz_start_index " << nnz_start_index << std::endl;
-    // std::cout << "rank " << rank << " nnz_end_index " << nnz_end_index << std::endl;
     int *col_indices_local = col_indices + nnz_start_index;
     double *data_local = data + nnz_start_index;
-    double relative_tolerance = 1e-16;
-    int max_iterations = 1000;
+
+    double relative_tolerance = 1e-12;
+    int max_iterations = 5000;
 
     double *data_d;
     int *row_ptr_d;
@@ -127,7 +137,7 @@ int main(int argc, char* argv[])
     cudaMemcpy(data, data_d, nnz * sizeof(double), cudaMemcpyDeviceToHost);
 
 
-    int number_of_measurements = 30;
+    int number_of_measurements = 22;
 
     int iterations;
     double time_taken[number_of_measurements];
@@ -149,21 +159,23 @@ int main(int argc, char* argv[])
             &correct_solution
         );
     }
+    int number_of_kmc_steps = 1;
+    std::ofstream outputFile_times;
+    std::string path_times = save_path + "solve_ginkgo" +
+                std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) 
+                +"_" + std::to_string(size) +"_" + std::to_string(rank) +"_.txt";
 
-    // std::string method_name = "ginkgo";
-    // std::ofstream outputFile_times;
-    // std::string path_times = save_path + method_name + "_times"+ std::to_string(matsize) + ".txt";
-    // outputFile_times.open(path_times);
-    // if(outputFile_times.is_open()){
-    //     for(int i = 0; i < number_of_measurements; i++){
-    //         outputFile_times << time_taken[i] << " ";
-    //     }
-    //     outputFile_times << '\n';
-    // }
-    // else{
-    //     std::printf("Error opening file\n");
-    // }
-    // outputFile_times.close();
+    outputFile_times.open(path_times);
+    if(outputFile_times.is_open()){
+        for(int i = 0; i < number_of_measurements; i++){
+            outputFile_times << time_taken[i] << " ";
+        }
+        outputFile_times << '\n';
+    }
+    else{
+        std::printf("Error opening file\n");
+    }
+    outputFile_times.close();
 
     delete[] data;
     delete[] row_ptr;
