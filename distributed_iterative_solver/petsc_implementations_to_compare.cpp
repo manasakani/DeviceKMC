@@ -147,8 +147,7 @@ int gpu_solve(
     double absolute_tolerance,
     double divergence_tolerance,
     int *iterations,
-    double *time_taken,
-    bool *correct_solution
+    double *time_taken
 ){
     int *linear_range = new int[matrix_size];
 
@@ -156,23 +155,6 @@ int gpu_solve(
         linear_range[i] = i;
     }
 
-
-    // Device context
-    // PetscDevice device;
-    // PetscCall(PetscDeviceCreate(PETSC_DEVICE_CUDA, 0, &device));
-    // PetscDeviceContext dctx;
-    // PetscCall(PetscDeviceContextCreate(&dctx));
-    // PetscCall(PetscDeviceContextSetDevice(dctx, device));
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-
-    // cudaSetDevice(0);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-    // sleep(1);
 
     VecType vec_type = VECMPICUDA;
     MatType mat_type = MATMPIAIJCUSPARSE;
@@ -184,11 +166,6 @@ int gpu_solve(
     PetscCall(VecAssemblyBegin(x));
     PetscCall(VecAssemblyEnd(x));
 
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-    // sleep(1);
-
     Vec b;
     PetscCall(VecCreate(MPI_COMM_WORLD,&b));
     PetscCall(VecSetSizes(b, rows_per_rank, matrix_size));
@@ -197,11 +174,6 @@ int gpu_solve(
     PetscCall(VecAssemblyBegin(b));
     PetscCall(VecAssemblyEnd(b));
 
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-    // sleep(1);
-
     Mat A;
     PetscCall(MatCreateMPIAIJWithArrays(MPI_COMM_WORLD, rows_per_rank, rows_per_rank, matrix_size, matrix_size,
         row_ptr_local, col_indices_local, data_local, &A));
@@ -209,25 +181,7 @@ int gpu_solve(
     PetscCall(MatAssemblyBegin(A, MAT_FINAL_ASSEMBLY));
     PetscCall(MatAssemblyEnd(A, MAT_FINAL_ASSEMBLY));
 
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-    // sleep(1);
-    // if (rank == 0) {
-    //     for(int i = 0; i < 4; i++){
-    //         std::cout << "data_local " << data_local[i] << std::endl;
-    //         std::cout << "row_ptr_local " << row_ptr_local[i] << std::endl;
-    //         std::cout << "col_indices_local " << col_indices_local[i] << std::endl;
-    //         std::cout << "rhs " << rhs[i+row_start_index] << std::endl;
-    //         std::cout << "reference_solution " << reference_solution[i+row_start_index] << std::endl;
-    //         std::cout << row_start_index << std::endl;
-    //     }
-    // }
 
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-    // sleep(1);
     // int A_row_rstart, A_row_rend;
     // int A_col_rstart, A_col_rend;
     // int b_rstart, b_rend;
@@ -242,30 +196,19 @@ int gpu_solve(
     PetscCall(KSPSetType(ksp, solver_type));
     PetscCall(KSPSetOperators(ksp, A, A));
 
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-    // sleep(1);
 
     PC pc;
     PetscCall(KSPGetPC(ksp, &pc));
     PetscCall(PCSetType(pc, preconditioner));
     PetscCall(KSPSetTolerances(ksp, relative_tolerance, absolute_tolerance, divergence_tolerance, max_iterations));
 
-    // cudaDeviceSynchronize();
-    //MPI_Barrier(MPI_COMM_WORLD);
-    // sleep(1);
+    cudaDeviceSynchronize();
+    MPI_Barrier(MPI_COMM_WORLD);
     *time_taken = -omp_get_wtime();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
     PetscCall(KSPSolve(ksp,b,x));
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
     *time_taken += omp_get_wtime();
-    //MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // sleep(1);
 
     PetscCall(KSPGetIterationNumber(ksp, iterations));
-    // PetscCall(KSPGetSolution(ksp,x));
     std::cout << "rank " << rank << " iterations " << *iterations << std::endl;
     sleep(1);
     std::cout << "rank " << rank << " time_taken " << *time_taken << std::endl;
@@ -276,57 +219,22 @@ int gpu_solve(
         std::cout << "residual_norm " << residual_norm << std::endl;
     }
 
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-    // sleep(1);
-
     double *solution;
     PetscCall(VecGetArray(x, &solution));
 
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-    // sleep(1);
-
     double difference = 0;
     double sum_ref = 0;
-    double sum_b = 0;
     for (int i = 0; i < rows_per_rank; ++i) {
         difference += std::sqrt( (solution[i] - reference_solution[i+row_start_index]) * (solution[i] - reference_solution[i+row_start_index]) );
         sum_ref += std::sqrt( (reference_solution[i+row_start_index]) * (reference_solution[i+row_start_index]) );
-        sum_b += std::sqrt( (rhs[i+row_start_index]) * (rhs[i+row_start_index]) );
     }
     PetscCall(VecRestoreArray(x, &solution));
 
-
-    std::cout << "rank " << rank << " difference/sum_ref " << difference/sum_ref << std::endl;
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-    // sleep(1);
-
-    // MPI_Reduce(&difference, &difference, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    // MPI_Reduce(&sum_ref, &sum_ref, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    // MPI_Reduce(&sum_b, &sum_b, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-    // if(rank == 0){
-    //     std::cout << "difference " << difference << std::endl;
-    //     std::cout << "sum_ref " << sum_ref << std::endl;
-    //     std::cout << "difference/sum_ref " << difference/sum_ref << std::endl;
-    //     std::cout << "sum_b " << sum_b << std::endl;
-    //     if(difference < relative_tolerance * sum_ref + absolute_tolerance){
-    //         *correct_solution = true;
-    //     } else {
-    //         *correct_solution = false;
-            
-    //     }        
-    // }
-
-
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // cudaDeviceSynchronize();
-    // PetscCall(PetscDeviceContextSynchronize(dctx));
-    // sleep(1);
+    MPI_Allreduce(MPI_IN_PLACE, &difference, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(MPI_IN_PLACE, &sum_ref, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+    if(rank == 0){
+        std::cout << "difference/sum_ref " << difference/sum_ref << std::endl;
+    }
 
     delete[] linear_range;
     PetscCall(VecDestroy(&x));

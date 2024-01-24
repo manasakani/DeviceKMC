@@ -20,10 +20,7 @@
 int main(int argc, char **argv) {
     // older version of petsc on daint
     // replace by PetscCall()
-    int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
-
-    std::cout << "provided " << provided << std::endl;
+    MPI_Init(&argc, &argv);
 
     CHKERRQ(PetscInitialize(&argc, &argv, NULL, NULL));
     int rank, size;
@@ -36,7 +33,7 @@ int main(int argc, char **argv) {
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
     std::string save_path ="/scratch/snx3000/amaeder/measurements/single_node_libraries/";
-
+    save_path ="/scratch/snx3000/amaeder/measurements/own_260/";
 
     int matrix_size;
     int nnz;     
@@ -51,23 +48,21 @@ int main(int argc, char **argv) {
     }
     else{
         data_path = "/scratch/snx3000/amaeder/kmc_random";
-        save_path = "/scratch/snx3000/amaeder/measurements/random_scaling/";
         matrix_size = 262144;
         nnz = 16481266;
     }
 
 
 
-    int rows_per_rank = matrix_size / size;
-    int remainder = matrix_size % size;
-    int row_start_index = rank * rows_per_rank;
-    int col_start_index = row_start_index + rows_per_rank;
-    if (rank == size-1) {
-        col_start_index += remainder;
-        rows_per_rank += remainder;
-    }
+    int counts[size];
+    int displacements[size];
+    int rows_per_rank = matrix_size / size;    
+    split_matrix(matrix_size, size, counts, displacements);
 
-    std::cout << "rank " << rank << " row_start_index " << row_start_index << " row_end_index " << col_start_index << std::endl;
+    int row_start_index = displacements[rank];
+    rows_per_rank = counts[rank];
+
+    std::cout << "rank " << rank << " row_start_index " << row_start_index << std::endl;
     std::cout << "rank " << rank << " rows_per_rank " << rows_per_rank << std::endl;
 
     double *data = new double[nnz];
@@ -95,11 +90,11 @@ int main(int argc, char **argv) {
 
     // int number_of_measurements = 20;
     // int number_of_kmc_steps = 50;
-    int number_of_measurements = 3;
+    int number_of_measurements = 22;
     int number_of_kmc_steps = 1;
 
     int max_iterations = 5000;
-    double relative_tolerance = 1e-16;
+    double relative_tolerance = 1e-12;
     double absolute_tolerance = 1e-30;
     double divergence_tolerance = 1e+50;
 
@@ -165,7 +160,7 @@ int main(int argc, char **argv) {
     // };
     int number_of_methods = 1;
     std::string method_names[number_of_methods] = {
-        "cg_jacobi"
+        "petsc_cg_jacobi"
     };
     KSPType solver_types[number_of_methods] = {
         KSPCG
@@ -180,7 +175,6 @@ int main(int argc, char **argv) {
 
     for(int step = 0; step < number_of_kmc_steps; step++){
         std::cout << "rank " << rank << " step " << step << std::endl;
-        bool correct_solution_iteration;
 
         double times[number_of_methods][number_of_measurements];
 
@@ -310,8 +304,7 @@ int main(int argc, char **argv) {
                     absolute_tolerance,
                     divergence_tolerance,
                     &iterations[method][step],
-                    &times[method][measurement],
-                    &correct_solution_iteration
+                    &times[method][measurement]
                 );
 
                 bool not_overwritten = true;
@@ -356,8 +349,9 @@ int main(int argc, char **argv) {
 
         for(int method = 0; method < number_of_methods; method++){
             std::ofstream outputFile_times;
-            std::string path_times = save_path + method_names[method] + "_gpu_times"+ std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) + "_" + std::to_string(step) 
-                + "_" + std::to_string(size) + "_" + std::to_string(rank) + ".txt";
+            std::string path_times = save_path + method_names[method] +
+                std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) 
+                +"_" + std::to_string(size) +"_" + std::to_string(rank) +"_.txt";
             outputFile_times.open(path_times);
             if(outputFile_times.is_open()){
                 for(int i = 0; i < number_of_measurements; i++){

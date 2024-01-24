@@ -48,7 +48,7 @@ int main(int argc, char **argv) {
 
     // int number_of_measurements = 20;
     // int number_of_kmc_steps = 50;
-    int number_of_measurements = 22;
+    int number_of_measurements = 1;
     int number_of_kmc_steps = 1;
 
     int max_iterations = 5000;
@@ -180,6 +180,7 @@ int main(int argc, char **argv) {
         std::cout << "rank " << rank << " starting measurement" << std::endl;
         double times_solve_cg[number_of_measurements];
         double times_solve_cg_allgatherv_mpi[number_of_measurements];
+        double times_solve_cg_nogatherv_mpi[number_of_measurements];
         double times_solve_cg_nonblocking_point_to_point[number_of_measurements];
         double times_solve_cg_nonblocking_point_to_point_fetch_specific[number_of_measurements];
         double times_solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype[number_of_measurements];
@@ -204,12 +205,32 @@ int main(int argc, char **argv) {
                     &times_solve_cg[measurement]);
             }
 
+
+            for(int measurement = 0; measurement < number_of_measurements; measurement++){
+                MPI_Barrier(MPI_COMM_WORLD);
+                std::cout << "rank " << rank << " solve_cg_nogatherv_mpi " << measurement << std::endl;
+                own_test::solve_cg_nogatherv(
+                    data_copy,
+                    col_indices_copy,
+                    row_ptr_copy,
+                    rhs_copy,
+                    reference_solution_copy,
+                    starting_guess_copy,
+                    matrix_size,
+                    relative_tolerance,
+                    max_iterations,
+                    MPI_COMM_WORLD,
+                    &iteration,
+                    &times_solve_cg_nogatherv_mpi[measurement]
+                );
+            }   
+
         }
 
         for(int measurement = 0; measurement < number_of_measurements; measurement++){
             MPI_Barrier(MPI_COMM_WORLD);
             std::cout << "rank " << rank << " solve_cg_allgatherv_mpi " << measurement << std::endl;
-            own_test::solve_cg_allgatherv_mpi(
+            own_test::solve_cg_allgatherv(
                 data_copy,
                 col_indices_copy,
                 row_ptr_copy,
@@ -320,6 +341,23 @@ int main(int argc, char **argv) {
                 std::printf("Error opening file\n");
             }
             outputFile_solve_cg.close();
+
+            std::ofstream outputFile_solve_cg_nogatherv_mpi;
+            std::string path_solve_cg_nogatherv_mpi = save_path + "solve_cg_nogatherv_mpi" +
+                std::to_string(matsize) +"_" + std::to_string(number_of_kmc_steps) 
+                +"_" + std::to_string(size) +"_" + std::to_string(rank) +"_.txt";
+            outputFile_solve_cg_nogatherv_mpi.open(path_solve_cg_nogatherv_mpi);
+            if(outputFile_solve_cg_nogatherv_mpi.is_open()){
+                for(int i = 0; i < number_of_measurements; i++){
+                    outputFile_solve_cg_nogatherv_mpi << times_solve_cg_nogatherv_mpi[i] << " ";
+                }
+                outputFile_solve_cg_nogatherv_mpi << '\n';
+            }
+            else{
+                std::printf("Error opening file\n");
+            }
+            outputFile_solve_cg_nogatherv_mpi.close();
+
         }
         std::ofstream outputFile_solve_cg_allgatherv_mpi;
         std::string path_solve_cg_allgatherv_mpi = save_path + "solve_cg_allgatherv_mpi" +

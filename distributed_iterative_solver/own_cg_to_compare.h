@@ -16,7 +16,7 @@
 
 namespace own_test{
 
-void solve_cg_allgather_mpi(
+void solve_cg_allgather(
     double *data_h,
     int *col_indices_h,
     int *row_indptr_h,
@@ -30,11 +30,25 @@ void solve_cg_allgather_mpi(
     int *steps_taken,
     double *time_taken);
 
-void solve_cg_allgatherv_mpi(
+void solve_cg_allgatherv(
     double *data_h,
     int *col_indices_h,
     int *row_indptr_h,
     double *rhs_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm,
+    int *steps_taken,
+    double *time_taken);
+
+void solve_cg_nogatherv(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    double *r_h,
     double *reference_solution,
     double *starting_guess_h,
     int matrix_size,

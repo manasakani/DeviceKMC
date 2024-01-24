@@ -51,8 +51,7 @@ int gpu_solve(
     double absolute_tolerance,
     double divergence_tolerance,
     int *iterations,
-    double *time_taken,
-    bool *correct_solution
+    double *time_taken
 );
 
 }  // namespace petsc_test
