@@ -146,6 +146,12 @@ class Distributed_matrix{
 
         MPI_Datatype *send_types;
         MPI_Datatype *recv_types;
+        MPI_Request *send_requests;
+        MPI_Request *recv_requests;
+        cudaStream_t *streams_recv;
+        cudaStream_t *streams_send;
+        cudaEvent_t *events_recv;
+        cudaEvent_t *events_send;
 
     Distributed_matrix(
         int matrix_size,
@@ -281,15 +287,15 @@ class Distributed_matrix{
 
         std::cout << rank << " " << "Prepare buffers to fetch into: " << std::endl;
         // excluding itself
-        send_buffer_h = new double*[number_of_neighbours-1];
-        recv_buffer_h = new double*[number_of_neighbours-1];
-        send_buffer_d = new double*[number_of_neighbours-1];
-        recv_buffer_d = new double*[number_of_neighbours-1];
-        for(int k = 0; k < number_of_neighbours-1; k++){
-            cudaErrchk(cudaMallocHost(&send_buffer_h[k], nnz_rows_per_neighbour[k+1]*sizeof(double)));
-            cudaErrchk(cudaMallocHost(&recv_buffer_h[k], nnz_cols_per_neighbour[k+1]*sizeof(double)));
-            cudaErrchk(cudaMalloc(&send_buffer_d[k], nnz_rows_per_neighbour[k+1]*sizeof(double)));
-            cudaErrchk(cudaMalloc(&recv_buffer_d[k], nnz_cols_per_neighbour[k+1]*sizeof(double)));
+        send_buffer_h = new double*[number_of_neighbours];
+        recv_buffer_h = new double*[number_of_neighbours];
+        send_buffer_d = new double*[number_of_neighbours];
+        recv_buffer_d = new double*[number_of_neighbours];
+        for(int k = 1; k < number_of_neighbours; k++){
+            cudaErrchk(cudaMallocHost(&send_buffer_h[k], nnz_rows_per_neighbour[k]*sizeof(double)));
+            cudaErrchk(cudaMallocHost(&recv_buffer_h[k], nnz_cols_per_neighbour[k]*sizeof(double)));
+            cudaErrchk(cudaMalloc(&send_buffer_d[k], nnz_rows_per_neighbour[k]*sizeof(double)));
+            cudaErrchk(cudaMalloc(&recv_buffer_d[k], nnz_cols_per_neighbour[k]*sizeof(double)));
         }
 
         std::cout << "Create custom datatypes" << std::endl;
@@ -319,6 +325,20 @@ class Distributed_matrix{
         int *blocklengths = new int[number_of_neighbours-1];
         std::memset(blocklengths, 1, (number_of_neighbours-1)*sizeof(int));
 
+        std::cout << rank << " " << "Creating Requests, Events, and Streams" << std::endl;
+        send_requests = new MPI_Request[number_of_neighbours];
+        recv_requests = new MPI_Request[number_of_neighbours];
+        streams_recv = new cudaStream_t[number_of_neighbours];
+        streams_send = new cudaStream_t[number_of_neighbours];
+        events_recv = new cudaEvent_t[number_of_neighbours];
+        events_send = new cudaEvent_t[number_of_neighbours];
+        for (int i = 0; i < number_of_neighbours; i++)
+        {
+            cudaErrchk(cudaStreamCreate(&streams_recv[i]));
+            cudaErrchk(cudaStreamCreate(&streams_send[i]));
+            cudaErrchk(cudaEventCreateWithFlags(&events_recv[i], cudaEventDisableTiming));
+            cudaErrchk(cudaEventCreateWithFlags(&events_send[i], cudaEventDisableTiming));
+        }
 
         std::cout << rank << " " << "Allocating device memory and copy" << std::endl;
         // allocate device memory
@@ -413,7 +433,7 @@ class Distributed_matrix{
         delete[] cols_per_neighbour_d;
         delete[] rows_per_neighbour_d;
 
-        for(int k = 0; k < number_of_neighbours-1; k++){
+        for(int k = 1; k < number_of_neighbours; k++){
             cudaErrchk(cudaFreeHost(send_buffer_h[k]));
             cudaErrchk(cudaFreeHost(recv_buffer_h[k]));
             cudaErrchk(cudaFree(send_buffer_d[k]));
@@ -444,6 +464,20 @@ class Distributed_matrix{
         delete[] row_ptr_d;
         delete[] descriptors;
         delete[] buffer_size;
+
+        delete[] send_requests;
+        delete[] recv_requests;
+        for (int i = 0; i < number_of_neighbours; i++)
+        {
+            cudaErrchk(cudaStreamDestroy(streams_recv[i]));
+            cudaErrchk(cudaStreamDestroy(streams_send[i]));
+            cudaErrchk(cudaEventDestroy(events_recv[i]));
+            cudaErrchk(cudaEventDestroy(events_send[i]));
+        }
+        delete[] streams_recv;
+        delete[] streams_send;
+        delete[] events_recv;
+        delete[] events_send;
     }
 
     private:
