@@ -1,28 +1,16 @@
-# CC = g++
-# NVCC = nvcc
-# CUDA_ROOT = /usr/local/cuda
-# MPI_ROOT = /usr/ela/local/linux-local/mpich-3.4.2/gcc/
-# MKL_ROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
-# PETSC_ROOT = /usr/scratch/mont-fort17/almaeder/libraries/petsc
-# PETSC_ARCH_ROOT = /usr/scratch/mont-fort17/almaeder/libraries/petsc/arch-linux-c-debug
-# GINKGO_ROOT = /usr/scratch/mont-fort17/almaeder/libraries/ginkgo/build/path/usr/scratch/mont-fort17/almaeder/libraries/ginkgo_install
-
-# CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${CUDA_ROOT}/include" -I"${MKL_ROOT}/include" -I"${MPI_ROOT}/include" -I"${GINKGO_ROOT}/include"
-# NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I${CUDA_ROOT}/include -I"${MKL_ROOT}/include" -I"${GINKGO_ROOT}/include"
-# LDFLAGS = -L"${CUDA_ROOT}/lib64" -L"${MPI_ROOT}/lib" -L"${MKL_ROOT}/lib/intel64" -L"${GINKGO_ROOT}/lib64" 
-# LDLIBS = -Wl,--copy-dt-needed-entries -lginkgo -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmkl_intel_lp64 -lmkl_gnu_thread -lm -lmkl_core
-# SOURCES= main_ginkgo.cpp utils.cpp utils_gpu.cu
-
 
 NVCC = nvcc
 
-CCFLAGS = -O2 -g -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${GINKGO_DIR}/include" -I"${HYPRE_DIR}/include" -I"${CUDA_HOME}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include"
-NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
+CCFLAGS = -O0 -g -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${GINKGO_DIR}/include" -I"${HYPRE_DIR}/include" -I"${CUDA_HOME}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include"
+NVCCFLAGS = -O0 -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
 LDFLAGS = -L"${MPICH_DIR}/lib" -L"${HYPRE_DIR}/lib64" -L"${GINKGO_DIR}/lib64" -L"${CUDA_HOME}/lib64" -L"${PETSC_DIR}/${PETSC_ARCH}/lib"
 LDLIBS = -Wl,--copy-dt-needed-entries -lcuda -lcudart -lcublas -lcusolver -lcusparse -lm -lmpich -lHYPRE -lginkgo -lpetsc
 
-SOURCES = main_own.cpp utils.cpp utils_gpu.cu own_simple_cg.cpp own_simple_rma_cg.cpp own_point_to_point_cg.cpp
+SOURCES = main_own.cpp utils.cpp utils_gpu.cu 
 SOURCES += ginkgo_implementations_to_compare.cpp hypre_implementations_to_compare.cpp petsc_implementations_to_compare.cpp
+OWN_DIR = own_implementations
+SOURCES += $(wildcard $(OWN_DIR)/*.cpp) $(wildcard $(OWN_DIR)/*.cu)
+
 
 CPP_SOURCES = $(filter %.cpp, $(SOURCES))
 CU_SOURCES = $(filter %.cu, $(SOURCES))
@@ -32,21 +20,7 @@ CU_OBJ_FILES =$(CU_SOURCES:.cu=.o)
 BINARY = main
 
 
-# NVCC = nvcc
 
-# CCFLAGS = -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${GINKGO_DIR}/include" -I"${HYPRE_DIR}/include" -I"${CUDA_HOME}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include"
-# NVCCFLAGS = -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
-# LDFLAGS = -L"${MPICH_DIR}/lib" -L"${HYPRE_DIR}/lib64" -L"${GINKGO_DIR}/lib64" -L"${CUDA_HOME}/lib64" -L"${PETSC_DIR}/${PETSC_ARCH}/lib"
-# LDLIBS = -Wl,--copy-dt-needed-entries -lginkgo -lcuda -lcudart -lcublas -lcusolver -lcusparse -lpetsc -lm -lHYPRE
-
-# SOURCES= main_own.cpp utils.cpp utils_gpu.cu ginkgo_implementations_to_compare.cpp hypre_implementations_to_compare.cpp petsc_implementations_to_compare.cpp own_cg_to_compare.cpp
-
-# CPP_SOURCES = $(filter %.cpp, $(SOURCES))
-# CU_SOURCES = $(filter %.cu, $(SOURCES))
-
-# CPP_OBJ_FILES=$(CPP_SOURCES:.cpp=.o)
-# CU_OBJ_FILES =$(CU_SOURCES:.cu=.o)
-# BINARY = main
 
 .PHONY: all
 all: $(BINARY)

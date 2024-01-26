@@ -1,9 +1,9 @@
-#include "own_cg_to_compare.h"
+#include "cg_own_implementations.h"
 
 
 namespace own_test{
 
-void solve_cg_allgatherv2(
+void solve_cg_rma_fetch_whole(
     double *data_h,
     int *col_indices_h,
     int *row_indptr_h,
@@ -17,11 +17,6 @@ void solve_cg_allgatherv2(
     int *steps_taken,
     double *time_taken)
 {
-    // replaces new with cudaMallocHost
-    // for memcpy
-
-
-
     MPI_Barrier(comm);
     std::printf("CG starts\n");
 
@@ -51,10 +46,8 @@ void solve_cg_allgatherv2(
 
 
 
-    double *p_local_h;
-    cudaErrchk(cudaMallocHost((void**)&p_local_h, rows_per_rank * sizeof(double)));
 
-
+    double *p_local_h = new double[rows_per_rank];
     double *p_h = new double[matrix_size];
     int *row_indptr_local_h = new int[rows_per_rank+1];
     double *r_local_h = new double[rows_per_rank];
@@ -76,10 +69,13 @@ void solve_cg_allgatherv2(
         data_local_h[i] = data_h[i+row_indptr_h[row_start_index]];
     }
 
+    MPI_Win win_p;
+    // initialize memory for RMA
+    MPI_Win_create(p_local_h, rows_per_rank*sizeof(double), sizeof(double), MPI_INFO_NULL, comm, &win_p);
+
 
     // initialize cuda
     cudaStream_t stream = NULL;
-    
     cublasHandle_t cublasHandle = 0;
     cublasErrchk(cublasCreate(&cublasHandle));
     
@@ -179,7 +175,26 @@ void solve_cg_allgatherv2(
     //allreduce
     MPI_Allreduce(MPI_IN_PLACE, &norm2_rhs, 1, MPI_DOUBLE, MPI_SUM, comm);
 
+
+    // MPI_Win_fence(0, win_p);
+    // MPI_Win_fence(0, win_p);
+
     MPI_Allgatherv(p_local_h, rows_per_rank, MPI_DOUBLE, p_h, recvcounts, displs, MPI_DOUBLE, comm);
+    // MPI_Win_lock_all(0, win_p);
+    // for(int i = 0; i < size-1; i++){
+    //     // loop over neighbors
+    //     int get_idx = (rank+i+1) % size;
+    //     MPI_Win_lock(MPI_LOCK_SHARED, get_idx, 0, win_p);
+    //     MPI_Get(p_h+displs[get_idx], recvcounts[get_idx], MPI_DOUBLE, get_idx, 0, recvcounts[get_idx], MPI_DOUBLE, win_p);
+    //     MPI_Win_flush(get_idx, win_p);
+    //     MPI_Win_unlock(get_idx, win_p);
+        
+    // }
+    // MPI_Win_flush_all(win_p);
+    // MPI_Win_unlock_all(win_p);
+    // MPI_Win_fence(0, win_p);
+    // MPI_Win_fence(0, win_p);
+
     //memcpy
     cudaErrchk(cudaMemcpy(p_d, p_h, matrix_size * sizeof(double), cudaMemcpyHostToDevice));
     // calc A*x0
@@ -219,6 +234,24 @@ void solve_cg_allgatherv2(
         //memcpy
         cudaErrchk(cudaMemcpy(p_local_h, p_local_d, rows_per_rank * sizeof(double), cudaMemcpyDeviceToHost));
         MPI_Allgatherv(p_local_h, rows_per_rank, MPI_DOUBLE, p_h, recvcounts, displs, MPI_DOUBLE, comm);
+
+        // MPI_Barrier(comm);
+        // MPI_Win_fence(0, win_p);
+        // MPI_Win_fence(0, win_p);
+
+        // for(int i = 0; i < size-1; i++){
+        //     // loop over neighbors
+        //     int get_idx = (rank+i+1) % size;
+        //     MPI_Win_lock(MPI_LOCK_SHARED, get_idx, 0, win_p);
+        //     MPI_Get(p_h+displs[get_idx], recvcounts[get_idx], MPI_DOUBLE, get_idx, 0, recvcounts[get_idx], MPI_DOUBLE, win_p);
+        //     MPI_Win_flush(get_idx, win_p);
+        //     MPI_Win_unlock(get_idx, win_p);
+        // }
+
+        // MPI_Win_fence(0, win_p);
+        // MPI_Win_fence(0, win_p);
+        // MPI_Barrier(comm);
+
         cudaErrchk(cudaMemcpy(p_d, p_h, matrix_size * sizeof(double), cudaMemcpyHostToDevice));
         cusparseErrchk(cusparseSpMV(
             cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha, matA_local, vecp,
@@ -246,20 +279,22 @@ void solve_cg_allgatherv2(
         cudaErrchk(cudaMemcpy(&r_norm2, r_norm2_d, sizeof(double), cudaMemcpyDeviceToHost));
         //allreduce
         MPI_Allreduce(MPI_IN_PLACE, &r_norm2, 1, MPI_DOUBLE, MPI_SUM, comm);
+        // std::cout << r_norm2 << std::endl;
+        cudaErrchk(cudaStreamSynchronize(stream));
 
         k++;
     }
-
-    //end CG
-    cudaErrchk(cudaDeviceSynchronize());
-    cudaErrchk(cudaStreamSynchronize(stream));
-    time_taken[0] += omp_get_wtime();
 
     steps_taken[0] = k;
     if(rank == 0){
         std::printf("iteration = %3d, residual = %e\n", k, sqrt(r_norm2));
     }
 
+
+    //end CG
+    cudaErrchk(cudaDeviceSynchronize());
+    cudaErrchk(cudaStreamSynchronize(stream));
+    time_taken[0] += omp_get_wtime();
 
     std::cout << "rank " << rank << " time_taken[0] " << time_taken[0] << std::endl;
 
@@ -302,8 +337,11 @@ void solve_cg_allgatherv2(
     delete[] col_indices_local_h;
     delete[] data_local_h;
     delete[] r_local_h;
+    delete[] p_local_h;
     delete[] p_h;
-    cudaErrchk(cudaFreeHost(p_local_h));
+
+    MPI_Win_free(&win_p);
 }
-    
-} //namespace own_test  
+
+
+} // namespace own_test

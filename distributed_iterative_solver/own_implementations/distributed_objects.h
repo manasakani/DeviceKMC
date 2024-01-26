@@ -4,8 +4,7 @@
 #include <cuda_runtime.h>
 #include <cusparse.h>
 #include <iostream>
-#include "cudaerrchk.h"
-#include "utils.h"
+#include "../cudaerrchk.h"
 #include <unistd.h>
 
 class Distributed_vector{
@@ -34,6 +33,7 @@ class Distributed_vector{
         MPI_Comm comm,
         cusparseHandle_t &cusparseHandle
     ){
+        std::cout << "Constructing distributed vector" << std::endl;
         MPI_Comm_size(comm, &size);
         MPI_Comm_rank(comm, &rank);
         this->matrix_size = matrix_size;
@@ -56,7 +56,7 @@ class Distributed_vector{
         descriptors = new cusparseDnVecDescr_t[number_of_neighbours];
         for(int k = 0; k < number_of_neighbours; k++){
             int neighbour_idx = neighbours[k];
-            vec_h[k] = new double[counts[neighbour_idx]];
+            cudaErrchk(cudaMallocHost(&vec_h[k], counts[neighbour_idx]*sizeof(double)));
             for(int i = 0; i < counts[neighbour_idx]; i++){
                 vec_h[k][i] = 0.0;
             }
@@ -65,6 +65,7 @@ class Distributed_vector{
             cusparseErrchk(cusparseCreateDnVec(&descriptors[k], counts[neighbour_idx], vec_d[k], CUDA_R_64F));
 
         }
+        std::cout << "Done constructing distributed vector" << std::endl;
     }
 
     ~Distributed_vector(){
@@ -72,7 +73,7 @@ class Distributed_vector{
         delete[] displacements;
         delete[] neighbours;
         for(int k = 0; k < number_of_neighbours; k++){
-            delete[] vec_h[k];
+            cudaErrchk(cudaFreeHost(vec_h[k]));
             cudaErrchk(cudaFree(vec_d[k]));
             cusparseErrchk(cusparseDestroyDnVec(descriptors[k]));
         }
@@ -263,6 +264,20 @@ class Distributed_matrix{
             cudaErrchk(cudaMemcpy(rows_per_neighbour_d[k], rows_per_neighbour_h[k], nnz_rows_per_neighbour[k]*sizeof(int), cudaMemcpyHostToDevice));
         }
 
+        std::cout << "Check sorted indices" << std::endl;
+        for(int k = 0; k < number_of_neighbours; k++){
+            for(int i = 0; i < nnz_cols_per_neighbour[k]-1; i++){
+                if(cols_per_neighbour_h[k][i] > cols_per_neighbour_h[k][i+1]){
+                    std::cout << i << " " << cols_per_neighbour_h[k][i] << " " << cols_per_neighbour_h[k][i+1] << std::endl;
+                    std::cout << "Error in sorted indices" << std::endl;
+                }
+                if(rows_per_neighbour_h[k][i] > rows_per_neighbour_h[k][i+1]){
+                    std::cout << i << " " << rows_per_neighbour_h[k][i] << " " << rows_per_neighbour_h[k][i+1] << std::endl;
+                    std::cout << "Error in sorted indices" << std::endl;
+                }
+            }
+        }
+
 
         std::cout << rank << " " << "Prepare buffers to fetch into: " << std::endl;
         // excluding itself
@@ -271,8 +286,8 @@ class Distributed_matrix{
         send_buffer_d = new double*[number_of_neighbours-1];
         recv_buffer_d = new double*[number_of_neighbours-1];
         for(int k = 0; k < number_of_neighbours-1; k++){
-            send_buffer_h[k] = new double[nnz_rows_per_neighbour[k+1]];
-            recv_buffer_h[k] = new double[nnz_cols_per_neighbour[k+1]];
+            cudaErrchk(cudaMallocHost(&send_buffer_h[k], nnz_rows_per_neighbour[k+1]*sizeof(double)));
+            cudaErrchk(cudaMallocHost(&recv_buffer_h[k], nnz_cols_per_neighbour[k+1]*sizeof(double)));
             cudaErrchk(cudaMalloc(&send_buffer_d[k], nnz_rows_per_neighbour[k+1]*sizeof(double)));
             cudaErrchk(cudaMalloc(&recv_buffer_d[k], nnz_cols_per_neighbour[k+1]*sizeof(double)));
         }
@@ -399,8 +414,8 @@ class Distributed_matrix{
         delete[] rows_per_neighbour_d;
 
         for(int k = 0; k < number_of_neighbours-1; k++){
-            delete[] send_buffer_h[k];
-            delete[] recv_buffer_h[k];
+            cudaErrchk(cudaFreeHost(send_buffer_h[k]));
+            cudaErrchk(cudaFreeHost(recv_buffer_h[k]));
             cudaErrchk(cudaFree(send_buffer_d[k]));
             cudaErrchk(cudaFree(recv_buffer_d[k]));
         }
