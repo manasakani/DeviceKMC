@@ -3,6 +3,138 @@
 
 namespace own_test{
 
+void distributed_mv_custom_datatype1(
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    cusparseDnVecDescr_t &vecAp_local,
+    cudaStream_t &default_stream,
+    cusparseHandle_t &default_cusparseHandle)
+{
+
+    double alpha = 1.0;
+    double beta = 0.0;
+
+    // pinned memory
+    cudaErrchk(cudaMemcpy(p_distributed.vec_h[0], p_distributed.vec_d[0],
+        A_distributed.rows_this_rank * sizeof(double), cudaMemcpyDeviceToHost));
+    
+    // post all send requests
+    for(int i = 1; i < A_distributed.number_of_neighbours; i++){
+        int send_idx = p_distributed.neighbours[i];
+        int send_tag = std::abs(send_idx - A_distributed.rank);
+        MPI_Isend(p_distributed.vec_h[0], 1, A_distributed.send_types[i-1],
+            send_idx, send_tag, A_distributed.comm, &A_distributed.send_requests[i]);
+    }
+
+
+
+    for(int i = 0; i < A_distributed.number_of_neighbours; i++){
+        // loop over neighbors
+        if(i < A_distributed.number_of_neighbours-1){
+            int recv_idx = p_distributed.neighbours[i+1];
+            int recv_tag = std::abs(recv_idx - A_distributed.rank);
+
+            MPI_Irecv(p_distributed.vec_h[i+1], 1, A_distributed.recv_types[i],
+                recv_idx, recv_tag, A_distributed.comm, &A_distributed.recv_requests[i+1]);
+        }
+
+        // calc A*p
+        if(i > 0){
+            cusparseErrchk(cusparseSpMV(
+                default_cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+                A_distributed.descriptors[i], p_distributed.descriptors[i],
+                &alpha, vecAp_local, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+        }
+        else{
+            cusparseErrchk(cusparseSpMV(
+                default_cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+                A_distributed.descriptors[i], p_distributed.descriptors[i],
+                &beta, vecAp_local, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+        }
+
+        if(i < A_distributed.number_of_neighbours-1){
+            MPI_Wait(&A_distributed.recv_requests[i+1], MPI_STATUS_IGNORE);
+            int neighbour_idx = p_distributed.neighbours[i+1];
+            cudaErrchk(cudaMemcpyAsync(p_distributed.vec_d[i+1], p_distributed.vec_h[i+1], p_distributed.counts[neighbour_idx] * sizeof(double), cudaMemcpyHostToDevice, default_stream));
+
+
+        }
+        
+    }
+    MPI_Waitall(A_distributed.number_of_neighbours-1, &A_distributed.send_requests[1], MPI_STATUSES_IGNORE);
+
+
+}
+
+
+void distributed_mv_custom_datatype2(
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    cusparseDnVecDescr_t &vecAp_local,
+    cudaStream_t &default_stream,
+    cusparseHandle_t &default_cusparseHandle)
+{
+
+    double alpha = 1.0;
+    double beta = 0.0;
+
+    // pinned memory
+    //streams
+    cudaErrchk(cudaMemcpy(p_distributed.vec_h[0], p_distributed.vec_d[0],
+        A_distributed.rows_this_rank * sizeof(double), cudaMemcpyDeviceToHost));
+    
+    // post all send requests
+    for(int i = 1; i < A_distributed.number_of_neighbours; i++){
+        int send_idx = p_distributed.neighbours[i];
+        int send_tag = std::abs(send_idx - A_distributed.rank);
+        MPI_Isend(p_distributed.vec_h[0], 1, A_distributed.send_types[i-1],
+            send_idx, send_tag, A_distributed.comm, &A_distributed.send_requests[i]);
+    }
+
+
+
+    for(int i = 0; i < A_distributed.number_of_neighbours; i++){
+        // loop over neighbors
+        if(i < A_distributed.number_of_neighbours-1){
+            int recv_idx = p_distributed.neighbours[i+1];
+            int recv_tag = std::abs(recv_idx - A_distributed.rank);
+
+            MPI_Irecv(p_distributed.vec_h[i+1], 1, A_distributed.recv_types[i],
+                recv_idx, recv_tag, A_distributed.comm, &A_distributed.recv_requests[i+1]);
+        }
+
+        // calc A*p
+        if(i > 0){
+            cudaErrchk(cudaStreamWaitEvent(default_stream, A_distributed.events_recv[i], 0));
+        }
+        if(i > 0){
+            cusparseErrchk(cusparseSpMV(
+                default_cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+                A_distributed.descriptors[i], p_distributed.descriptors[i],
+                &alpha, vecAp_local, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+        }
+        else{
+            cusparseErrchk(cusparseSpMV(
+                default_cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+                A_distributed.descriptors[i], p_distributed.descriptors[i],
+                &beta, vecAp_local, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+        }
+
+        if(i < A_distributed.number_of_neighbours-1){
+            MPI_Wait(&A_distributed.recv_requests[i+1], MPI_STATUS_IGNORE);
+            int neighbour_idx = p_distributed.neighbours[i+1];
+            cudaErrchk(cudaMemcpyAsync(p_distributed.vec_d[i+1], p_distributed.vec_h[i+1],
+                p_distributed.counts[neighbour_idx] * sizeof(double), cudaMemcpyHostToDevice, A_distributed.streams_recv[i+1]));
+            cudaErrchk(cudaEventRecord(A_distributed.events_recv[i+1], A_distributed.streams_recv[i+1]));
+
+        }
+        
+    }
+    MPI_Waitall(A_distributed.number_of_neighbours-1, &A_distributed.send_requests[1], MPI_STATUSES_IGNORE);
+
+
+}
+
 void solve_cg_nonblocking_point_to_point_custom_datatype1(
     double *data_h,
     int *col_indices_h,
@@ -59,16 +191,16 @@ void solve_cg_nonblocking_point_to_point_custom_datatype1(
     }
 
     // initialize cuda
-    cudaStream_t stream = NULL;
+    cudaStream_t default_stream = NULL;
     cublasHandle_t cublasHandle = 0;
     cublasErrchk(cublasCreate(&cublasHandle));
     
-    cusparseHandle_t cusparseHandle = 0;
-    cusparseErrchk(cusparseCreate(&cusparseHandle));    
+    cusparseHandle_t default_cusparseHandle = 0;
+    cusparseErrchk(cusparseCreate(&default_cusparseHandle));    
 
-    cudaErrchk(cudaStreamCreate(&stream));
-    cusparseErrchk(cusparseSetStream(cusparseHandle, stream));
-    cublasErrchk(cublasSetStream(cublasHandle, stream));
+    cudaErrchk(cudaStreamCreate(&default_stream));
+    cusparseErrchk(cusparseSetStream(default_cusparseHandle, default_stream));
+    cublasErrchk(cublasSetStream(cublasHandle, default_stream));
 
 
     double a, b, na;
@@ -130,7 +262,7 @@ void solve_cg_nonblocking_point_to_point_custom_datatype1(
         row_indptr_local_h,
         data_local_h,
         MPI_COMM_WORLD,
-        cusparseHandle
+        default_cusparseHandle
     );
 
     Distributed_vector p_distributed(
@@ -140,25 +272,21 @@ void solve_cg_nonblocking_point_to_point_custom_datatype1(
         A_distributed.number_of_neighbours,
         A_distributed.neighbours,
         MPI_COMM_WORLD,
-        cusparseHandle
+        default_cusparseHandle
     );
 
+
+    //begin CG
+    std::printf("CG starts\n");
+    cudaErrchk(cudaStreamSynchronize(default_stream));
+    cudaErrchk(cudaDeviceSynchronize());
+    MPI_Barrier(comm);
+    time_taken[0] = -omp_get_wtime();
 
     cudaErrchk(cudaMemcpy(p_distributed.vec_d[0], starting_guess_local_h,
         p_distributed.counts[rank] * sizeof(double), cudaMemcpyHostToDevice));
     std::memcpy(p_distributed.vec_h[0], starting_guess_local_h,
         p_distributed.counts[rank] * sizeof(double));
-
-    MPI_Request send_requests[p_distributed.number_of_neighbours-1];
-    MPI_Request recv_requests[p_distributed.number_of_neighbours-1];
-
-
-    //begin CG
-    std::printf("CG starts\n");
-    cudaErrchk(cudaStreamSynchronize(stream));
-    cudaErrchk(cudaDeviceSynchronize());
-    MPI_Barrier(comm);
-    time_taken[0] = -omp_get_wtime();
 
     // norm of rhs for convergence check
     double norm2_rhs = 0;
@@ -166,40 +294,14 @@ void solve_cg_nonblocking_point_to_point_custom_datatype1(
     //allreduce
     MPI_Allreduce(MPI_IN_PLACE, &norm2_rhs, 1, MPI_DOUBLE, MPI_SUM, comm);
 
-
-    // post all send requests
-    for(int i = 1; i < p_distributed.number_of_neighbours; i++){
-        int send_idx = p_distributed.neighbours[i];
-        int send_tag = std::abs(send_idx-rank);
-
-        MPI_Isend(p_distributed.vec_h[0], 1, A_distributed.send_types[i-1],
-            send_idx, send_tag, comm, &send_requests[i-1]);
-    }
-
-    for(int i = 0; i < A_distributed.number_of_neighbours; i++){
-        // loop over neighbors
-        if(i < A_distributed.number_of_neighbours-1){
-            int recv_idx = p_distributed.neighbours[i+1];
-            int recv_tag = std::abs(recv_idx-rank);
-            MPI_Irecv(p_distributed.vec_h[i+1], 1, A_distributed.recv_types[i],
-                recv_idx, recv_tag, comm, &recv_requests[i]);
-        }
-
-        // calc A*x0
-        cusparseErrchk(cusparseSpMV(
-            cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
-            A_distributed.descriptors[i], p_distributed.descriptors[i],
-            &alpha, vecAp_local, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
-
-        if(i < A_distributed.number_of_neighbours-1){
-            MPI_Wait(&recv_requests[i], MPI_STATUS_IGNORE);
-            //memcpy
-            int neighbour_idx = p_distributed.neighbours[i+1];
-            cudaErrchk(cudaMemcpyAsync(p_distributed.vec_d[i+1], p_distributed.vec_h[i+1], p_distributed.counts[neighbour_idx] * sizeof(double), cudaMemcpyHostToDevice, stream));
-        }
-        
-    }
-    MPI_Waitall(p_distributed.number_of_neighbours-1, send_requests, MPI_STATUSES_IGNORE);
+    // A*x0
+    distributed_mv_custom_datatype1(
+        A_distributed,
+        p_distributed,
+        vecAp_local,
+        default_stream,
+        default_cusparseHandle
+    );
 
     // cal residual r0 = b - A*x0
     // r_norm2_h = r0*r0
@@ -229,43 +331,13 @@ void solve_cg_nonblocking_point_to_point_custom_datatype1(
         //memcpy
         //allgather
         //memcpy
-        cudaErrchk(cudaMemcpy(p_distributed.vec_h[0], p_distributed.vec_d[0], rows_per_rank * sizeof(double), cudaMemcpyDeviceToHost));
-        // result is accumulated in Ap_local_d
-        cudaErrchk(cudaMemset(Ap_local_d, 0, rows_per_rank * sizeof(double)));
-
-        // post all send requests
-        for(int i = 1; i < p_distributed.number_of_neighbours; i++){
-            int send_idx = p_distributed.neighbours[i];
-            int send_tag = std::abs(send_idx-rank);
-
-            MPI_Isend(p_distributed.vec_h[0], 1, A_distributed.send_types[i-1],
-                send_idx, send_tag, comm, &send_requests[i-1]);
-        }
-
-        for(int i = 0; i < A_distributed.number_of_neighbours; i++){
-            // loop over neighbors
-            if(i < A_distributed.number_of_neighbours-1){
-                int recv_idx = p_distributed.neighbours[i+1];
-                int recv_tag = std::abs(recv_idx-rank);
-                MPI_Irecv(p_distributed.vec_h[i+1], 1, A_distributed.recv_types[i],
-                    recv_idx, recv_tag, comm, &recv_requests[i]);
-            }
-
-            // calc A*x0
-            cusparseErrchk(cusparseSpMV(
-                cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
-                A_distributed.descriptors[i], p_distributed.descriptors[i],
-                &alpha, vecAp_local, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
-
-            if(i < A_distributed.number_of_neighbours-1){
-                MPI_Wait(&recv_requests[i], MPI_STATUS_IGNORE);
-                //memcpy
-                int neighbour_idx = p_distributed.neighbours[i+1];
-                cudaErrchk(cudaMemcpyAsync(p_distributed.vec_d[i+1], p_distributed.vec_h[i+1], p_distributed.counts[neighbour_idx] * sizeof(double), cudaMemcpyHostToDevice, stream));
-            }
-            
-        }
-        MPI_Waitall(p_distributed.number_of_neighbours-1, send_requests, MPI_STATUSES_IGNORE);
+        distributed_mv_custom_datatype1(
+            A_distributed,
+            p_distributed,
+            vecAp_local,
+            default_stream,
+            default_cusparseHandle
+        );
 
 
         cublasErrchk(cublasDdot(cublasHandle, rows_per_rank, p_distributed.vec_d[0], 1, Ap_local_d, 1, dot_h));
@@ -291,7 +363,7 @@ void solve_cg_nonblocking_point_to_point_custom_datatype1(
 
     //end CG
     cudaErrchk(cudaDeviceSynchronize());
-    cudaErrchk(cudaStreamSynchronize(stream));
+    cudaErrchk(cudaStreamSynchronize(default_stream));
     time_taken[0] += omp_get_wtime();
 
     steps_taken[0] = k;
@@ -318,9 +390,9 @@ void solve_cg_nonblocking_point_to_point_custom_datatype1(
         std::cout << "difference/sum_ref " << difference/sum_ref << std::endl;
     }
 
-    cusparseErrchk(cusparseDestroy(cusparseHandle));
+    cusparseErrchk(cusparseDestroy(default_cusparseHandle));
     cublasErrchk(cublasDestroy(cublasHandle));
-    cudaErrchk(cudaStreamDestroy(stream));
+    cudaErrchk(cudaStreamDestroy(default_stream));
     cusparseErrchk(cusparseDestroyDnVec(vecAp_local));
     cudaErrchk(cudaFree(row_indptr_local_d));
     cudaErrchk(cudaFree(col_indices_local_d));
@@ -400,16 +472,16 @@ void solve_cg_nonblocking_point_to_point_custom_datatype2(
     }
 
     // initialize cuda
-    cudaStream_t stream = NULL;
+    cudaStream_t default_stream = NULL;
     cublasHandle_t cublasHandle = 0;
     cublasErrchk(cublasCreate(&cublasHandle));
     
-    cusparseHandle_t cusparseHandle = 0;
-    cusparseErrchk(cusparseCreate(&cusparseHandle));    
+    cusparseHandle_t default_cusparseHandle = 0;
+    cusparseErrchk(cusparseCreate(&default_cusparseHandle));    
 
-    cudaErrchk(cudaStreamCreate(&stream));
-    cusparseErrchk(cusparseSetStream(cusparseHandle, stream));
-    cublasErrchk(cublasSetStream(cublasHandle, stream));
+    cudaErrchk(cudaStreamCreate(&default_stream));
+    cusparseErrchk(cusparseSetStream(default_cusparseHandle, default_stream));
+    cublasErrchk(cublasSetStream(cublasHandle, default_stream));
 
 
     double a, b, na;
@@ -471,7 +543,7 @@ void solve_cg_nonblocking_point_to_point_custom_datatype2(
         row_indptr_local_h,
         data_local_h,
         MPI_COMM_WORLD,
-        cusparseHandle
+        default_cusparseHandle
     );
 
     Distributed_vector p_distributed(
@@ -481,37 +553,22 @@ void solve_cg_nonblocking_point_to_point_custom_datatype2(
         A_distributed.number_of_neighbours,
         A_distributed.neighbours,
         MPI_COMM_WORLD,
-        cusparseHandle
+        default_cusparseHandle
     );
 
-    cudaStream_t streams[p_distributed.number_of_neighbours];
-    cublasHandle_t cublasHandles[p_distributed.number_of_neighbours];
-    cusparseHandle_t cusparseHandles[p_distributed.number_of_neighbours];
 
-    for (int i = 0; i < p_distributed.number_of_neighbours; i++)
-    {
-        cudaErrchk(cudaStreamCreate(&streams[i]));
-        cublasErrchk(cublasCreate(&cublasHandles[i]));
-        cusparseErrchk(cusparseCreate(&cusparseHandles[i]));
-        cusparseErrchk(cusparseSetStream(cusparseHandles[i], streams[i]));
-        cublasErrchk(cublasSetStream(cublasHandles[i], streams[i]));
-    }
+    //begin CG
+    std::printf("CG starts\n");
+    cudaErrchk(cudaStreamSynchronize(default_stream));
+    cudaErrchk(cudaDeviceSynchronize());
+    MPI_Barrier(comm);
+    time_taken[0] = -omp_get_wtime();
 
     cudaErrchk(cudaMemcpy(p_distributed.vec_d[0], starting_guess_local_h,
         p_distributed.counts[rank] * sizeof(double), cudaMemcpyHostToDevice));
     std::memcpy(p_distributed.vec_h[0], starting_guess_local_h,
         p_distributed.counts[rank] * sizeof(double));
 
-    MPI_Request send_requests[p_distributed.number_of_neighbours-1];
-    MPI_Request recv_requests[p_distributed.number_of_neighbours-1];
-
-
-    //begin CG
-    std::printf("CG starts\n");
-    cudaErrchk(cudaStreamSynchronize(stream));
-    cudaErrchk(cudaDeviceSynchronize());
-    MPI_Barrier(comm);
-    time_taken[0] = -omp_get_wtime();
 
     // norm of rhs for convergence check
     double norm2_rhs = 0;
@@ -519,44 +576,14 @@ void solve_cg_nonblocking_point_to_point_custom_datatype2(
     //allreduce
     MPI_Allreduce(MPI_IN_PLACE, &norm2_rhs, 1, MPI_DOUBLE, MPI_SUM, comm);
 
-
-    // post all send requests
-    for(int i = 1; i < p_distributed.number_of_neighbours; i++){
-        int send_idx = p_distributed.neighbours[i];
-        int send_tag = std::abs(send_idx-rank);
-
-        MPI_Isend(p_distributed.vec_h[0], 1, A_distributed.send_types[i-1],
-            send_idx, send_tag, comm, &send_requests[i-1]);
-    }
-
-    for(int i = 0; i < A_distributed.number_of_neighbours; i++){
-        // loop over neighbors
-        if(i < A_distributed.number_of_neighbours-1){
-            int recv_idx = p_distributed.neighbours[i+1];
-            int recv_tag = std::abs(recv_idx-rank);
-            MPI_Irecv(p_distributed.vec_h[i+1], 1, A_distributed.recv_types[i],
-                recv_idx, recv_tag, comm, &recv_requests[i]);
-        }
-
-        // calc A*x0
-        cusparseErrchk(cusparseSpMV(
-            cusparseHandles[i], CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
-            A_distributed.descriptors[i], p_distributed.descriptors[i],
-            &alpha, vecAp_local, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
-
-        if(i < A_distributed.number_of_neighbours-1){
-            MPI_Wait(&recv_requests[i], MPI_STATUS_IGNORE);
-            //memcpy
-            int neighbour_idx = p_distributed.neighbours[i+1];
-            cudaErrchk(cudaMemcpyAsync(p_distributed.vec_d[i+1], p_distributed.vec_h[i+1], p_distributed.counts[neighbour_idx] * sizeof(double), cudaMemcpyHostToDevice, streams[i+1]));
-        }
-        
-    }
-    MPI_Waitall(p_distributed.number_of_neighbours-1, send_requests, MPI_STATUSES_IGNORE);
-    for (int i = 0; i < p_distributed.number_of_neighbours; i++)
-    {
-        cudaErrchk(cudaStreamSynchronize(streams[i]));
-    }
+    // A*x0
+    distributed_mv_custom_datatype2(
+        A_distributed,
+        p_distributed,
+        vecAp_local,
+        default_stream,
+        default_cusparseHandle
+    );
     // cal residual r0 = b - A*x0
     // r_norm2_h = r0*r0
     cublasErrchk(cublasDaxpy(cublasHandle, rows_per_rank, &alpham1, Ap_local_d, 1, r_local_d, 1));
@@ -583,47 +610,13 @@ void solve_cg_nonblocking_point_to_point_custom_datatype2(
         //memcpy
         //allgather
         //memcpy
-        cudaErrchk(cudaMemcpy(p_distributed.vec_h[0], p_distributed.vec_d[0], rows_per_rank * sizeof(double), cudaMemcpyDeviceToHost));
-        // result is accumulated in Ap_local_d
-        cudaErrchk(cudaMemset(Ap_local_d, 0, rows_per_rank * sizeof(double)));
-
-        // post all send requests
-        for(int i = 1; i < p_distributed.number_of_neighbours; i++){
-            int send_idx = p_distributed.neighbours[i];
-            int send_tag = std::abs(send_idx-rank);
-
-            MPI_Isend(p_distributed.vec_h[0], 1, A_distributed.send_types[i-1],
-                send_idx, send_tag, comm, &send_requests[i-1]);
-        }
-
-        for(int i = 0; i < A_distributed.number_of_neighbours; i++){
-            // loop over neighbors
-            if(i < A_distributed.number_of_neighbours-1){
-                int recv_idx = p_distributed.neighbours[i+1];
-                int recv_tag = std::abs(recv_idx-rank);
-                MPI_Irecv(p_distributed.vec_h[i+1], 1, A_distributed.recv_types[i],
-                    recv_idx, recv_tag, comm, &recv_requests[i]);
-            }
-
-            // calc A*x0
-            cusparseErrchk(cusparseSpMV(
-                cusparseHandles[i], CUSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
-                A_distributed.descriptors[i], p_distributed.descriptors[i],
-                &alpha, vecAp_local, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
-
-            if(i < A_distributed.number_of_neighbours-1){
-                MPI_Wait(&recv_requests[i], MPI_STATUS_IGNORE);
-                //memcpy
-                int neighbour_idx = p_distributed.neighbours[i+1];
-                cudaErrchk(cudaMemcpyAsync(p_distributed.vec_d[i+1], p_distributed.vec_h[i+1], p_distributed.counts[neighbour_idx] * sizeof(double), cudaMemcpyHostToDevice, streams[i+1]));
-            }
-            
-        }
-        MPI_Waitall(p_distributed.number_of_neighbours-1, send_requests, MPI_STATUSES_IGNORE);
-        for (int i = 0; i < p_distributed.number_of_neighbours; i++)
-        {
-            cudaErrchk(cudaStreamSynchronize(streams[i]));
-        }
+        distributed_mv_custom_datatype2(
+            A_distributed,
+            p_distributed,
+            vecAp_local,
+            default_stream,
+            default_cusparseHandle
+        );
 
         cublasErrchk(cublasDdot(cublasHandle, rows_per_rank, p_distributed.vec_d[0], 1, Ap_local_d, 1, dot_h));
         //allreduce        
@@ -648,7 +641,7 @@ void solve_cg_nonblocking_point_to_point_custom_datatype2(
 
     //end CG
     cudaErrchk(cudaDeviceSynchronize());
-    cudaErrchk(cudaStreamSynchronize(stream));
+    cudaErrchk(cudaStreamSynchronize(default_stream));
     time_taken[0] += omp_get_wtime();
 
     steps_taken[0] = k;
@@ -675,9 +668,9 @@ void solve_cg_nonblocking_point_to_point_custom_datatype2(
         std::cout << "difference/sum_ref " << difference/sum_ref << std::endl;
     }
 
-    cusparseErrchk(cusparseDestroy(cusparseHandle));
+    cusparseErrchk(cusparseDestroy(default_cusparseHandle));
     cublasErrchk(cublasDestroy(cublasHandle));
-    cudaErrchk(cudaStreamDestroy(stream));
+    cudaErrchk(cudaStreamDestroy(default_stream));
     cusparseErrchk(cusparseDestroyDnVec(vecAp_local));
     cudaErrchk(cudaFree(row_indptr_local_d));
     cudaErrchk(cudaFree(col_indices_local_d));
@@ -696,13 +689,6 @@ void solve_cg_nonblocking_point_to_point_custom_datatype2(
 
     cudaErrchk(cudaFreeHost(r_norm2_h));
     cudaErrchk(cudaFreeHost(dot_h));
-
-    for (int i = 0; i < p_distributed.number_of_neighbours; i++)
-    {
-        cudaErrchk(cudaStreamDestroy(streams[i]));
-        cublasErrchk(cublasDestroy(cublasHandles[i]));
-        cusparseErrchk(cusparseDestroy(cusparseHandles[i]));
-    }
 
     MPI_Barrier(comm);
 }

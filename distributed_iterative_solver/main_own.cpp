@@ -390,29 +390,49 @@ int main(int argc, char **argv) {
         //         &times_point_to_point4[measurement]
         //     );
         // }
-        // for(int measurement = 0; measurement < number_of_measurements; measurement++){
-        //     MPI_Barrier(MPI_COMM_WORLD);
-        //     std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_custom_datatype1 " << measurement << std::endl;
-        //     own_test::solve_cg_nonblocking_point_to_point_custom_datatype1(
-        //         data_copy,
-        //         col_indices_copy,
-        //         row_ptr_copy,
-        //         rhs_copy,
-        //         reference_solution_copy,
-        //         starting_guess_copy,
-        //         matrix_size,
-        //         relative_tolerance,
-        //         max_iterations,
-        //         MPI_COMM_WORLD,
-        //         &iteration,
-        //         &times_custom1[measurement]
-        //     );
-        // }
+        for(int measurement = 0; measurement < number_of_measurements; measurement++){
+            MPI_Barrier(MPI_COMM_WORLD);
+            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_custom_datatype1 " << measurement << std::endl;
+            own_test::solve_cg_nonblocking_point_to_point_custom_datatype1(
+                data_copy,
+                col_indices_copy,
+                row_ptr_copy,
+                rhs_copy,
+                reference_solution_copy,
+                starting_guess_copy,
+                matrix_size,
+                relative_tolerance,
+                max_iterations,
+                MPI_COMM_WORLD,
+                &iteration,
+                &times_custom1[measurement]
+            );
+        }
         
+        for(int measurement = 0; measurement < number_of_measurements; measurement++){
+            MPI_Barrier(MPI_COMM_WORLD);
+            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_custom_datatype2 " << measurement << std::endl;
+            own_test::solve_cg_nonblocking_point_to_point_custom_datatype2(
+                data_copy,
+                col_indices_copy,
+                row_ptr_copy,
+                rhs_copy,
+                reference_solution_copy,
+                starting_guess_copy,
+                matrix_size,
+                relative_tolerance,
+                max_iterations,
+                MPI_COMM_WORLD,
+                &iteration,
+                &times_custom2[measurement]
+            );
+        }
+
+
         // for(int measurement = 0; measurement < number_of_measurements; measurement++){
         //     MPI_Barrier(MPI_COMM_WORLD);
-        //     std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_custom_datatype2 " << measurement << std::endl;
-        //     own_test::solve_cg_nonblocking_point_to_point_custom_datatype2(
+        //     std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing1 " << measurement << std::endl;
+        //     own_test::solve_cg_nonblocking_point_to_point_gpu_packing1(
         //         data_copy,
         //         col_indices_copy,
         //         row_ptr_copy,
@@ -424,104 +444,84 @@ int main(int argc, char **argv) {
         //         max_iterations,
         //         MPI_COMM_WORLD,
         //         &iteration,
-        //         &times_custom2[measurement]
+        //         &times_gpu_packing1[measurement]
         //     );
         // }
 
+        // for(int measurement = 0; measurement < number_of_measurements; measurement++){
+        //     MPI_Barrier(MPI_COMM_WORLD);
+        //     std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing2 " << measurement << std::endl;
+        //     own_test::solve_cg_nonblocking_point_to_point_gpu_packing2(
+        //         data_copy,
+        //         col_indices_copy,
+        //         row_ptr_copy,
+        //         rhs_copy,
+        //         reference_solution_copy,
+        //         starting_guess_copy,
+        //         matrix_size,
+        //         relative_tolerance,
+        //         max_iterations,
+        //         MPI_COMM_WORLD,
+        //         &iteration,
+        //         &times_gpu_packing2[measurement]
+        //     );
+        // }
 
-        for(int measurement = 0; measurement < number_of_measurements; measurement++){
-            MPI_Barrier(MPI_COMM_WORLD);
-            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing1 " << measurement << std::endl;
-            own_test::solve_cg_nonblocking_point_to_point_gpu_packing1(
-                data_copy,
-                col_indices_copy,
-                row_ptr_copy,
-                rhs_copy,
-                reference_solution_copy,
-                starting_guess_copy,
-                matrix_size,
-                relative_tolerance,
-                max_iterations,
-                MPI_COMM_WORLD,
-                &iteration,
-                &times_gpu_packing1[measurement]
-            );
-        }
+        // for(int measurement = 0; measurement < number_of_measurements; measurement++){
+        //     MPI_Barrier(MPI_COMM_WORLD);
+        //     std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing3 " << measurement << std::endl;
+        //     own_test::solve_cg_nonblocking_point_to_point_gpu_packing3(
+        //         data_copy,
+        //         col_indices_copy,
+        //         row_ptr_copy,
+        //         rhs_copy,
+        //         reference_solution_copy,
+        //         starting_guess_copy,
+        //         matrix_size,
+        //         relative_tolerance,
+        //         max_iterations,
+        //         MPI_COMM_WORLD,
+        //         &iteration,
+        //         &times_gpu_packing3[measurement]
+        //     );
+        // }
 
-        for(int measurement = 0; measurement < number_of_measurements; measurement++){
-            MPI_Barrier(MPI_COMM_WORLD);
-            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing2 " << measurement << std::endl;
-            own_test::solve_cg_nonblocking_point_to_point_gpu_packing2(
-                data_copy,
-                col_indices_copy,
-                row_ptr_copy,
-                rhs_copy,
-                reference_solution_copy,
-                starting_guess_copy,
-                matrix_size,
-                relative_tolerance,
-                max_iterations,
-                MPI_COMM_WORLD,
-                &iteration,
-                &times_gpu_packing2[measurement]
-            );
-        }
-
-        for(int measurement = 0; measurement < number_of_measurements; measurement++){
-            MPI_Barrier(MPI_COMM_WORLD);
-            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing3 " << measurement << std::endl;
-            own_test::solve_cg_nonblocking_point_to_point_gpu_packing3(
-                data_copy,
-                col_indices_copy,
-                row_ptr_copy,
-                rhs_copy,
-                reference_solution_copy,
-                starting_guess_copy,
-                matrix_size,
-                relative_tolerance,
-                max_iterations,
-                MPI_COMM_WORLD,
-                &iteration,
-                &times_gpu_packing3[measurement]
-            );
-        }
-
-        for(int measurement = 0; measurement < number_of_measurements; measurement++){
-            MPI_Barrier(MPI_COMM_WORLD);
-            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing4 " << measurement << std::endl;
-            own_test::solve_cg_nonblocking_point_to_point_gpu_packing4(
-                data_copy,
-                col_indices_copy,
-                row_ptr_copy,
-                rhs_copy,
-                reference_solution_copy,
-                starting_guess_copy,
-                matrix_size,
-                relative_tolerance,
-                max_iterations,
-                MPI_COMM_WORLD,
-                &iteration,
-                &times_gpu_packing4[measurement]
-            );
-        }
-        for(int measurement = 0; measurement < number_of_measurements; measurement++){
-            MPI_Barrier(MPI_COMM_WORLD);
-            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing5 " << measurement << std::endl;
-            own_test::solve_cg_nonblocking_point_to_point_gpu_packing5(
-                data_copy,
-                col_indices_copy,
-                row_ptr_copy,
-                rhs_copy,
-                reference_solution_copy,
-                starting_guess_copy,
-                matrix_size,
-                relative_tolerance,
-                max_iterations,
-                MPI_COMM_WORLD,
-                &iteration,
-                &times_gpu_packing5[measurement]
-            );
-        }
+        // for(int measurement = 0; measurement < number_of_measurements; measurement++){
+        //     MPI_Barrier(MPI_COMM_WORLD);
+        //     std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing4 " << measurement << std::endl;
+        //     own_test::solve_cg_nonblocking_point_to_point_gpu_packing4(
+        //         data_copy,
+        //         col_indices_copy,
+        //         row_ptr_copy,
+        //         rhs_copy,
+        //         reference_solution_copy,
+        //         starting_guess_copy,
+        //         matrix_size,
+        //         relative_tolerance,
+        //         max_iterations,
+        //         MPI_COMM_WORLD,
+        //         &iteration,
+        //         &times_gpu_packing4[measurement]
+        //     );
+        // }
+        // for(int measurement = 0; measurement < number_of_measurements; measurement++){
+        //     MPI_Barrier(MPI_COMM_WORLD);
+        //     std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing5 " << measurement << std::endl;
+        //     own_test::solve_cg_nonblocking_point_to_point_gpu_packing5(
+        //         data_copy,
+        //         col_indices_copy,
+        //         row_ptr_copy,
+        //         rhs_copy,
+        //         reference_solution_copy,
+        //         starting_guess_copy,
+        //         matrix_size,
+        //         relative_tolerance,
+        //         max_iterations,
+        //         MPI_COMM_WORLD,
+        //         &iteration,
+        //         &times_gpu_packing5[measurement]
+        //     );
+        // }
 
         delete[] data_copy;
         delete[] row_ptr_copy;
