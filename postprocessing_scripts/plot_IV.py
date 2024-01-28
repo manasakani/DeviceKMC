@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import sys
+import numpy as np
 
 def main():
     if len(sys.argv) != 2:
@@ -50,20 +51,20 @@ def main():
     print(current_list)
 
     # Plotting the data on the left y-axis (linear scale)
-    plt.plot(kmc_voltage_list, current_list, marker='o', markersize=5, linestyle='-', label='Linear Scale')
+    plt.plot(kmc_voltage_list, current_list, marker='o', markersize=1, linestyle='-', label='Linear Scale')
     plt.yscale('linear')  # Set the left y-axis to linear scale
-    plt.ylim(-1, 10)
-    plt.xlim(0, 9)
+    # plt.ylim(-1, 10)
+    # plt.xlim(0, 9)
 
     # Creating a secondary y-axis with log scale
     ax2 = plt.gca().twinx()
-    ax2.plot(kmc_voltage_list, current_list, marker='o', markersize=5, linestyle='-', color='red', label='Log Scale')
+    ax2.plot(kmc_voltage_list, np.abs(current_list), marker='o', markersize=1, linestyle='-', color='red', label='Log Scale')
     ax2.set_yscale('log')  # Set the right y-axis to log scale
-    ax2.set_ylim(0.001, 10)
+    # ax2.set_ylim(0.001, 10)
 
     plt.xlabel('Applied Voltage (V)')
-    plt.ylabel('Current (uA)')
-    plt.title('Current vs applied voltage')
+    plt.ylabel('|Current| (uA)')
+    plt.title('|Current| vs applied voltage')
     plt.tight_layout()
     plt.savefig('I-V.jpg')
 

@@ -7,6 +7,7 @@
 #include <list>
 #include <algorithm>
 #include <numeric>
+#include <chrono>
 
 #ifdef USE_CUDA
     #include "cuda_wrapper.h"
@@ -251,23 +252,30 @@ void KMCProcess::execute_event(Device &device, EVENTTYPE sel_event_type, int i, 
 }
 
 
-double KMCProcess::executeKMCStep(GPUBuffers gpubuf, Device &device)
+std::map<std::string, double> KMCProcess::executeKMCStep(GPUBuffers gpubuf, Device &device, double *step_time)
 {
+    std::map<std::string, double> result;
 
 #ifdef USE_CUDA
 
-    gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
+    auto t0 = std::chrono::steady_clock::now();
+
+    // gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
 
     double event_time = execute_kmc_step_gpu(device.N, device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
-                        gpubuf.lattice, device.pbc, gpubuf.T_bg, 
-                        gpubuf.freq, gpubuf.sigma, gpubuf.k,
-                        gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
-                        gpubuf.site_potential, gpubuf.site_temperature,
-                        gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
+                                             gpubuf.lattice, device.pbc, gpubuf.T_bg, 
+                                             gpubuf.freq, gpubuf.sigma, gpubuf.k,
+                                             gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+                                             gpubuf.site_potential, gpubuf.site_temperature,
+                                             gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
 
-    gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+    // gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
+
+    auto t1 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt = t1 - t0;
 
 #else
+    auto t0 = std::chrono::steady_clock::now();
 
     int num_sites = device.N;
     int num_neigh = device.max_num_neighbors;
@@ -348,10 +356,16 @@ double KMCProcess::executeKMCStep(GPUBuffers gpubuf, Device &device)
     delete[] event_prob;
     delete[] event_prob_cum;
     delete[] event_type;
+    auto t1 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt = t1 - t0;
 
 #endif
 
-    return event_time;
+    // update the kmc time
+    *step_time = event_time;
+    
+    result["Z - calculation time - kmc events [s]"] = dt.count();
+    return result;
 }
 
 

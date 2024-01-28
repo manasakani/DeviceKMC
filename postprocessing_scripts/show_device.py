@@ -68,7 +68,7 @@ def make_image(names, positions, potential, temperature, structure_folder, imnam
     fig = plt.figure(figsize=(5, 6), tight_layout=True)
 
     ax = fig.add_subplot(3, 1, 1)
-    ax.scatter(x, y, c=colors, s=1)
+    ax.scatter(x, y, c=colors, s=0.5)
     ax.grid(False)
     ax.get_xaxis().set_ticks([])
 
@@ -83,7 +83,8 @@ def make_image(names, positions, potential, temperature, structure_folder, imnam
     ax.grid(True)
     ax.scatter(x, temperature, c=y, s=2, alpha=0.5, cmap='coolwarm')
     ax.set_xlabel("x position(s) (A)")
-    ax.set_ylabel("Temperature (K)")
+    # ax.set_yscale('log')  # Set the right y-axis to log scale
+    ax.set_ylabel("Dissipated Power (K)")
 
     plt.savefig(structure_folder+'/'+imname)
 

@@ -4,9 +4,9 @@
 // #include <iomanip>
 //debug
 
-const double eV_to_J = 1.6e-19;
-const double h_bar_sq = 4.3957e-67;
-constexpr double kB = 8.617333262e-5;     
+const double eV_to_J = 1.60217663e-19;          // [C]
+const double h_bar = 1.054571817e-34;           // [Js]
+constexpr double kB = 8.617333262e-5;           // [eV/K]
 
 #define NUM_THREADS 512
 #define MAX_NUM_LAYERS 5
@@ -194,7 +194,7 @@ __global__ void set_diag(double *A, double *diag, int N)
 }
 
 __global__ void copy_pdisp(double *site_power, ELEMENT *element, const ELEMENT *metals, double *pdisp, int *atom_gpu_index, int N_atom,
-                           const int num_metals)
+                           const int num_metals, const double alpha)
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int total_threads = blockDim.x * gridDim.x;
@@ -203,14 +203,13 @@ __global__ void copy_pdisp(double *site_power, ELEMENT *element, const ELEMENT *
     {
         bool metal = is_in_array_gpu(metals, element[atom_gpu_index[idx]], num_metals);
         if (!metal)
-            site_power[atom_gpu_index[idx]] = -0.1 * pdisp[idx];
+            site_power[atom_gpu_index[idx]] = -1 * alpha * pdisp[idx];
     }
 }
 
 template <int NTHREADS>
-__global__ void get_imacro(const double *x, const double *m, double *imacro, double Vd, int N)
+__global__ void get_imacro(const double *x, const double *m, double *imacro, int N)
 {
-
     int num_threads = blockDim.x;
     int bid = blockIdx.x;
     int tid = threadIdx.x;
@@ -218,13 +217,11 @@ __global__ void get_imacro(const double *x, const double *m, double *imacro, dou
 
     __shared__ double buf[NTHREADS];
 
-    // total_tid >= 2 && total_tid < N
-
     buf[tid] = 0.0;
-    double tmp = x[(N + 2) * (3) + (total_tid + 2)] * (m[total_tid + 2] - m[3]);
-    if ((total_tid > 1 && total_tid < N) && ((tmp > 0 && Vd > 0) || (tmp < 0 && Vd < 0)))
+
+    if ((total_tid >= 0 && total_tid < N) && (total_tid >= 2)) 
     {
-        buf[tid] = tmp;
+        buf[tid] = x[(N + 2) * 0 + (total_tid + 2)] * (m[0] - m[total_tid + 2]);            // extracted (M[0] = 0)
     }
 
     int width = num_threads / 2;
@@ -243,6 +240,54 @@ __global__ void get_imacro(const double *x, const double *m, double *imacro, dou
         atomicAdd(imacro, buf[0]);
     }
 }
+
+template <int NTHREADS>
+__global__ void get_imacro_sparse(const double *x_values, const int *x_row_ptr, const int *x_col_ind,
+                                  const double *m, double *imacro)
+{
+    int num_threads = blockDim.x;
+    int bid = blockIdx.x;
+    int tid = threadIdx.x;
+    int total_tid = bid * num_threads + tid;
+    int total_threads = num_threads * gridDim.x;
+
+    // int row_start = x_row_ptr[0] + 2;
+    // int row_end = x_row_ptr[1];
+    int row_start = x_row_ptr[1] + 2;
+    int row_end = x_row_ptr[2];
+
+    __shared__ double buf[NTHREADS];
+    buf[tid] = 0.0;
+
+    double result = 0.0;
+ 
+    for (int idx = row_start + total_tid; idx < row_end; idx += total_threads)
+    {
+        int col_index = x_col_ind[idx];
+        if (col_index >= 2) 
+        {
+            // buf[tid] += x_values[idx] * (m[0] - m[col_index]);               // extracted (= injected when including ground node)
+            buf[tid] += x_values[idx] * (m[col_index] - m[1]);                  // injected
+        }
+    }
+
+    int width = num_threads / 2;
+    while (width != 0)
+    {
+        __syncthreads();
+        if (tid < width)
+        {
+            buf[tid] += buf[tid + width];
+        }
+        width /= 2;
+    }
+
+    if (tid == 0)
+    {
+        atomicAdd(imacro, buf[0]);
+    }
+}
+
 
 template <int NTHREADS>
 __global__ void diagonal_sum(double *A, double *diag, int N)
@@ -298,7 +343,7 @@ __global__ void create_K(
     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
     int num_threads_total = blockDim.x * gridDim.x;
 
-    for (auto idx = tid_total; idx < (size_t) N * N; idx += num_threads_total)
+    for (auto idx = tid_total; idx < N * N; idx += num_threads_total)
     {
         int i = idx / N;
         int j = idx % N;
@@ -464,10 +509,7 @@ __global__ void add_vector_to_diagonal(
     }
 }
 
-__global__ void set_ineg(double *ineg, const double *x,
-                         const double *m, double Vd, int N, const double *posx, const double *posy, const double *posz,
-                         const int pbc, const double *lattice, const double nn_dist,
-                         const double V0, const double t_ox)
+__global__ void set_ineg(double *ineg, const double *x, const double *m, double Vd, int N)
 {
     // ineg is matrix N x N
     // x is matrix (N+2) x (N+2)
@@ -481,21 +523,95 @@ __global__ void set_ineg(double *ineg, const double *x,
         int i = idx / N;
         int j = idx % N;
 
-        double xdiff = (1e-10) * (posx[j] - posx[i]);
-        double dist = site_dist_gpu(posx[i], posy[i], posz[i], posx[j], posy[j], posz[j], lattice[0], lattice[1], lattice[2], pbc);
-        bool neighbor = false;
-        if (dist < nn_dist && i != j)
-            neighbor = true;
-
         ineg[i * N + j] = 0.0;
         double ical = x[(N + 2) * (i + 2) + (j + 2)] * (m[i + 2] - m[j + 2]);
-        if (neighbor && i != j && ical < 0 && Vd > 0)
+        
+        if (ical < 0 && Vd > 0)
         {
             ineg[i * N + j] = -ical;
         }
-        else if (ical < 0 && Vd > 0 && xdiff < t_ox * V0 && xdiff > nn_dist && !neighbor)
-        { // excluding Fowler Nordheim tunneling
+        else if (ical > 0 && Vd < 0)
+        { 
             ineg[i * N + j] = -ical;
+        }
+    }
+}
+
+// //assumes that the column indices are sorted!
+// __global__ void set_ineg_sparse(double *ineg_values, int *ineg_row_ptr, int *ineg_col_indices, const double *x_values, const int *x_row_ptr, const int *x_col_indices, const double *m, double Vd, int N)
+// {
+//     // ineg_values is array of nonzero values in ineg
+//     // ineg_row_ptr is array of row pointers in ineg
+//     // ineg_col_indices is array of column indices in ineg
+//     // x_values is array of nonzero values in x
+//     // x_row_ptr is array of row pointers in x
+//     // x_col_indices is array of column indices in x
+//     // m is vector (N + 2)
+
+//     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
+//     int num_threads_total = blockDim.x * gridDim.x;
+
+//     for (auto idx = tid_total; idx < N * N; idx += num_threads_total)
+//     {
+//         int i = idx / N;
+//         int j = idx % N;
+
+//         int row_start = ineg_row_ptr[i];
+//         int row_end = ineg_row_ptr[i + 1];
+
+//         ineg_values[idx] = 0.0;
+
+//         for (int k = row_start; k < row_end; ++k)
+//         {
+//             int col_index = ineg_col_indices[k];
+
+//             if (col_index == j + 2)
+//             {
+//                 double ical = x_values[k] * (m[i + 2] - m[j + 2]);
+
+//                 if (ical < 0 && Vd > 0)
+//                 {
+//                     ineg_values[idx] = -ical;
+//                 }
+//                 else if (ical > 0 && Vd < 0)
+//                 {
+//                     ineg_values[idx] = -ical;
+//                 }
+
+//                 break; // Break once the corresponding column index is found
+//             }
+//         }
+//     }
+// }
+
+// does not assume that the column indices are sorted
+__global__ void set_ineg_sparse(double *ineg_values, int *ineg_row_ptr, int *ineg_col_indices, const double *x_values, const int *x_row_ptr, const int *x_col_indices, const double *m, double Vd, int N)
+{
+    int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
+    int num_threads_total = blockDim.x * gridDim.x;
+
+    for (auto i = tid_total; i < N; i += num_threads_total)
+    {
+        int row_start = ineg_row_ptr[i] + 2;
+        int row_end = ineg_row_ptr[i + 1];
+
+        for( int j = ineg_row_ptr[i]; j < ineg_row_ptr[i+1]; j++ )
+        {
+            if (ineg_col_indices[j] >= 2)
+            {
+                ineg_values[j] = 0.0;
+
+                double ical = x_values[j] * (m[i + 2] - m[ineg_col_indices[j] + 2]);
+
+                if (ical < 0 && Vd > 0)
+                {
+                    ineg_values[j] = -ical;
+                }
+                else if (ical > 0 && Vd < 0)
+                {
+                    ineg_values[j] = -ical;
+                }
+            }
         }
     }
 }
@@ -604,7 +720,7 @@ __global__ void calculate_pairwise_interaction_mpi(const double* posx, const dou
             width /= 2;
         }
 
-        int block_id = blockIdx.x + row_idx_start;
+        // int block_id = blockIdx.x + row_idx_start;
         for (int ridx = row; ridx < row_numbers; ridx += gridDim.x){
         if (tid == 0) {
             atomicAdd(potential_local, buf[0]);
@@ -631,8 +747,8 @@ __global__ void create_X(
     const double *posx, const double *posy, const double *posz,
     const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_CB_edge,
     const double *lattice, bool pbc, double high_G, double low_G, double loop_G,
-    double nn_dist, double m_e, double V0, int num_source_inj, int num_ground_ext, const int num_layers_contact, const int num_atoms_reservoir,
-    int N, int num_metals, const double t_ox, const double Vd)
+    double nn_dist, double m_e, double V0, int num_source_inj, int num_ground_ext, const int num_layers_contact,
+    int N, int num_metals, const double Vd, const double tol)
 {
 
     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
@@ -646,27 +762,97 @@ __global__ void create_X(
         int i = idx / N;
         int j = idx % N;
 
-        bool metal1 = is_in_array_gpu(metals, element[i], num_metals);
-        bool metal2 = is_in_array_gpu(metals, element[j], num_metals);
-
-        bool ischarged1 = atom_charge[i] != 0;
-        bool ischarged2 = atom_charge[j] != 0;
-
-        bool any_vacancy1 = element[i] == VACANCY;
-        bool any_vacancy2 = element[j] == VACANCY;
-
-        bool cvacancy1 = any_vacancy1 && !ischarged1;
-        bool cvacancy2 = any_vacancy2 && !ischarged2;
-        
         double dist_angstrom = site_dist_gpu(posx[i], posy[i], posz[i], 
                                              posx[j], posy[j], posz[j], 
                                              lattice[0], lattice[1], lattice[2], pbc);
 
         bool neighbor = (dist_angstrom < nn_dist) && (i != j);
 
+        // tunneling terms occur between not-neighbors
+        if (i != j && !neighbor)
+        { 
+            bool any_vacancy1 = element[i] == VACANCY;
+            bool any_vacancy2 = element[j] == VACANCY;
+
+            // contacts, excluding the last layer 
+            bool metal1p = is_in_array_gpu(metals, element[i], num_metals) 
+                                       && (i > ((num_layers_contact - 1)*num_source_inj))
+                                       && (i < (N - (num_layers_contact - 1)*num_ground_ext)); 
+
+            bool metal2p = is_in_array_gpu(metals, element[j], num_metals)
+                                       && (j > ((num_layers_contact - 1)*num_source_inj))
+                                       && (j < (N - (num_layers_contact - 1)*num_ground_ext));  
+
+            // types of tunnelling conditions considered
+            bool trap_to_trap = (any_vacancy1 && any_vacancy2);
+            bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
+            bool contact_to_contact = (metal1p && metal2p);
+
+            double local_E_drop = atom_CB_edge[i] - atom_CB_edge[j];                // [eV] difference in energy between the two atoms
+
+            // compute the WKB tunneling coefficients for all the tunnelling conditions
+            if ((trap_to_trap || contact_to_trap || contact_to_contact)  && (fabs(local_E_drop) > tol))
+            {
+                
+                double prefac = -(sqrt( 2 * m_e ) / h_bar) * (2.0 / 3.0);           // [s/(kg^1/2 * m^2)] coefficient inside the exponential
+                double dist = (1e-10)*dist_angstrom;                                // [m] 3D distance between atoms i and j
+
+                if (contact_to_trap)
+                {
+                    double energy_window = fabs(local_E_drop);                      // [eV] energy window for tunneling from the contacts
+                    double dV = 0.01;                                               // [V] energy spacing for numerical integration
+                    double dE = eV_to_J * dV;                                       // [eV] energy spacing for numerical integration
+                        
+                    // integrate over all the occupied energy levels in the contact
+                    double T = 0.0;
+                    for (double iv = 0; iv < energy_window; iv += dE)
+                    {
+                        double E1 = eV_to_J * V0 + iv;                                  // [J] Energy distance to CB before tunnelling
+                        double E2 = E1 - fabs(local_E_drop);                            // [J] Energy distance to CB after tunnelling
+
+                        if (E2 > 0)                                                     // trapezoidal potential barrier (low field)                 
+                        {                                                           
+                            T += exp(prefac * (dist / fabs(local_E_drop)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
+                        }
+
+                        if (E2 < 0)                                                      // triangular potential barrier (high field)                               
+                        {
+                            T += exp(prefac * (dist / fabs(local_E_drop)) * ( pow(E1, 1.5) )); 
+                        } 
+                    }
+                    X[N_full * (i + 2) + (j + 2)] = -T;      
+                } 
+                else 
+                {
+                    double E1 = eV_to_J * V0;                                        // [J] Energy distance to CB before tunnelling
+                    double E2 = E1 - fabs(local_E_drop);                             // [J] Energy distance to CB after tunnelling
+                          
+                    if (E2 > 0)                                                      // trapezoidal potential barrier (low field)
+                    {                                                           
+                        double T = exp(prefac * (dist / fabs(E1 - E2)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
+                        X[N_full * (i + 2) + (j + 2)] = -T; 
+                    }
+
+                    if (E2 < 0)                                                        // triangular potential barrier (high field)
+                    {
+                        double T = exp(prefac * (dist / fabs(E1 - E2)) * ( pow(E1, 1.5) ));
+                        X[N_full * (i + 2) + (j + 2)] = -T; 
+                    }
+                }
+            }
+        }
+
         // direct terms occur between neighbors 
         if (i != j && neighbor)
         {
+            // contacts
+            bool metal1 = is_in_array_gpu(metals, element[i], num_metals);
+            bool metal2 = is_in_array_gpu(metals, element[j], num_metals);
+
+            // conductive vacancy sites
+            bool cvacancy1 = (element[i] == VACANCY) && (atom_charge[i] == 0);
+            bool cvacancy2 = (element[j] == VACANCY) && (atom_charge[j] == 0);
+
             if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
             {
                 X[N_full * (i + 2) + (j + 2)] = -high_G;
@@ -677,60 +863,8 @@ __global__ void create_X(
             }
         }
 
-        // tunneling terms
-        if (i != j && !neighbor)
-        { 
-            // contacts, excluding the last layer 
-            bool metal1p = is_in_array_gpu(metals, element[i], num_metals) 
-                                           && (i > ((num_layers_contact - 1)*num_source_inj))
-                                           && (i < (N - (num_layers_contact - 1)*num_ground_ext - num_atoms_reservoir)); 
-
-            bool metal2p = is_in_array_gpu(metals, element[j], num_metals)
-                                           && (j > ((num_layers_contact - 1)*num_source_inj))
-                                           && (j < (N - (num_layers_contact - 1)*num_ground_ext - num_atoms_reservoir));  
-
-            // types of tunnelling conditions considered
-            bool trap_to_trap = (any_vacancy1 && any_vacancy2);
-            bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
-            bool contact_to_contact = (metal1p && metal2p);
-
-            // compute the WKB tunneling coefficients for all the tunnelling conditions
-            if (trap_to_trap || contact_to_trap || contact_to_contact)   
-            {
-                double local_E_drop = atom_CB_edge[i] - atom_CB_edge[j];              // [eV] difference in energy between the two atoms
-
-                // tunnelling under forward bias || reverse bias
-                if ((Vd > 0 && local_E_drop > 0) ||  (Vd < 0 && local_E_drop < 0))
-                {
-                    if (Vd < 0 && local_E_drop < 0){
-                        local_E_drop*=-1;                                             // switch barrier sign if negative bias
-                    }
-
-                    double E1 = eV_to_J * V0;                                         // [J] Energy distance to CB before tunnelling
-                    double E2 = eV_to_J * V0 - local_E_drop;                          // [J] Energy distance to CB after tunnelling
-                    double prefac = -(sqrt( 2 * m_e / h_bar_sq)) * (2.0 / 3.0);       // [s/(kg^1/2 * m^2)] coefficient inside the exponential
-                    double dist = (1e-10)*dist_angstrom;                              // [m] 3D distance between atoms i and j
-
-                    if (E2 > 0)                                                       // trapezoidal potential barrier (low field)
-                    {                                                           
-                        double T = exp(prefac * (dist / (E1 - E2)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
-                        X[N_full * (i + 2) + (j + 2)] = -2 * 3.8612e-5 * T; // Conductance = - (q^2 / h_bar) * Tij       
-                        X[N_full * (j + 2) + (i + 2)] = -2 * 3.8612e-5 * T;
-                    }
-
-                    if (E2 < 0)                                                        // triangular potential barrier (high field)
-                    {
-                        double T = exp(prefac * (dist / (E1 - E2)) * ( pow(E1, 1.5) ));
-                        X[N_full * (i + 2) + (j + 2)] = -2 * 3.8612e-5 * T; // Conductance = - (q^2 / h_bar) * Tij       
-                        X[N_full * (j + 2) + (i + 2)] = -2 * 3.8612e-5 * T;
-                    }
-                }
-            }
-        }
-
         // NOTE: Is there a data race here?
         // connect the source/ground nodes to the first/last contact layers
-        __syncthreads();
         if (i < num_source_inj && j == 0)
         {
             X[1 * N_full + (i + 2)] = -high_G;
@@ -743,7 +877,6 @@ __global__ void create_X(
             X[(i + 2) * N_full + 0] = -high_G;
         }
 
-        __syncthreads();
         if (i == 0 && j == 0)
         {
             X[0 * N_full + 1] = -loop_G;
@@ -1167,31 +1300,31 @@ void Assemble_A(
 
 
 ///
-__global__ void extractDiagonalValues(
-    double *A_data,
-    int *A_row_ptr,
-    int *A_col_indices,
-    double *diagonal_values,
-    int matrix_size
-) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+// __global__ void extractDiagonalValues(
+//     double *A_data,
+//     int *A_row_ptr,
+//     int *A_col_indices,
+//     double *diagonal_values,
+//     int matrix_size
+// ) {
+//     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (idx < matrix_size) {
-        // Initialize diagonal value to 0.0
-        double diag_value = 0.0;
+//     if (idx < matrix_size) {
+//         // Initialize diagonal value to 0.0
+//         double diag_value = 0.0;
 
-        // Search for the diagonal element in the column indices
-        for (int j = A_row_ptr[idx]; j < A_row_ptr[idx + 1]; ++j) {
-            if (A_col_indices[j] == idx) {
-                diag_value = A_data[j];
-                break;
-            }
-        }
+//         // Search for the diagonal element in the column indices
+//         for (int j = A_row_ptr[idx]; j < A_row_ptr[idx + 1]; ++j) {
+//             if (A_col_indices[j] == idx) {
+//                 diag_value = A_data[j];
+//                 break;
+//             }
+//         }
 
-        // Store the diagonal value
-        diagonal_values[idx] = diag_value;
-    }
-}
+//         // Store the diagonal value
+//         diagonal_values[idx] = diag_value;
+//     }
+// }
 ///
 
 
@@ -1222,6 +1355,13 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
                 &gpubuf.contact_left_col_indices, &gpubuf.contact_left_row_ptr, &gpubuf.contact_left_nnz,
                 &gpubuf.contact_right_col_indices, &gpubuf.contact_right_row_ptr, &gpubuf.contact_left_nnz,
                 &K_left_reduced_d, &K_right_reduced_d);
+
+    //DEBUG
+    // dump A into a text file:
+    // dump_csr_matrix_txt(N_interface, gpubuf.Device_nnz, gpubuf.Device_row_ptr_d, gpubuf.Device_col_indices_d, A_data_d, kmc_step_count);
+    // std::cout << "dumped csr matrix\n";
+    // exit(1);
+    //DEBUG
 
     // Prepare the RHS vector: rhs = -K_left_interface * VL - K_right_interface * VR
     // we take the negative and do rhs = K_left_interface * VL + K_right_interface * VR to account for a sign change in v_soln
@@ -1289,9 +1429,9 @@ void background_potential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, con
 
     double *gpu_k;
     double *gpu_diag;
-    gpuErrchk( cudaMalloc((void **)&gpu_k, (size_t) N * N * sizeof(double)) );
+    gpuErrchk( cudaMalloc((void **)&gpu_k, N * N * sizeof(double)) );
     gpuErrchk( cudaMalloc((void **)&gpu_diag, N * sizeof(double)) );
-    gpuErrchk( cudaMemset(gpu_k, 0, (size_t) N * N * sizeof(double)) );
+    gpuErrchk( cudaMemset(gpu_k, 0, N * N * sizeof(double)) );
     gpuErrchk( cudaDeviceSynchronize() );
 
     // prepare contact potentials
@@ -1421,77 +1561,301 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential);
 }
 
+
+void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+                             const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
+                             const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+                             const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
+                             const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp)
+{
+     // ***************************************************************************************
+    // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
+    int *gpu_index;
+    int *atom_gpu_index;
+    gpuErrchk( cudaMalloc((void **)&gpu_index, gpubuf.N_ * sizeof(int)) );                                           // indices of the site array
+    gpuErrchk( cudaMalloc((void **)&atom_gpu_index, gpubuf.N_ * sizeof(int)) );                                      // indices of the atom array
+
+    thrust::device_ptr<int> gpu_index_ptr = thrust::device_pointer_cast(gpu_index);
+    thrust::sequence(gpu_index_ptr, gpu_index_ptr + gpubuf.N_, 0);
+
+    double *last_atom = thrust::copy_if(thrust::device, gpubuf.site_x, gpubuf.site_x + gpubuf.N_, gpubuf.site_element, gpubuf.atom_x, is_defect());
+    int N_atom = last_atom - gpubuf.atom_x;
+    thrust::copy_if(thrust::device, gpubuf.site_y, gpubuf.site_y + gpubuf.N_, gpubuf.site_element, gpubuf.atom_y, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + gpubuf.N_, gpubuf.site_element, gpubuf.atom_z, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_charge, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + gpubuf.N_, gpubuf.site_element, gpubuf.atom_element, is_defect());
+    thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
+
+    // ***************************************************************************************
+    // 2. Assemble the transmission matrix (X) with both direct and tunnel connections and the
+    // solution vector (M) which represents the current inflow/outflow
+    int N_full = N_atom + 2;                                                                               // number of atoms + injection node + extraction node
+    int Nsub = N_atom + 1;                                                                                 // N_full minus the ground node which is cut from the graph
+
+    // compute the index arrays to build the CSR representation of X (from 0 to Nsub):
+    int *X_row_ptr;
+    int *X_col_indices;
+    int X_nnz = 0;
+    Assemble_X_sparsity(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+                        gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
+                        gpubuf.lattice, pbc, nn_dist, tol, 
+                        num_source_inj, num_ground_ext, num_layers_contact,
+                        num_metals, &X_row_ptr, &X_col_indices, &X_nnz);
+
+    // Assemble the nonzero value array of X in CSR (from 0 to Nsub):
+    double *X_data;                                                                                          // [1] Transmission matrix
+    Assemble_X(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+               gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
+               gpubuf.lattice, pbc, nn_dist, tol, Vd, m_e, V0, high_G, low_G, loop_G,
+               num_source_inj, num_ground_ext, num_layers_contact,
+               num_metals, &X_data, &X_row_ptr, &X_col_indices, &X_nnz);
+
+    double *gpu_imacro, *gpu_m;
+    gpuErrchk( cudaMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       // [A] The macroscopic device current
+    gpuErrchk( cudaMalloc((void **)&gpu_m, (N_atom + 2) * sizeof(double)) );                                 // [V] Virtual potential vector    
+    cudaDeviceSynchronize();
+
+    gpuErrchk( cudaMemset(gpu_m, 0, (N_atom + 2) * sizeof(double)) );                                        // initialize the rhs for solving the system                                    
+    thrust::device_ptr<double> m_ptr = thrust::device_pointer_cast(gpu_m);
+    thrust::fill(m_ptr, m_ptr + 1, -loop_G * Vd);                                                            // max Current extraction (ground)                          
+    thrust::fill(m_ptr + 1, m_ptr + 2, loop_G * Vd);                                                         // max Current injection (source)
+    cudaDeviceSynchronize();
+
+    // ************************************************************
+    // 2. Solve system of linear equations 
+
+    // the initial guess for the solution is the current site-resolved potential inside the device
+    double *gpu_virtual_potentials;
+    gpuErrchk( cudaMalloc((void **)&gpu_virtual_potentials, (N_atom + 2) * sizeof(double)) );                   // [V] Virtual potential vector  
+    gpuErrchk( cudaMemset(gpu_virtual_potentials, 0, (N_atom + 2) * sizeof(double)) );                          // initialize the rhs for solving the system                                    
+    
+    // making a copy so the original version won't be preconditioned inside the iterative solver
+    double *X_data_copy;
+    gpuErrchk( cudaMalloc((void **)&X_data_copy, X_nnz * sizeof(double)) );
+    gpuErrchk( cudaMemcpyAsync(X_data_copy, X_data, X_nnz * sizeof(double), cudaMemcpyDeviceToDevice) );
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    cusparseHandle_t cusparseHandle;
+    cusparseCreate(&cusparseHandle);
+    cusparseSetPointerMode(cusparseHandle, CUSPARSE_POINTER_MODE_DEVICE);
+
+    // sparse solver with Jacobi preconditioning:
+    solve_sparse_CG_Jacobi(handle, cusparseHandle, X_data_copy, X_row_ptr, X_col_indices, X_nnz, Nsub, gpu_m, gpu_virtual_potentials);
+    gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    double check_element;
+    gpuErrchk( cudaMemcpy(&check_element, gpu_virtual_potentials + num_source_inj, sizeof(double), cudaMemcpyDeviceToHost) );
+    if (std::abs(check_element - Vd) > 0.1)
+    {
+        std::cout << "WARNING: non-negligible potential drop of " << std::abs(check_element - Vd) <<
+                    " across the contact at VD = " << Vd << "\n";
+    }
+
+    // ****************************************************
+    // 3. Calculate the net current flowing into the device
+
+    // scale the virtual potentials by G0 (conductance quantum) instead of multiplying inside the X matrix
+    thrust::device_ptr<double> gpu_virtual_potentials_ptr = thrust::device_pointer_cast(gpu_virtual_potentials);
+    thrust::transform(gpu_virtual_potentials_ptr, gpu_virtual_potentials_ptr + N_atom + 2, gpu_virtual_potentials_ptr, thrust::placeholders::_1 * G0);
+
+    // macroscopic device current
+    gpuErrchk( cudaMemset(gpu_imacro, 0, sizeof(double)) ); 
+    cudaDeviceSynchronize();
+
+    // dot product of first row of X[i] times M[0] - M[i]
+    int num_threads = 512;
+    int num_blocks = (N_atom - 1) / num_threads + 1;
+    get_imacro_sparse<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(X_data, X_row_ptr, X_col_indices, gpu_virtual_potentials, gpu_imacro);
+    gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
+
+    gpuErrchk( cudaMemcpy(imacro, gpu_imacro, sizeof(double), cudaMemcpyDeviceToHost) );
+    std::cout << "I_macro: " << *imacro * (1e6) << "\n";
+
+    // **********************************************
+    // 4. Calculate the dissipated power at each atom
+
+if (solve_heating_local || solve_heating_global)
+{    
+    // Shift the virtual potential so that it is all positive, as we will take differences
+    double min_index = thrust::min_element(thrust::device, gpu_virtual_potentials + 2, gpu_virtual_potentials + N_atom + 2) - gpu_virtual_potentials;
+    num_threads = 512;
+    num_blocks = (N_atom + 2 - 1) / num_threads + 1;
+    update_m<<<num_blocks, num_threads>>>(gpu_virtual_potentials, min_index, N_atom + 2);
+    gpuErrchk( cudaPeekAtLastError() );
+
+    // Collect the forward currents into I_neg, the diagonals are once again the sum of each row
+    int *ineg_row_ptr;                                                                                          // [A] Current inflow matrix
+    int *ineg_col_indices;
+    double *ineg_data;
+    gpuErrchk( cudaMalloc((void**) &ineg_row_ptr, (N_atom + 1 + 1) * sizeof(int)) );
+    gpuErrchk( cudaMalloc((void**) &ineg_col_indices, X_nnz * sizeof(int)) );
+    gpuErrchk( cudaMalloc((void **)&ineg_data, X_nnz * sizeof(double)) );
+    gpuErrchk( cudaMemcpyAsync(ineg_row_ptr, X_row_ptr, (N_atom + 1 + 1) * sizeof(int), cudaMemcpyDeviceToDevice) );
+    gpuErrchk( cudaMemcpyAsync(ineg_col_indices, X_col_indices, X_nnz * sizeof(int), cudaMemcpyDeviceToDevice) );
+    gpuErrchk( cudaMemset(ineg_data, 0, X_nnz*sizeof(double)) ); 
+    cudaDeviceSynchronize();
+
+    num_threads = 512;
+    num_blocks = (Nsub - 1) / num_threads + 1;
+    int N_atomsub = N_atom - 1;
+    set_ineg_sparse<<<num_blocks, num_threads>>>(ineg_data, ineg_row_ptr, ineg_col_indices, X_data, X_row_ptr, X_col_indices, gpu_virtual_potentials, Vd, N_atomsub);
+    gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
+
+    // sum off-diagonals into diagonal:
+    num_threads = 512;
+    num_blocks = (Nsub - 1) / num_threads + 1;
+    calc_diagonal_A_gpu<<<num_blocks, num_threads>>>(ineg_col_indices, ineg_row_ptr, ineg_data, Nsub);
+    gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
+
+    // Compute the dissipated power at each atom with [P]_Nx1 = [I]_NxN * [V]_Nx1 (gemv --> spmv)
+    double *gpu_pdisp;
+    gpuErrchk( cudaMalloc((void **)&gpu_pdisp, N_atom * sizeof(double)) );                                   // [W] Dissipated power vector
+    gpuErrchk( cudaMemset(gpu_pdisp, 0, N_atom*sizeof(double)) ); 
+
+    cusparseStatus_t status;
+    cusparseSpMatDescr_t mat_ineg;
+    status = cusparseCreateCsr(&mat_ineg, Nsub, Nsub, X_nnz, ineg_row_ptr, ineg_col_indices, ineg_data, 
+                               CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
+    if (status != CUSPARSE_STATUS_SUCCESS)
+    {
+        std::cout << "ERROR: creation of sparse matrix descriptor in update_power_gpu_sparse() failed!\n";
+    }
+    cusparseDnVecDescr_t vec_virtual_potentials, vec_pdisp;
+    cusparseCreateDnVec(&vec_virtual_potentials, Nsub, gpu_virtual_potentials, CUDA_R_64F);
+    cusparseCreateDnVec(&vec_pdisp, Nsub, gpu_pdisp, CUDA_R_64F);
+
+    size_t MVBufferSize;
+    void *MVBuffer = 0;
+    double *one_d, *zero_d;
+    double one = 1.0;
+    double zero = 0.0;
+    gpuErrchk( cudaMalloc((void**)&one_d, sizeof(double)) );
+    gpuErrchk( cudaMalloc((void**)&zero_d, sizeof(double)) );
+    gpuErrchk( cudaMemcpy(one_d, &one, sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(zero_d, &zero, sizeof(double), cudaMemcpyHostToDevice) );
+
+    status = cusparseSpMV_bufferSize(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, mat_ineg, 
+                                     vec_virtual_potentials, zero_d, vec_pdisp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &MVBufferSize);  
+    gpuErrchk( cudaMalloc((void**)&MVBuffer, sizeof(double) * MVBufferSize) );
+    status = cusparseSpMV(cusparseHandle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, mat_ineg,                         
+                          vec_virtual_potentials, zero_d, vec_pdisp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);          
+    
+    // copy the dissipated power into the site attributes
+    num_threads = 512;
+    num_blocks = (N_atom - 1) / num_threads + 1;
+    num_blocks = min(65535, num_blocks);
+    copy_pdisp<<<num_blocks, num_threads>>>(gpubuf.site_power, gpubuf.site_element, gpubuf.metal_types, gpu_pdisp, atom_gpu_index, N_atom, num_metals, alpha_disp);
+    gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
+
+    // !!! the dissipated power does not yet perfectly match the dense version !!!
+    // !!! there is probably a small expected change due to removing the ground node, but this should be double checked !!!
+    
+    // double *host_pdisp = new double[N_atom];
+    // cudaMemcpy(host_pdisp, gpu_pdisp, N_atom * sizeof(double), cudaMemcpyDeviceToHost);
+    // double sum = 0.0;
+    // for (int i = 0; i < N_atom; ++i) {
+    //     sum += host_pdisp[i];
+    // }
+    // std::cout << "Sum of atom-resolved power: " << sum << std::endl;
+    // exit(1);
+
+    cudaFree(ineg_row_ptr);
+    cudaFree(ineg_col_indices);
+    cudaFree(ineg_data);
+    cudaFree(gpu_pdisp);
+    cudaFree(MVBuffer); 
+    cudaFree(one_d);
+    cudaFree(zero_d);
+}
+
+    cudaFree(X_data);
+    cudaFree(X_data_copy);
+    cudaFree(X_row_ptr);
+    cudaFree(X_col_indices);
+    cudaFree(gpu_virtual_potentials);
+    cudaFree(gpu_imacro);
+    cudaFree(gpu_m);
+    cudaFree(gpu_index);
+    cudaFree(atom_gpu_index);
+}
+
+
 void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
-                      const int N, const int num_source_inj, const int num_ground_ext, const int num_layers_contact, const int num_atoms_reservoir,
-                      const double Vd, const int pbc, 
-                      const double high_G, const double low_G, const double loop_G, const double tunnel_G,
-                      const double nn_dist, const double m_e, const double V0, int num_metals, const double t_ox, double *imacro)
+                      const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
+                      const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+                      const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
+                      const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp)
 {
 
     // ***************************************************************************************
     // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
-
     int *gpu_index;
     int *atom_gpu_index;
-    cudaMalloc((void **)&gpu_index, N * sizeof(int));                                           // indices of the site array
-    cudaMalloc((void **)&atom_gpu_index, N * sizeof(int));                                      // indices of the atom array
+    gpuErrchk( cudaMalloc((void **)&gpu_index, gpubuf.N_ * sizeof(int)) );                                           // indices of the site array
+    gpuErrchk( cudaMalloc((void **)&atom_gpu_index, gpubuf.N_ * sizeof(int)) );                                      // indices of the atom array
 
     thrust::device_ptr<int> gpu_index_ptr = thrust::device_pointer_cast(gpu_index);
-    thrust::sequence(gpu_index_ptr, gpu_index_ptr + N, 0);
+    thrust::sequence(gpu_index_ptr, gpu_index_ptr + gpubuf.N_, 0);
 
-    double *last_atom = thrust::copy_if(thrust::device, gpubuf.site_x, gpubuf.site_x + N, gpubuf.site_element, gpubuf.atom_x, is_defect());
+    double *last_atom = thrust::copy_if(thrust::device, gpubuf.site_x, gpubuf.site_x + gpubuf.N_, gpubuf.site_element, gpubuf.atom_x, is_defect());
     int N_atom = last_atom - gpubuf.atom_x;
-    thrust::copy_if(thrust::device, gpubuf.site_y, gpubuf.site_y + N, gpubuf.site_element, gpubuf.atom_y, is_defect());
-    thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + N, gpubuf.site_element, gpubuf.atom_z, is_defect());
-    thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + N, gpubuf.site_element, gpubuf.atom_charge, is_defect());
-    thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + N, gpubuf.site_element, gpubuf.atom_element, is_defect());
-    thrust::copy_if(thrust::device, gpu_index, gpu_index + N, gpubuf.site_element, atom_gpu_index, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_y, gpubuf.site_y + gpubuf.N_, gpubuf.site_element, gpubuf.atom_y, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + gpubuf.N_, gpubuf.site_element, gpubuf.atom_z, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_charge, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + gpubuf.N_, gpubuf.site_element, gpubuf.atom_element, is_defect());
+    thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
 
     // ***************************************************************************************
     // 2. Assemble the transmission matrix (X) with both direct and tunnel connections and the
     // solution vector (M) which represents the current inflow/outflow
 
+    // USE SIZE_T FOR ALLOCATIONS
     double *gpu_imacro, *gpu_m, *gpu_x, *gpu_ineg, *gpu_diag, *gpu_pdisp, *gpu_A;
-    cudaMalloc((void **)&gpu_imacro, 1 * sizeof(double));                                       // IMACRO
-    cudaMalloc((void **)&gpu_m, (N_atom + 2) * sizeof(double));                                 // M
-    cudaMalloc((void **)&gpu_x, (size_t) (N_atom + 2) * (N_atom + 2) * sizeof(double));         // X
-    cudaMalloc((void **)&gpu_ineg, (size_t) N_atom * N_atom * sizeof(double));                  // INEG
-    cudaMalloc((void **)&gpu_diag, (N_atom + 2) * sizeof(double));                              // DIAG
-    cudaMalloc((void **)&gpu_pdisp, N_atom * sizeof(double));                                   // PDISP
-    cudaMalloc((void **)&gpu_A, (size_t) (N_atom + 1) * (N_atom + 1) * sizeof(double));         // A
-
-    cudaMemset(gpu_x, 0, (size_t) (N_atom + 2) * (N_atom + 2) * sizeof(double));
-    cudaDeviceSynchronize(); //remove this one
-
-    cudaMemset(gpu_m, 0, (N_atom + 2) * sizeof(double));
+    gpuErrchk( cudaMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       // [A] The macroscopic device current
+    gpuErrchk( cudaMalloc((void **)&gpu_m, (N_atom + 2) * sizeof(double)) );                                 // [V] Virtual potential vector    
+    gpuErrchk( cudaMalloc((void **)&gpu_x, (N_atom + 2) * (N_atom + 2) * sizeof(double)) );                  // [1] Transmission matrix
+    gpuErrchk( cudaMalloc((void **)&gpu_ineg, N_atom * N_atom * sizeof(double)) );                           // [A] Current inflow matrix
+    gpuErrchk( cudaMalloc((void **)&gpu_diag, (N_atom + 2) * sizeof(double)) );                              // diagonal elements of the transmission matrix
+    gpuErrchk( cudaMalloc((void **)&gpu_pdisp, N_atom * sizeof(double)) );                                   // [W] Dissipated power vector
+    gpuErrchk( cudaMalloc((void **)&gpu_A, (N_atom + 1) * (N_atom + 1) * sizeof(double)) );                  // A - copy buffer for the transmission matrix
     cudaDeviceSynchronize();
+
+    gpuErrchk( cudaMemset(gpu_x, 0, (N_atom + 2) * (N_atom + 2) * sizeof(double)) );                         // initialize the transmission matrix to zeros
+    gpuErrchk( cudaMemset(gpu_m, 0, (N_atom + 2) * sizeof(double)) );                                        // initialize the rhs for solving the system                                    
     thrust::device_ptr<double> m_ptr = thrust::device_pointer_cast(gpu_m);
-    thrust::fill(m_ptr, m_ptr + 1, -high_G * Vd);
-    thrust::fill(m_ptr + 1, m_ptr + 2, high_G * Vd);
+    thrust::fill(m_ptr, m_ptr + 1, -loop_G * Vd);                                               // max Current extraction (ground)                          
+    thrust::fill(m_ptr + 1, m_ptr + 2, loop_G * Vd);                                            // max Current injection (source)
+    cudaDeviceSynchronize();
 
     int num_threads = 128;
     int blocks_per_row = (N_atom - 1) / num_threads + 1;
-    int num_blocks = blocks_per_row * N;
+    int num_blocks = blocks_per_row * gpubuf.N_;
 
     // fill off diagonals of X
     create_X<<<num_blocks, num_threads>>>(
         gpu_x, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
         gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
         gpubuf.lattice, pbc, high_G, low_G, loop_G,
-        nn_dist, m_e, V0, num_source_inj, num_ground_ext, num_layers_contact, num_atoms_reservoir,
-        N_atom, num_metals, t_ox, Vd);
+        nn_dist, m_e, V0, num_source_inj, num_ground_ext, num_layers_contact,
+        N_atom, num_metals, Vd, tol);
+    gpuErrchk( cudaPeekAtLastError() );
     cudaDeviceSynchronize();
 
     // fill diagonal of X (all rows sum to zero)
-    cudaMemset(gpu_diag, 0, (N_atom + 2) * sizeof(double));
-    cudaDeviceSynchronize();
+    gpuErrchk( cudaMemset(gpu_diag, 0, (N_atom + 2) * sizeof(double)) );
     num_threads = 512;
     blocks_per_row = (N_atom + 2 - 1) / num_threads + 1;
-    num_blocks = blocks_per_row * (N + 2);
+    num_blocks = blocks_per_row * (gpubuf.N_ + 2);
     diagonal_sum<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_x, gpu_diag, N_atom + 2);
+    gpuErrchk( cudaPeekAtLastError() );
     cudaDeviceSynchronize();
-
     set_diag<<<blocks_per_row, num_threads>>>(gpu_x, gpu_diag, N_atom + 2);
+    gpuErrchk( cudaPeekAtLastError() );
     cudaDeviceSynchronize();
 
     // ************************************************************
@@ -1502,94 +1866,102 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     int *gpu_info = nullptr;    /* error info */
     int *gpu_ipiv;
 
-    // double *gpu_A = gpu_x + (N_atom + 2) + 1
-    // double* gpu_D = gpu_k + (N_left_tot * N) + N_left_tot;
-
-    cudaMalloc((void **)&gpu_ipiv, (N_atom + 1) * sizeof(int));
-    cudaMalloc((void **)(&gpu_info), sizeof(int));
-    cudaMemcpy2D(gpu_A, (N_atom + 1) * sizeof(double), gpu_x, (N_atom + 2) * sizeof(double), (N_atom + 1) * sizeof(double), (N_atom + 1), cudaMemcpyDeviceToDevice);
-
-    CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle_cusolver, N_atom + 1, N_atom + 1, gpu_A, N_atom + 1, &lwork));
+    gpuErrchk( cudaMalloc((void **)&gpu_ipiv, (N_atom + 1) * sizeof(int)) );
+    gpuErrchk( cudaMalloc((void **)(&gpu_info), sizeof(int)) );
+    gpuErrchk( cudaMemcpy2D(gpu_A, (N_atom + 1) * sizeof(double), gpu_x, (N_atom + 2) * sizeof(double), (N_atom + 1) * sizeof(double), (N_atom + 1), cudaMemcpyDeviceToDevice) );
     cudaDeviceSynchronize();
-
-    cudaMalloc((void **)(&gpu_work), sizeof(double) * lwork);
 
     // Solve Ax=B through LU factorization
+    CheckCusolverDnError(cusolverDnDgetrf_bufferSize(handle_cusolver, N_atom + 1, N_atom + 1, gpu_A, N_atom + 1, &lwork));
+    gpuErrchk( cudaMalloc((void **)(&gpu_work), sizeof(double) * lwork) );
+    cudaDeviceSynchronize();
     CheckCusolverDnError(cusolverDnDgetrf(handle_cusolver, N_atom + 1, N_atom + 1, gpu_A, N_atom + 1, gpu_work, gpu_ipiv, gpu_info));
     cudaDeviceSynchronize();
-
     CheckCusolverDnError(cusolverDnDgetrs(handle_cusolver, CUBLAS_OP_T, N_atom + 1, 1, gpu_A, N_atom + 1, gpu_ipiv, gpu_m, N_atom + 1, gpu_info));
     cudaDeviceSynchronize();
 
-    // DEBUG
+    int host_info;
+    gpuErrchk( cudaMemcpy(&host_info, gpu_info, sizeof(int), cudaMemcpyDeviceToHost) );
+    if (host_info)
+    {
+        std::cout << "WARNING: Info for gesv in update_power is " << host_info << "\n";
+    }
 
-    // check the solution of M against the cpu code here
+    double check_element;
+    gpuErrchk( cudaMemcpy(&check_element, gpu_m + num_source_inj, sizeof(double), cudaMemcpyDeviceToHost) );
+    if (std::abs(check_element - Vd) > 0.1)
+    {
+        std::cout << "WARNING: non-negligible potential drop of " << std::abs(check_element - Vd) <<
+                    " across the contact at VD = " << Vd << "\n";
+    }
 
+    // scale the virtual potentials by G0 (conductance quantum) instead of multiplying inside the X matrix
+    thrust::device_ptr<double> gpu_m_ptr = thrust::device_pointer_cast(gpu_m);
+    thrust::transform(gpu_m_ptr, gpu_m_ptr + N_atom + 1, gpu_m_ptr, thrust::placeholders::_1 * G0);
 
-    // DEBUG
-
-    // NOTE: M is different from the cpu code in the 4th decimal place!!!
-    // Compute I_macro
-    cudaMemset(gpu_imacro, 0, sizeof(double));
-    cudaDeviceSynchronize();
-
-    num_threads = 512;
-    num_blocks = (N_atom - 1) / num_threads + 1;
-    // num_blocks = min(65535, num_blocks);
-    get_imacro<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_x, gpu_m, gpu_imacro, Vd, N_atom);
-    cudaDeviceSynchronize();
-
-    // Copy back I_macro to the GPU
-    double i_macro = 0;
-    cudaMemcpy(&i_macro, gpu_imacro, sizeof(double), cudaMemcpyDeviceToHost);
-    *imacro = i_macro;
-
-    // Find index of minimum element in m[2:N+2]
-    auto min_index = thrust::min_element(thrust::device, gpu_m + 2, gpu_m + N_atom + 2) - gpu_m;
-
-    num_threads = 512;
-    blocks_per_row = (N_atom + 2 - 1) / num_threads + 1;
-    num_blocks = blocks_per_row;
-    update_m<<<num_blocks, num_threads>>>(gpu_m, min_index, N_atom + 2);
-    cudaDeviceSynchronize();
-
-    // Compute I_neg
-    num_threads = 128;
-    blocks_per_row = (N_atom - 1) / num_threads + 1;
-    num_blocks = blocks_per_row * N;
-
-    set_ineg<<<num_blocks, num_threads>>>(gpu_ineg, gpu_x, gpu_m, Vd, N_atom,
-                                          gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
-                                          pbc, gpubuf.lattice, nn_dist,
-                                          V0, t_ox);
-    cudaDeviceSynchronize();
-
-    // Update I_neg diagonal
-    cudaMemset(gpu_diag, 0, (N_atom + 2) * sizeof(double));
-    cudaDeviceSynchronize();
-
-    diagonal_sum<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_ineg, gpu_diag, N_atom);
-    cudaDeviceSynchronize();
-
-    set_diag<<<blocks_per_row, num_threads>>>(gpu_ineg, gpu_diag, N_atom);
-    cudaDeviceSynchronize();
-
-    double alpha = 1.0, beta = 0.0;
-    double *gpu_alpha, *gpu_beta;
-    cudaMalloc((void **)&gpu_alpha, sizeof(double));
-    cudaMalloc((void **)&gpu_beta, sizeof(double));
-    cudaMemcpy(gpu_alpha, &alpha, sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(gpu_beta, &beta, sizeof(double), cudaMemcpyHostToDevice);
-
-    cublasSetPointerMode(handle, CUBLAS_POINTER_MODE_DEVICE);
-    CheckCublasError( cublasDgemv(handle, CUBLAS_OP_T, N_atom, N_atom, gpu_alpha, gpu_ineg, N_atom, gpu_m + 2, 1, gpu_beta, gpu_pdisp, 1) );
-    cudaDeviceSynchronize();
+    // ****************************************************
+    // 3. Calculate the net current flowing into the device
 
     num_threads = 512;
     num_blocks = (N_atom - 1) / num_threads + 1;
-    num_blocks = min(65535, num_blocks);
-    copy_pdisp<<<num_blocks, num_threads>>>(gpubuf.site_power, gpubuf.site_element, gpubuf.metal_types, gpu_pdisp, atom_gpu_index, N_atom, num_metals);
+    gpuErrchk( cudaMemset(gpu_imacro, 0, sizeof(double)) ); 
+    get_imacro<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_x, gpu_m, gpu_imacro, N_atom);
+    gpuErrchk( cudaPeekAtLastError() );
     cudaDeviceSynchronize();
+    gpuErrchk( cudaMemcpy(imacro, gpu_imacro, sizeof(double), cudaMemcpyDeviceToHost) );
+    std::cout << "I_macro: " << *imacro * (1e6) << "\n";
+
+    // **********************************************
+    // 4. Calculate the dissipated power at each atom
+
+if (solve_heating_local || solve_heating_global)
+{   
+        // Shift the virtual potential so that it is all positive, as we will take differences
+        double min_index = thrust::min_element(thrust::device, gpu_m + 2, gpu_m + N_atom + 2) - gpu_m;
+        num_threads = 512;
+        blocks_per_row = (N_atom + 2 - 1) / num_threads + 1;
+        num_blocks = blocks_per_row;
+        update_m<<<num_blocks, num_threads>>>(gpu_m, min_index, N_atom + 2);
+        gpuErrchk( cudaPeekAtLastError() );
+
+        // Collect the forward currents into I_neg, the diagonals are once again the sum of each row
+        num_threads = 128;
+        blocks_per_row = (N_atom - 1) / num_threads + 1;
+        num_blocks = blocks_per_row * gpubuf.N_;
+        set_ineg<<<num_blocks, num_threads>>>(gpu_ineg, gpu_x, gpu_m, Vd, N_atom);
+        gpuErrchk( cudaPeekAtLastError() );
+        cudaDeviceSynchronize();
+        gpuErrchk( cudaMemset(gpu_diag, 0, (N_atom + 2) * sizeof(double)) );
+        cudaDeviceSynchronize();
+        diagonal_sum<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(gpu_ineg, gpu_diag, N_atom);
+        gpuErrchk( cudaPeekAtLastError() );
+        cudaDeviceSynchronize();
+        set_diag<<<blocks_per_row, num_threads>>>(gpu_ineg, gpu_diag, N_atom);
+        gpuErrchk( cudaPeekAtLastError() );
+        cudaDeviceSynchronize();
+
+        // Compute the dissipated power at each atom with [P]_Nx1 = [I]_NxN * [V]_Nx1 (gemv)
+        double alpha = 1.0, beta = 0.0;
+        CheckCublasError( cublasDgemv(handle, CUBLAS_OP_T, N_atom, N_atom, &alpha, gpu_ineg, N_atom, gpu_m + 2, 1, &beta, gpu_pdisp, 1) );
+        cudaDeviceSynchronize();
+
+        // Extract the power dissipated between the contacts
+        num_threads = 512;
+        num_blocks = (N_atom - 1) / num_threads + 1;
+        num_blocks = min(65535, num_blocks);
+        copy_pdisp<<<num_blocks, num_threads>>>(gpubuf.site_power, gpubuf.site_element, gpubuf.metal_types, gpu_pdisp, atom_gpu_index, N_atom, num_metals, alpha_disp);
+        gpuErrchk( cudaPeekAtLastError() );
+        cudaDeviceSynchronize();
+
+        double *host_pdisp = new double[N_atom];
+        cudaMemcpy(host_pdisp, gpu_pdisp, N_atom * sizeof(double), cudaMemcpyDeviceToHost);
+        double sum = 0.0;
+        for (int i = 0; i < N_atom; ++i) {
+            sum += host_pdisp[i];
+        }
+        std::cout << "Sum of atom-resolved power * 1e9: " << sum*(1e9) << std::endl;
+        // exit(1);
+} // if (solve_heating_local || solve_heating_global)
 
     cudaFree(gpu_ipiv);
     cudaFree(gpu_work);
@@ -1601,8 +1973,6 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     cudaFree(gpu_pdisp);
     cudaFree(gpu_A);
     cudaFree(gpu_info);
-    cudaFree(gpu_alpha);
-    cudaFree(gpu_beta);
     cudaFree(gpu_index);
     cudaFree(atom_gpu_index);
 }
@@ -1935,7 +2305,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
     // thrust::sort(thrust::device, event_prob, event_prob + N * nn);
 
     //debug
-    int counter = 0;
+    // int counter = 0;
     //debug
 
     double event_time = 0.0;
@@ -2189,3 +2559,39 @@ void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std
     // gpuErrchk( cudaDeviceSynchronize() );
 
     // std::cout << "number of nonzeros in CSR rep: " << numNonZero << "\n";
+
+
+
+
+// //debug
+    // double *cpu_x = new double[(N_atom + 2) * (N_atom + 2)];
+    // cudaMemcpy(cpu_x, gpu_x, sizeof(double) * (N_atom + 2) * (N_atom + 2), cudaMemcpyDeviceToHost);
+    // std::cout << "printing X_gpu\n";
+    // std::ofstream fout2("X_gpu_noT.txt");
+    // int row, col;
+    // for (row = 0; row < (N_atom + 2); row++) {
+    // for (col = 0; col < (N_atom + 2); col++) {
+    //     fout2 << cpu_x[row * (N_atom + 2) + col] << ' ';
+    // }
+    // fout2 << '\n';
+    // }
+    // fout2.close(); 
+    // exit(1);
+    // //debug end
+
+
+    // // dense to sparse conversion:
+    // cusparseHandle_t cusparseHandle;
+    // cusparseCreate(&cusparseHandle);
+    // cusparseSetPointerMode(cusparseHandle, CUSPARSE_POINTER_MODE_DEVICE);
+    
+    // gpuErrchk( cudaMemcpy2D(gpu_A, (N_atom + 1) * sizeof(double), gpu_x, (N_atom + 2) * sizeof(double), (N_atom + 1) * sizeof(double), (N_atom + 1), cudaMemcpyDeviceToDevice) );
+    // int numRows = N_atom + 1;
+    // int numCols = N_atom + 1;
+    // double *csrValues;
+    // int *csrRowPtr;
+    // int *csrColInd;
+    // int nnz = 0;
+    // cudaMalloc((void**) &csrRowPtr, (N_atom + 1 + 1) * sizeof(int));
+    // denseToCSR(cusparseHandle, gpu_A, numRows, numCols, &csrValues, &csrRowPtr, &csrColInd, &nnz);
+    // std::cout << "dense nnz: " << nnz << "\n";

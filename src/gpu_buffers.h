@@ -19,7 +19,6 @@ public:
     double *atom_power = nullptr;//, *atom_potential = nullptr;
     double *atom_CB_edge = nullptr;
     int *atom_charge = nullptr;
-    int *Natom_;
 
     // unchanging parameters (site_) and ones which aren't copied back (atom_):
     ELEMENT *site_element = nullptr;
@@ -63,6 +62,7 @@ public:
     void copy_power_fromGPU(std::vector<double> &power);
     void copy_charge_toGPU(std::vector<int> &charge);
     // void copy_atom_CB_edge_to_GPU();        ///IMPLEMENT THIS BEFORE DOING MULTIPLE V POINTS
+    void copy_Tbg_toGPU(double new_T_bg);
 
     // constructor allocates nothing (used for CPU-only code):
     GPUBuffers(){};
@@ -98,7 +98,6 @@ public:
 
         // small lists and variables to store in GPU cache
         copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host);
-
         cudaDeviceSynchronize();
         
         // member variables of the KMCProcess 
@@ -120,14 +119,12 @@ public:
         gpuErrchk( cudaMalloc((void**)&k, 1 * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&lattice, 3 * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&freq, 1 * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void **)&Natom_, 1 * sizeof(int)));
         gpuErrchk( cudaMalloc((void **)&atom_element, N_ * sizeof(ELEMENT)) );
         gpuErrchk( cudaMalloc((void **)&atom_x, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void **)&atom_y, N_ * sizeof(double)) );             // CHANGE THESE TO NATOM
+        gpuErrchk( cudaMalloc((void **)&atom_y, N_ * sizeof(double)) );             // these have length N_ since it's a maximum
         gpuErrchk( cudaMalloc((void **)&atom_z, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void **)&atom_power, N_ * sizeof(double)) );
-        // gpuErrchk( cudaMalloc((void **)&atom_potential, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void **)&atom_CB_edge, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void **)&atom_CB_edge, N_atom_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void **)&atom_charge, N_ * sizeof(int)) );
 
         cudaDeviceSynchronize();

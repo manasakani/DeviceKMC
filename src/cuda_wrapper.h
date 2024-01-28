@@ -25,6 +25,7 @@
 #include <thrust/sequence.h>
 #include <thrust/device_vector.h>
 #include <thrust/fill.h>
+#include <thrust/transform.h>
 #include <cusparse_v2.h>
 
 // forward declaration of gpubuf class          
@@ -53,6 +54,10 @@ void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRo
 // dump sparse matrix into a file
 void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices, double* d_csrValues, int kmc_step_count);
 
+// convert dense matrix to CSR representation
+void denseToCSR(cusparseHandle_t handle, double* d_dense, int num_rows, int num_cols,
+                double** d_csr_values, int** d_csr_offsets, int** d_csr_columns, int* total_nnz);
+
 // Solution of A*x = y on sparse representation of A using cusolver in host pointer mode
 void sparse_system_solve(cusolverSpHandle_t handle, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal,
                          int nnz, int m, double *d_x, double *d_y);
@@ -66,6 +71,22 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
                             double* A_data, int* A_row_ptr, int* A_col_indices,  
                             const int A_nnz, int m, double *d_x, double *d_y);
 
+// Initialize sparsity of the transmission matrix
+void Assemble_X_sparsity(int Natom, const double *posx, const double *posy, const double *posz,
+                         const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_CB_edge,
+                         const double *lattice, bool pbc, double nn_dist, const double tol,
+                         int num_source_inj, int num_ground_ext, const int num_layers_contact,
+                         int num_metals, int **X_row_ptr, int **X_col_indices, int *X_nnz);
+
+
+// populate the values of the transmission matrix
+void Assemble_X(int Natom, const double *posx, const double *posy, const double *posz,
+                const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_CB_edge,
+                const double *lattice, bool pbc, double nn_dist, const double tol, const double Vd, const double m_e, const double V0,
+                const double high_G, const double low_G, const double loop_G,
+                int num_source_inj, int num_ground_ext, const int num_layers_contact,
+                int num_metals, double **X_data, int **X_row_ptr, int **X_col_indices, int *X_nnz);
+                         
 // Initialize sparsity of the background potential solver
 void Assemble_K_sparsity(const double *posx, const double *posy, const double *posz,
                          const double *lattice, const bool pbc, const double cutoff_radius,
@@ -117,11 +138,20 @@ void poisson_gridless_mpi(const int num_atoms_contact, const int pbc, const int 
                           const int *site_charge, double *site_potential_local, 
                           const int row_idx_start, const int row_numbers);
 
-// Updates the site-resolved dissipated power (gpubuf.site_power) using a graph-based current flow solver
+// Updates the site-resolved dissipated power (gpubuf.site_power) using a graph-based current flow solver (dense matrix with LU solver)
 void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
-                      const int N, const int num_source_inj, const int num_ground_ext, const int num_layers_contact, const int num_atoms_reservoir,
-                      const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double tunnel_G,
-                      const double nn_dist, const double m_e, const double V0, int num_metals, const double t_ox, double *imacro);
+                      const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
+                      const double Vd, const int pbc, 
+                      const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+                      const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
+                      const bool solve_heating_local, const bool solve_heating_global, const double alpha);
+                    
+// Updates the site-resolved dissipated power (gpubuf.site_power) using a graph-based current flow solver (sparse matrix with iterative solver)
+void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+                             const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
+                             const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+                             const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
+                             const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp);
 
 // Selects and executes events, and updates the relevant site attribute (_element, _charge, etc) using the residence time algorithm
 double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,

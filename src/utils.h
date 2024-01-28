@@ -126,6 +126,9 @@ void center_coords(std::vector<double> &x, std::vector<double> &y, std::vector<d
 // translates the periodic boundaries of the cell
 void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z, int N, std::vector<double> lattice, std::vector<double> shifts);
 
+// saves matrix to csr (made for K) - CHECK IF IT WORKS
+void save_CSR_format(const double* K, int N_left_tot, int N_right_tot, int N, const std::string& filename);
+
 // CUDA/cuBLAS/CuSolver
 void CheckCublasError(cublasStatus_t const& status);
 void CheckCusolverDnError(cusolverStatus_t const &status);

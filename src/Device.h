@@ -108,11 +108,11 @@ public:
     void setLaplacePotential(KMCParameters &p, double Vd);
 
     // update the charge of each vacancy and ion
-    std::map<std::string, int> updateCharge(GPUBuffers gpubuf, std::vector<ELEMENT> metals);
+    std::map<std::string, double> updateCharge(GPUBuffers gpubuf, std::vector<ELEMENT> metals);
 
     // update the potential of each site
-    void updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, KMCParameters &p, double Vd,
-                         int kmc_step_count);
+    std::map<std::string, double> updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, 
+                                                  GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count);
 
     // update the power of each site
     std::map<std::string, double> updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, KMCParameters &p, double Vd);
@@ -148,8 +148,10 @@ private:
     void poisson_gridless(int num_atoms_contact, std::vector<double> lattice);
 
     // update the global temperature
-    std::map<std::string, double> updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
-                                                          double background_temp, double t_ox, double A, double c_p);
+    // std::map<std::string, double> updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
+    //                                                       double background_temp, double t_ox, double A, double c_p);
+    void updateTemperatureGlobal(double event_time, double small_step, double dissipation_constant,
+                                 double background_temp, double t_ox, double A, double c_p, std::map<std::string, double> result);
 
     // update the local and global temperatures
     std::map<std::string, double> updateLocalTemperature(double background_temp, double delta_t, double tau, double power_adjustment_term, double k_th_interface,

@@ -25,7 +25,7 @@ void GPUBuffers::sync_HostToGPU(Device &device){
     gpuErrchk( cudaMemcpy(site_power, device.site_power.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_potential, device.site_potential.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_temperature, device.site_temperature.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(atom_CB_edge, device.atom_CB_edge.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(atom_CB_edge, device.atom_CB_edge.data(), N_atom_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(T_bg, &device.T_bg, 1 * sizeof(double), cudaMemcpyHostToDevice) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError());
@@ -41,7 +41,7 @@ void GPUBuffers::sync_GPUToHost(Device &device){
     gpuErrchk( cudaMemcpy(device.site_power.data(), site_power, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_potential.data(), site_potential, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_temperature.data(), site_temperature, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(device.atom_CB_edge.data(), atom_CB_edge, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.atom_CB_edge.data(), atom_CB_edge, N_atom_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(&device.T_bg, T_bg, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
     cudaDeviceSynchronize();
     gpuErrchk(cudaGetLastError()); 
@@ -53,9 +53,29 @@ void GPUBuffers::copy_power_fromGPU(std::vector<double> &power){
     power.resize(N_);
 #ifdef USE_CUDA
     gpuErrchk( cudaMemcpy(power.data(), site_power, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
+    // cudaDeviceSynchronize();
+    // std::cout << "copied\n";
+    // double psum = 0.0;
+    // for (auto p : power)
+    // {
+    //     psum += p;
+    // }
+    // std::cout << "psum*1e9: " << psum*(1e9) << "\n";
 #endif
 
 }
+
+// copy the background temperature TO the gpu buffer
+void GPUBuffers::copy_Tbg_toGPU(double new_T_bg){
+#ifdef USE_CUDA
+    gpuErrchk( cudaMemcpy(T_bg, &new_T_bg, 1 * sizeof(double), cudaMemcpyHostToDevice) );
+#endif
+
+}
+
+// void GPU::Buffers::copy_atom_CB_edge_toGPU(std::vector<double> &CB_edge){
+
+// }
 
 
 void GPUBuffers::copy_charge_toGPU(std::vector<int> &charge){

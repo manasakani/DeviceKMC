@@ -298,6 +298,59 @@ void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<
     center_coords(x, y, z, N, dims);
 }
 
+void save_CSR_format(const double* K, int N_left_tot, int N_right_tot, int N, const std::string& filename) {
+
+    int nnz = 0;
+    for (int i = N_left_tot; i < N - N_right_tot; i++) {
+        for (int j = N_left_tot; j < N - N_right_tot; j++) {
+            if (K[i * N + j] != 0) {
+                nnz++;
+            }
+        }
+    }
+
+    std::vector<double> values(nnz);
+    std::vector<int> column_indices(nnz);
+    std::vector<int> row_ptr(N - N_left_tot - N_right_tot + 1, 0);
+
+    int index = 0;
+    for (int i = N_left_tot; i < N - N_right_tot; i++) {
+        for (int j = N_left_tot; j < N - N_right_tot; j++) {
+            if (K[i * N + j] != 0) {
+                values[index] = K[i * N + j];
+                column_indices[index] = j - N_left_tot;
+                index++;
+            }
+        }
+        row_ptr[i - N_left_tot + 1] = index;
+    }
+
+    // Write CSR format to file
+std::ofstream file(filename);
+if (file.is_open()) {
+    for (int i = 0; i < nnz; i++) {
+        file << values[i] << " ";
+    }
+    file << "\n";
+    for (int i = 0; i < nnz; i++) {
+        file << column_indices[i] << " ";
+    }
+    file << "\n";
+    for (int i = 0; i < N - N_left_tot - N_right_tot + 1; i++) {
+        file << row_ptr[i];
+        if (i < N - N_left_tot - N_right_tot) {
+            file << " ";
+        }
+    }
+    file << "\n"; // Add a new line at the end
+    file.close();
+    std::cout << "CSR format data written to file: " << filename << std::endl;
+} else {
+    std::cerr << "Unable to open the file for writing." << std::endl;
+}
+
+}
+
 // *****************************************************************
 // *** CuBLAS calls ***
 // *****************************************************************
@@ -445,8 +498,12 @@ void gesv(int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb
     cudaMalloc((void**)&gpu_ipiv, (*N) * sizeof(int));
     cudaMalloc((void **)(&gpu_info), sizeof(int));
 
-    // cudaMemcpy(gpu_A, A, ((*N) * (*N)) * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy2D(gpu_A,   (*N) * sizeof(double),   A,   (*lda) * sizeof(double),   (*N) * sizeof(double), (*N), cudaMemcpyHostToDevice);
+    if (*N == *lda)
+    {
+        cudaMemcpy(gpu_A, A, ((*N) * (*N)) * sizeof(double), cudaMemcpyHostToDevice);
+    } else {
+        cudaMemcpy2D(gpu_A,   (*N) * sizeof(double),   A,   (*lda) * sizeof(double),   (*N) * sizeof(double), (*N), cudaMemcpyHostToDevice);
+    }
 
     cudaMemcpy(gpu_B, B, ((*N) * (*nrhs)) * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(gpu_ipiv, ipiv, (*N) * sizeof(int), cudaMemcpyHostToDevice);

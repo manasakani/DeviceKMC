@@ -31,7 +31,7 @@ def main():
                 kmc_time = float(line.split(":")[-1])
                 kmc_time_list.append(kmc_time + reset_time)
 
-            if "Current [uA]:" in line:
+            if "Conductance [uS]:" in line:
                 current = float(line.split()[-1]) 
                 current_list.append(current)
 
@@ -42,7 +42,6 @@ def main():
     # Plotting the data on the left y-axis (linear scale)
     plt.plot(kmc_time_list, current_list, marker='o', markersize=1, linestyle='-', label='Linear Scale')
     plt.yscale('linear')  # Set the left y-axis to linear scale
-    # plt.ylim(-10, 100)
     plt.xscale('linear')  # Set the left y-axis to linear scale
 
 
@@ -50,14 +49,14 @@ def main():
     ax2 = plt.gca().twinx()
     ax2.plot(kmc_time_list, np.abs(current_list), marker='o', markersize=1, linestyle='-', color='red', label='Log Scale')
     ax2.set_yscale('log')  # Set the right y-axis to log scale
-    # ax2.set_ylim(0.0001, 100)
 
     # Setting labels and title
     plt.xlabel('KMC Time')
-    plt.ylabel('|Current| (uA)')
-    plt.title('Current vs KMC Time')
+    plt.ylabel('Conductance (uS)')
+    plt.title('Conductance vs KMC Time')
     plt.tight_layout()
-    plt.savefig('Current.jpg')
+    plt.savefig('Conductance.jpg')
 
 if __name__ == '__main__':
     main()
+

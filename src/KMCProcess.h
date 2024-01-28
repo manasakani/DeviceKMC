@@ -26,7 +26,7 @@ class KMCProcess{
 									 double *event_prob); 
 		void execute_event(Device &device, EVENTTYPE sel_event_type, int i, int j);		// executes event of type sel_event_type between i and j			
 		void update_affected_neighborhood(int event_idx, Device &device);				// updates the affected_neighborhood of the KMC step
-		double executeKMCStep(GPUBuffers gpubuf, Device &device);						// executes one step on the device and returns the time taken for it
+		std::map<std::string, double>  executeKMCStep(GPUBuffers gpubuf, Device &device, double *step_time);		// executes one step on the device and updates kmc_time with the event time
 		
 	private:
 		RandomNumberGenerator random_generator;											// random number generator object for this KMC process

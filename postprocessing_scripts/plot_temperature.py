@@ -38,14 +38,18 @@ def main():
 
     # Plotting the data on the left y-axis (linear scale)
     plt.plot(kmc_time_list, temperature_list, marker='o', markersize=1, linestyle='-', label='Linear Scale')
+    # plt.plot(temperature_list, marker='o', markersize=1, linestyle='-', label='Linear Scale')
     plt.yscale('linear')  # Set the left y-axis to linear scale
-    plt.ylim(100, 1000)
+    # plt.ylim(100, 1000)
+    # plt.xscale('log')  # Set the left y-axis to linear scale
+    
 
     # Creating a secondary y-axis with log scale
     ax2 = plt.gca().twinx()
     ax2.plot(kmc_time_list, temperature_list, marker='o', markersize=1, linestyle='-', color='red', label='Log Scale')
+    # ax2.plot(temperature_list, marker='o', markersize=1, linestyle='-', color='red', label='Log Scale')
     ax2.set_yscale('log')  # Set the right y-axis to log scale
-    ax2.set_ylim(100, 1000)
+    # ax2.set_ylim(100, 1000)
 
     plt.xlabel('KMC Time')
     plt.ylabel('Temperature (K)')
