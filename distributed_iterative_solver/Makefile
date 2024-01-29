@@ -6,8 +6,9 @@ NVCCFLAGS = -O3 -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=
 LDFLAGS = -L"${MPICH_DIR}/lib" -L"${HYPRE_DIR}/lib64" -L"${GINKGO_DIR}/lib64" -L"${CUDA_HOME}/lib64" -L"${PETSC_DIR}/${PETSC_ARCH}/lib"
 LDLIBS = -Wl,--copy-dt-needed-entries -lcuda -lcudart -lcublas -lcusolver -lcusparse -lm -lmpich -lHYPRE -lginkgo -lpetsc
 
-SOURCES = main_own.cpp utils.cpp utils_gpu.cu 
-SOURCES += ginkgo_implementations_to_compare.cpp hypre_implementations_to_compare.cpp petsc_implementations_to_compare.cpp
+SOURCES = main_iterative_solver_lib.cpp
+SOURCES += utils.cpp utils_gpu.cu 
+SOURCES += iterative_solver_lib.cpp
 OWN_DIR = own_implementations
 SOURCES += $(wildcard $(OWN_DIR)/*.cpp) $(wildcard $(OWN_DIR)/*.cu)
 
