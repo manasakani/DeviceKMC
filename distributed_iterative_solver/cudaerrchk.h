@@ -5,6 +5,7 @@
 #include <cusolverDn.h>
 #include <cublas_v2.h>
 #include <cusparse.h>
+#include <cstdio>
 
 #define cudaErrchk(ans) { cudaAssert((ans), __FILE__, __LINE__); }
 inline void cudaAssert(cudaError_t code, const char *file, int line, bool abort=true)

@@ -16,6 +16,20 @@
 
 namespace own_test{
 
+template <void (*distributed_mv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
+void solve_own_generic_mv(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm,
+    int *steps_taken,
+    double *time_taken);
 
 void solve_cg_allgatherv1(
     double *data_h,
@@ -78,160 +92,6 @@ void solve_cg_rma_fetch_whole(
     int *col_indices_h,
     int *row_indptr_h,
     double *rhs_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point1(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *rhs_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point2(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *rhs_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point3(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *rhs_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point4(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *rhs_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point_custom_datatype1(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *r_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point_custom_datatype2(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *r_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point_gpu_packing1(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *r_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point_gpu_packing2(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *r_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point_gpu_packing3(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *r_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point_gpu_packing4(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *r_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
-
-void solve_cg_nonblocking_point_to_point_gpu_packing5(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *r_h,
     double *reference_solution,
     double *starting_guess_h,
     int matrix_size,

@@ -20,7 +20,7 @@ void pack_gpu(
     int number_of_elements
 )
 {
-    int block_size = 1024;
+    int block_size = 32;
     int num_blocks = (number_of_elements + block_size - 1) / block_size;
     _pack_gpu<<<num_blocks, block_size>>>(
         packed_buffer,
@@ -38,7 +38,7 @@ void pack_gpu(
     cudaStream_t stream
 )
 {
-    int block_size = 1024;
+    int block_size = 32;
     int num_blocks = (number_of_elements + block_size - 1) / block_size;
     _pack_gpu<<<num_blocks, block_size, 0, stream>>>(
         packed_buffer,
@@ -68,7 +68,7 @@ void unpack_gpu(
     int number_of_elements
 )
 {
-    int block_size = 1024;
+    int block_size = 32;
     int num_blocks = (number_of_elements + block_size - 1) / block_size;
     _unpack_gpu<<<num_blocks, block_size>>>(
         unpacked_buffer,
@@ -86,7 +86,7 @@ void unpack_gpu(
     cudaStream_t stream
 )
 {
-    int block_size = 1024;
+    int block_size = 32;
     int num_blocks = (number_of_elements + block_size - 1) / block_size;
     _unpack_gpu<<<num_blocks, block_size, 0, stream>>>(
         unpacked_buffer,
@@ -104,7 +104,7 @@ void unpack_gpu2(
     cudaStream_t stream
 )
 {
-    int block_size = 1024;
+    int block_size = 32;
     int num_blocks = (number_of_elements + block_size - 1) / block_size;
     _unpack_gpu<<<num_blocks, block_size, 0, stream>>>(
         unpacked_buffer,

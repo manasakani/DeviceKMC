@@ -1,8 +1,8 @@
 
 NVCC = nvcc
 
-CCFLAGS = -O0 -g -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${GINKGO_DIR}/include" -I"${HYPRE_DIR}/include" -I"${CUDA_HOME}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include"
-NVCCFLAGS = -O0 -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
+CCFLAGS = -O3 -g -Wall -Wextra -fopenmp -std=c++14 -I"${MPICH_DIR}/include" -I"${GINKGO_DIR}/include" -I"${HYPRE_DIR}/include" -I"${CUDA_HOME}/include" -I"${PETSC_DIR}/${PETSC_ARCH}/include"
+NVCCFLAGS = -O3 -arch=sm_60 -Xcompiler -Wall -Xcompiler -Wextra -Xcompiler -std=c++14 -Xcompiler -fopenmp -I"${PETSC_DIR}/${PETSC_ARCH}/include" -I"${PETSC_DIR}/include"
 LDFLAGS = -L"${MPICH_DIR}/lib" -L"${HYPRE_DIR}/lib64" -L"${GINKGO_DIR}/lib64" -L"${CUDA_HOME}/lib64" -L"${PETSC_DIR}/${PETSC_ARCH}/lib"
 LDLIBS = -Wl,--copy-dt-needed-entries -lcuda -lcudart -lcublas -lcusolver -lcusparse -lm -lmpich -lHYPRE -lginkgo -lpetsc
 
