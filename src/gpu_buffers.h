@@ -14,7 +14,7 @@ class GPUBuffers {
 public:
     // varying parameters:
     int *site_charge = nullptr;
-    double *site_power, *site_potential, *site_temperature = nullptr;
+    double *site_power, *site_potential_boundary, *site_potential_charge, *site_temperature = nullptr;
     double *T_bg = nullptr;
     double *atom_power = nullptr;//, *atom_potential = nullptr;
     double *atom_CB_edge = nullptr;
@@ -110,7 +110,8 @@ public:
         gpuErrchk( cudaMalloc((void**)&site_y, N_  * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_z, N_  * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_power, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&site_potential, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void**)&site_potential_boundary, N_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void**)&site_potential_charge, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_temperature, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_charge, N_ * sizeof(int)) );
         gpuErrchk( cudaMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );

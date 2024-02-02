@@ -208,8 +208,12 @@ int main(int argc, char **argv)
                 std::map<std::string, double> kmcMap = sim.executeKMCStep(gpubuf, device, &step_time);   // execute events on the structure
                 kmc_time += step_time;
                 resultMap.insert(kmcMap.begin(), kmcMap.end());                                   
-            } else {                                                                                    // run in IV or field-solver testing
-                kmc_time = t;
+            } else {           
+                // debug:                                                                         // run in IV or field-solver testing
+                if (kmc_step_count > 10)
+                {
+                    kmc_time = t;
+                }
             }
 
             // Update current and joule heating

@@ -90,7 +90,8 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
 
     // initialize the size of the field vectors
     site_charge.resize(N, 0);
-    site_potential.resize(N, 0);
+    site_potential_boundary.resize(N, 0);
+    site_potential_charge.resize(N, 0);
     site_power.resize(N, 0);
     site_temperature.resize(N, T_bg);
 
@@ -853,15 +854,15 @@ void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_conta
     {
         if (i < N_left_tot)
         {
-            site_potential[i] = VL[i];
+            site_potential_boundary[i] = VL[i];
         }
         else if ((i >= N_left_tot) && (i < (N - N_right_tot)))
         {
-            site_potential[i] = -1 * Ksub[i - N_left_tot];
+            site_potential_boundary[i] = -1 * Ksub[i - N_left_tot];
         }
         else if (i >= (N - N_right_tot))
         {
-            site_potential[i] = VR[i - (N - N_right_tot)];
+            site_potential_boundary[i] = VR[i - (N - N_right_tot)];
         }
     }
 
@@ -890,7 +891,7 @@ void Device::poisson_gridless(int num_atoms_contact, std::vector<double> lattice
                 V_temp += v_solve(r_dist, site_charge[j], sigma, k, q);
             }
         }
-        site_potential[i] += V_temp;
+        site_potential_charge[i] = V_temp;
     }
 }
 
@@ -923,7 +924,7 @@ std::map<std::string, double> Device::updatePotential(cublasHandle_t handle_cubl
 
     poisson_gridless_gpu(p.num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                         gpubuf.site_charge, gpubuf.site_potential);
+                         gpubuf.site_charge, gpubuf.site_potential_charge);
 
     // gpubuf.sync_GPUToHost(*this); // comment out to avoid memory copy in GPU-only implementation
 
@@ -1350,7 +1351,7 @@ std::map<std::string, double> Device::updateTemperature(GPUBuffers &gpubuf, KMCP
 
 // #else
 
-    result["Global temperature [K]"] = p.background_temp;
+    // result["Global temperature [K]"] = p.background_temp;
 
     if (p.solve_heating_global)
     {
@@ -1363,6 +1364,7 @@ std::map<std::string, double> Device::updateTemperature(GPUBuffers &gpubuf, KMCP
         
         // update the global temperature in gpu memory
         gpubuf.copy_Tbg_toGPU(this->T_bg);
+        result["Global temperature [K]"] = this->T_bg;
     }
     else if (p.solve_heating_local)
     {
@@ -1422,7 +1424,7 @@ void Device::updateTemperatureGlobal(double event_time, double small_step, doubl
     // double T_bg_test = c_coeff * (1.0 - pow(a_coeff, number_steps)) / (1.0-a_coeff) + pow(a_coeff, number_steps) * T_intermediate;
     // this->T_bg = T_bg_test;
 
-    result["Global temperature [K]"] = T_bg;
+    // result["Global temperature [K]"] = T_bg;
     result["Total dissipated power [mW]"] = P_tot*1e3;
     std::cout << std::fixed << std::setprecision(16) << "Global temperature [K]: " << T_bg << "\n";
 
@@ -1604,7 +1606,7 @@ void Device::writeSnapshot(std::string filename, std::string foldername)
 
     for (int i = 0; i < N; i++)
     {
-        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential[i] << "   " << site_power[i] << "\n";
+        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential_boundary[i] + site_potential_charge[i] << "   " << site_power[i] << "\n";
     }
 }
 

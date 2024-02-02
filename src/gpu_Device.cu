@@ -1,5 +1,8 @@
 #include "cuda_wrapper.h"
 
+//remove later
+#include <chrono>
+
 //debug
 // #include <iomanip>
 //debug
@@ -413,6 +416,55 @@ __global__ void calc_off_diagonal_A_gpu(
     }
 }
 
+// // 2D distributed over elements
+// __global__ void calc_off_diagonal_A_gpu(
+//     const ELEMENT *metals, const ELEMENT *element, const int *site_charge,
+//     int num_metals,
+//     double d_high_G, double d_low_G,
+//     int matrix_size,
+//     int *col_indices,
+//     int *row_ptr,
+//     double *data
+// )
+// {
+//     // parallelize over rows
+//     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+//     int total_tid = blockIdx.x * blockDim.x + threadIdx.x;
+//     int total_threads = blockDim.x * gridDim.x;
+
+//     // thread idx works on this element
+//     for (int idx = total_tid; idx < row_ptr[matrix_size-1]; idx += total_threads) 
+//     {
+//         // find the row_idx and col_idx for thread idx
+//         int row_idx = 0; 
+//         while (row_idx < matrix_size && idx >= row_ptr[row_idx + 1]){
+//             row_idx++;
+//         }
+//         int col_idx = col_indices[idx];
+
+//         if(row_idx != col_idx){
+
+//             bool metal1 = is_in_array_gpu(metals, element[row_idx], num_metals);
+//             bool metal2 = is_in_array_gpu(metals, element[col_idx], num_metals);
+//             bool ischarged1 = site_charge[row_idx] != 0;
+//             bool ischarged2 = site_charge[col_idx] != 0;
+//             bool isVacancy1 = element[row_idx] == VACANCY;
+//             bool isVacancy2 = element[col_idx] == VACANCY;
+//             bool cvacancy1 = isVacancy1 && !ischarged1;
+//             bool cvacancy2 = isVacancy2 && !ischarged2;
+//             if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
+//             {
+//                 data[idx] = -d_high_G;
+//             }
+//             else
+//             {
+//                 data[idx] = -d_low_G;
+//             }
+//         }
+
+//     }
+// }
+
 __global__ void calc_diagonal_A_gpu(
     int *col_indices,
     int *row_ptr,
@@ -537,53 +589,6 @@ __global__ void set_ineg(double *ineg, const double *x, const double *m, double 
     }
 }
 
-// //assumes that the column indices are sorted!
-// __global__ void set_ineg_sparse(double *ineg_values, int *ineg_row_ptr, int *ineg_col_indices, const double *x_values, const int *x_row_ptr, const int *x_col_indices, const double *m, double Vd, int N)
-// {
-//     // ineg_values is array of nonzero values in ineg
-//     // ineg_row_ptr is array of row pointers in ineg
-//     // ineg_col_indices is array of column indices in ineg
-//     // x_values is array of nonzero values in x
-//     // x_row_ptr is array of row pointers in x
-//     // x_col_indices is array of column indices in x
-//     // m is vector (N + 2)
-
-//     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
-//     int num_threads_total = blockDim.x * gridDim.x;
-
-//     for (auto idx = tid_total; idx < N * N; idx += num_threads_total)
-//     {
-//         int i = idx / N;
-//         int j = idx % N;
-
-//         int row_start = ineg_row_ptr[i];
-//         int row_end = ineg_row_ptr[i + 1];
-
-//         ineg_values[idx] = 0.0;
-
-//         for (int k = row_start; k < row_end; ++k)
-//         {
-//             int col_index = ineg_col_indices[k];
-
-//             if (col_index == j + 2)
-//             {
-//                 double ical = x_values[k] * (m[i + 2] - m[j + 2]);
-
-//                 if (ical < 0 && Vd > 0)
-//                 {
-//                     ineg_values[idx] = -ical;
-//                 }
-//                 else if (ical > 0 && Vd < 0)
-//                 {
-//                     ineg_values[idx] = -ical;
-//                 }
-
-//                 break; // Break once the corresponding column index is found
-//             }
-//         }
-//     }
-// }
-
 // does not assume that the column indices are sorted
 __global__ void set_ineg_sparse(double *ineg_values, int *ineg_row_ptr, int *ineg_col_indices, const double *x_values, const int *x_row_ptr, const int *x_col_indices, const double *m, double Vd, int N)
 {
@@ -672,63 +677,6 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
     }
 }
 
-///
-template <int NTHREADS>
-__global__ void calculate_pairwise_interaction_mpi(const double* posx, const double* posy, const double*posz, 
-                                               const double *lattice, const int pbc, 
-                                               const int N, const double *sigma, const double *k, 
-                                               const int *charge, double* potential_local, 
-                                               const int row_idx_start, const int row_numbers){
-
-    // Version with reduction, where every thread evaluates site-site interaction term
-    int num_threads = blockDim.x;
-    int blocks_per_row = (N - 1) / num_threads + 1;
-    int block_id = blockIdx.x;
-
-    int row = block_id / blocks_per_row;
-    int scol = (block_id % blocks_per_row) * num_threads;
-    int lcol = min(N, scol + num_threads);
-
-    int tid = threadIdx.x;
-
-    __shared__ double buf[NTHREADS];
-    double dist;
-    int i, j;
-
-    for (int ridx = row; ridx < N; ridx += gridDim.x) {
-
-        buf[tid] = 0.0;
-        if (tid + scol < lcol) {
-
-            i = ridx;
-            j = scol+tid;
-            if (i != j && charge[j] != 0){
-                dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
-                                             posx[j], posy[j], posz[j], 
-                                             lattice[0], lattice[1], lattice[2], pbc);
-                buf[tid] = v_solve_gpu(dist, charge[j], sigma, k);
-
-            }
-        }
-
-        int width = num_threads / 2;
-        while (width != 0) {
-            __syncthreads();
-            if (tid < width) {
-                buf[tid] += buf[tid + width];
-            }
-            width /= 2;
-        }
-
-        // int block_id = blockIdx.x + row_idx_start;
-        for (int ridx = row; ridx < row_numbers; ridx += gridDim.x){
-        if (tid == 0) {
-            atomicAdd(potential_local, buf[0]);
-        }
-        }
-    }
-}
-///
 
 __global__ void update_m(double *m, long minidx, int np2)
 {
@@ -982,8 +930,6 @@ __global__ void reduce(const T* array_to_reduce, T* value, const int N){
         }
     }
 }
-// Explicit instantiation for double, NUM_THREADS
-// template __global__ void reduce<double, NUM_THREADS>(const double* array_to_reduce, double* value, const int N);
 
 // Kernel to extract COO struct data from a dense matrix
 __global__ void extractCOOData(double* matrix, int N, COOElement* d_cooData, int* numNonZero) {
@@ -1038,7 +984,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                                  const int *layer, const double *lattice, const int pbc, 
                                  const double *T_bg, const double *freq, const double *sigma, const double *k, 
                                  const double *posx, const double *posy, const double *posz,
-                                 const double *potential, const double *temperature,
+                                 const double *potential_boundary, const double *potential_charge, const double *temperature,
                                  const ELEMENT *element, const int *charge, EVENTTYPE *event_type, double *event_prob)
 {
     int total_tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1062,7 +1008,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
             if (element[i] == DEFECT && element[j] == O_EL)
             {
 
-                double E = 2 * (potential[i] - potential[j]);
+                double E = 2 * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]));
                 double zero_field_energy = E_gen_const[layer[j]]; 
                 event_type_ = VACANCY_GENERATION;
                 double Ekin = 0; // kB * (temperature[j] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
@@ -1077,7 +1023,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 double self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
 
                 int charge_state = charge[i] - charge[j];
-                double E = charge_state * (potential[i] - potential[j] + (charge_state / 2) * self_int_V);
+                double E = charge_state * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]) + (charge_state / 2) * self_int_V);
                 double zero_field_energy = E_rec_const[layer[j]];
 
                 event_type_ = VACANCY_RECOMBINATION;
@@ -1097,7 +1043,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 }
 
                 event_type_ = VACANCY_DIFFUSION;
-                double E = (charge[i] - charge[j]) * (potential[i] - potential[j] + self_int_V);
+                double E = (charge[i] - charge[j]) * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]) + self_int_V);
                 double zero_field_energy = E_Vdiff_const[layer[j]];  
                 double Ekin = 0;//kB * (temperature[i] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
@@ -1114,7 +1060,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                     self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
                 }
 
-                double E = (charge[i] - charge[j]) * (potential[i] - potential[j] - self_int_V);
+                double E = (charge[i] - charge[j]) * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]) - self_int_V);
                 double zero_field_energy = E_Odiff_const[layer[j]];
 
                 event_type_ = ION_DIFFUSION;
@@ -1329,8 +1275,8 @@ void Assemble_A(
 
 
 void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
-                              const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
-                              const int num_metals, int kmc_step_count)
+                                     const double Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
+                                     const int num_metals, int kmc_step_count)
 {
 
     // *********************************************************************
@@ -1386,7 +1332,7 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     // 2. Solve system of linear equations 
 
     // the initial guess for the solution is the current site-resolved potential inside the device
-    double *v_soln = gpubuf.site_potential + N_left_tot;
+    double *v_soln = gpubuf.site_potential_boundary + N_left_tot;
 
     cusparseHandle_t cusparseHandle;
     cusparseCreate(&cusparseHandle);
@@ -1400,9 +1346,9 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     // ************************************************************
     // 3. Re-fix the boundary (gets modified by the poisson solver)
 
-    thrust::device_ptr<double> left_boundary = thrust::device_pointer_cast(gpubuf.site_potential);
+    thrust::device_ptr<double> left_boundary = thrust::device_pointer_cast(gpubuf.site_potential_boundary);
     thrust::fill(left_boundary, left_boundary + N_left_tot, -Vd/2);
-    thrust::device_ptr<double> right_boundary = thrust::device_pointer_cast(gpubuf.site_potential + N_left_tot + N_interface);
+    thrust::device_ptr<double> right_boundary = thrust::device_pointer_cast(gpubuf.site_potential_boundary + N_left_tot + N_interface);
     thrust::fill(right_boundary, right_boundary + N_right_tot, Vd/2);
 
     cusparseDestroy(cusparseHandle);
@@ -1518,13 +1464,13 @@ void background_potential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, con
     cudaFree(gpu_k);
 
     num_blocks = (N_interface - 1) / num_threads + 1;
-    set_potential<<<num_blocks, num_threads>>>(gpubuf.site_potential + N_left_tot, gpu_k_sub, N_interface);
+    set_potential<<<num_blocks, num_threads>>>(gpubuf.site_potential_boundary + N_left_tot, gpu_k_sub, N_interface);
     gpuErrchk( cudaPeekAtLastError() ); 
     gpuErrchk( cudaDeviceSynchronize() ); 
     cudaFree(gpu_k_sub);
 
-    gpuErrchk( cudaMemcpy(gpubuf.site_potential, VL, N_left_tot * sizeof(double), cudaMemcpyDeviceToDevice) );
-    gpuErrchk( cudaMemcpy(gpubuf.site_potential + N_left_tot + N_interface, VR, N_right_tot * sizeof(double), cudaMemcpyDeviceToDevice) );
+    gpuErrchk( cudaMemcpy(gpubuf.site_potential_boundary, VL, N_left_tot * sizeof(double), cudaMemcpyDeviceToDevice) );
+    gpuErrchk( cudaMemcpy(gpubuf.site_potential_boundary + N_left_tot + N_interface, VR, N_right_tot * sizeof(double), cudaMemcpyDeviceToDevice) );
 
     cudaFree(gpu_ipiv);
     cudaFree(gpu_work);
@@ -1534,31 +1480,20 @@ void background_potential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, con
 
 }
 
-void poisson_gridless_mpi(const int num_atoms_contact, const int pbc, const int N, const double *lattice, 
-                          const double *sigma, const double *k,
-                          const double *posx, const double *posy, const double *posz, 
-                          const int *site_charge, double *site_potential_local,
-                          const int row_idx_start, const int row_numbers){
-
-    int num_threads = 1024;
-    int blocks_per_row = (row_numbers - 1) / num_threads + 1; 
-    int num_blocks = blocks_per_row * N; // NOTE: fix the kernel for block overflow!
-
-
-    calculate_pairwise_interaction_mpi<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, 
-                                                                                                               site_potential_local, row_idx_start, row_numbers);
-}
-
 void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice, 
                           const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz, 
-                          const int *site_charge, double *site_potential){
+                          const int *site_charge, double *site_potential_charge){
 
     int num_threads = 1024;
     int blocks_per_row = (N - 1) / num_threads + 1; 
     int num_blocks = blocks_per_row * N; // NOTE: fix the kernel for block overflow!
 
-    calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential);
+    // set the inhomogenous poisson solution to zero before populating it
+    gpuErrchk( cudaMemset(site_potential_charge, 0, N * sizeof(double)) ); 
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential_charge);
 }
 
 
@@ -1568,7 +1503,9 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
                              const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
                              const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp)
 {
-     // ***************************************************************************************
+    auto t0 = std::chrono::steady_clock::now();
+
+    // ***************************************************************************************
     // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
     int *gpu_index;
     int *atom_gpu_index;
@@ -1586,6 +1523,10 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
     thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + gpubuf.N_, gpubuf.site_element, gpubuf.atom_element, is_defect());
     thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
 
+    auto t1 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt = t1 - t0;
+    std::cout << "time to update atom arrays: " << dt.count() << "\n";
+
     // ***************************************************************************************
     // 2. Assemble the transmission matrix (X) with both direct and tunnel connections and the
     // solution vector (M) which represents the current inflow/outflow
@@ -1602,6 +1543,10 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
                         num_source_inj, num_ground_ext, num_layers_contact,
                         num_metals, &X_row_ptr, &X_col_indices, &X_nnz);
 
+    auto t2 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt1 = t2 - t1;
+    std::cout << "time to assemble X sparsity: " << dt1.count() << "\n";
+
     // Assemble the nonzero value array of X in CSR (from 0 to Nsub):
     double *X_data;                                                                                          // [1] Transmission matrix
     Assemble_X(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
@@ -1609,6 +1554,10 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
                gpubuf.lattice, pbc, nn_dist, tol, Vd, m_e, V0, high_G, low_G, loop_G,
                num_source_inj, num_ground_ext, num_layers_contact,
                num_metals, &X_data, &X_row_ptr, &X_col_indices, &X_nnz);
+
+    auto t3 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt2 = t3 - t2;
+    std::cout << "time to assemble X data: " << dt2.count() << "\n";
 
     double *gpu_imacro, *gpu_m;
     gpuErrchk( cudaMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       // [A] The macroscopic device current
@@ -1623,6 +1572,7 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
 
     // ************************************************************
     // 2. Solve system of linear equations 
+    
 
     // the initial guess for the solution is the current site-resolved potential inside the device
     double *gpu_virtual_potentials;
@@ -1652,6 +1602,11 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
                     " across the contact at VD = " << Vd << "\n";
     }
 
+    auto t4 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt3 = t4 - t3;
+    std::cout << "time to solve linear system: " << dt3.count() << "\n";
+
+
     // ****************************************************
     // 3. Calculate the net current flowing into the device
 
@@ -1671,7 +1626,13 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
     cudaDeviceSynchronize();
 
     gpuErrchk( cudaMemcpy(imacro, gpu_imacro, sizeof(double), cudaMemcpyDeviceToHost) );
+
+    auto t5 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt4 = t5 - t4;
+    std::cout << "time to compute current: " << dt4.count() << "\n";
+
     std::cout << "I_macro: " << *imacro * (1e6) << "\n";
+    std::cout << "exiting after I_macro\n"; exit(1);
 
     // **********************************************
     // 4. Calculate the dissipated power at each atom
@@ -2254,7 +2215,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
                             const double *lattice, const int pbc, const double *T_bg, 
                             const double *freq, const double *sigma, const double *k,
                             const double *posx, const double *posy, const double *posz, 
-                            const double *site_potential, const double *site_temperature,
+                            const double *site_potential_boundary, const double *site_potential_charge, const double *site_temperature,
                             ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host){
 
     // **************************
@@ -2275,7 +2236,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
                                                   site_layer, lattice, pbc,
                                                   T_bg, freq, sigma, k,
                                                   posx, posy, posz, 
-                                                  site_potential, site_temperature, 
+                                                  site_potential_boundary, site_potential_charge, site_temperature, 
                                                   site_element, site_charge, event_type, event_prob);
 
     gpuErrchk( cudaDeviceSynchronize() );
@@ -2300,13 +2261,6 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
  
     double freq_host;
     gpuErrchk( cudaMemcpy(&freq_host, freq, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
-
-    // sort first
-    // thrust::sort(thrust::device, event_prob, event_prob + N * nn);
-
-    //debug
-    // int counter = 0;
-    //debug
 
     double event_time = 0.0;
     while (event_time < 1 / freq_host) {

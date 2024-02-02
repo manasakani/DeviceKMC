@@ -92,7 +92,8 @@ void KMCProcess::update_events_and_rates(Device &device, EVENTTYPE *event_type, 
             if (device.site_element[i] == DEFECT && device.site_element[j] == O_EL)
             {
 
-                double E = 2 * (device.site_potential[i] - device.site_potential[j]);
+                double E = 2 * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
+                              - (device.site_potential_boundary[j] + device.site_potential_charge[j]));
                 double zero_field_energy = layers[site_layer[j]].E_gen_0;
                 event_type_ = VACANCY_GENERATION;
                 double Ekin = 0; //kB * (device.site_temperature[j] - device.T_bg); //double Ekin = kB * (device.site_temperature[j] - device.site_temperature[i]);
@@ -107,7 +108,8 @@ void KMCProcess::update_events_and_rates(Device &device, EVENTTYPE *event_type, 
                 double self_int_V = v_solve(r_dist, charge_abs, device.sigma, device.k, q);
 
                 int charge_state = device.site_charge[i] - device.site_charge[j];
-                double E = charge_state * (device.site_potential[i] - device.site_potential[j] + (charge_state / 2) * self_int_V);
+                double E = charge_state * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
+                                         - (device.site_potential_boundary[j] + device.site_potential_charge[j]) + (charge_state / 2) * self_int_V);
                 double zero_field_energy = layers[site_layer[j]].E_rec_1;
 
                 event_type_ = VACANCY_RECOMBINATION;
@@ -127,7 +129,8 @@ void KMCProcess::update_events_and_rates(Device &device, EVENTTYPE *event_type, 
                 }
 
                 event_type_ = VACANCY_DIFFUSION;
-                double E = (device.site_charge[i] - device.site_charge[j]) * (device.site_potential[i] - device.site_potential[j] + self_int_V);
+                double E = (device.site_charge[i] - device.site_charge[j]) * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
+                                                                            - (device.site_potential_boundary[j] + device.site_potential_charge[j]) + self_int_V);
                 double zero_field_energy = layers[site_layer[i]].E_diff_2;
                 double Ekin = 0; //kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[j] - device.site_temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
@@ -144,7 +147,8 @@ void KMCProcess::update_events_and_rates(Device &device, EVENTTYPE *event_type, 
                 {
                     self_int_V = v_solve(r_dist, charge_abs, device.sigma, device.k, q);
                 }
-                double E = (device.site_charge[i] - device.site_charge[j]) * (device.site_potential[i] - device.site_potential[j] - self_int_V);
+                double E = (device.site_charge[i] - device.site_charge[j]) * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
+                                                                            - (device.site_potential_boundary[j] + device.site_potential_charge[j])- self_int_V);
                 double zero_field_energy = layers[site_layer[j]].E_diff_3;
 
                 event_type_ = ION_DIFFUSION;
@@ -266,7 +270,7 @@ std::map<std::string, double> KMCProcess::executeKMCStep(GPUBuffers gpubuf, Devi
                                              gpubuf.lattice, device.pbc, gpubuf.T_bg, 
                                              gpubuf.freq, gpubuf.sigma, gpubuf.k,
                                              gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
-                                             gpubuf.site_potential, gpubuf.site_temperature,
+                                             gpubuf.site_potential_boundary, gpubuf.site_potential_charge, gpubuf.site_temperature,
                                              gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
 
     // gpubuf.sync_GPUToHost(device); // remove once full while loop is completed

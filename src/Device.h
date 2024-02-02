@@ -86,10 +86,12 @@ public:
     std::vector<double> atom_CB_edge;       // [eV] the conduction band edge of each atom
 
     // Fields:
-    std::vector<int> site_charge;           // [q] charge of each site
-    std::vector<double> site_potential;     // [V] potential of each site
-    std::vector<double> site_power;         // [W] power dissipated at each site
-    std::vector<double> site_temperature;   // [K] temperature of each site
+    std::vector<int> site_charge;                       // [q] charge of each site
+    // std::vector<double> site_potential;                 // [V] potential of each site (boundary solution, homogenous poisson)
+    std::vector<double> site_potential_boundary;        // [V] potential of each site (boundary solution, homogenous poisson)
+    std::vector<double> site_potential_charge;          // [V] potential of each site (charge solution, inhomogenous poisson)
+    std::vector<double> site_power;                     // [W] power dissipated at each site
+    std::vector<double> site_temperature;               // [K] temperature of each site
 
     std::vector<double> laplacian;          // laplacian matrix
     std::vector<double> laplacian_ss;       // steady state laplacian

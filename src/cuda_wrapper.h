@@ -99,8 +99,8 @@ void Assemble_K_sparsity(const double *posx, const double *posy, const double *p
 // Field solver modules on single GPU / gpu_Device.cu
 //***************************************************
 
+// GPU id utils
 void get_gpu_info(char *gpu_string, int dev);
-
 void set_gpu(int dev);
 
 // Updates the site-resolved charge (gpu_site_charge) based on a neighborhood condition
@@ -130,13 +130,7 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
 void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice,
                           const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz,
-                          const int *site_charge, double *site_potential);
-
-void poisson_gridless_mpi(const int num_atoms_contact, const int pbc, const int N, const double *lattice,
-                          const double *sigma, const double *k,
-                          const double *posx, const double *posy, const double *posz,
-                          const int *site_charge, double *site_potential_local, 
-                          const int row_idx_start, const int row_numbers);
+                          const int *site_charge, double *site_potential_charge);
 
 // Updates the site-resolved dissipated power (gpubuf.site_power) using a graph-based current flow solver (dense matrix with LU solver)
 void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
@@ -158,17 +152,13 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
                           const double *lattice, const int pbc, const double *T_bg, 
                           const double *freq, const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz, 
-                          const double *site_potential, const double *site_temperature,
+                          const double *site_potential_boundary, const double *site_potential_charge, const double *site_temperature,
                           ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
 
 // excluded for testing
 #ifndef COMPILE_WITH_TESTS
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff);
 #endif
-
-//**********************************************************************
-// Field solver modules - distributed GPU implementation / mpi_Device.cu
-//**********************************************************************
 
 
 }
