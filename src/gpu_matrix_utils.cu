@@ -1085,22 +1085,22 @@ __global__ void assemble_X_indices_gpu(const double *posx_d, const double *posy_
 //     } // tid loop
 // }
 
-// uncompress the row pointers into row indices
-__global__ void populate_sparse_X_gpu(int *row_ptr_d, int *row_idx_d, int *nnz)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int N_full = matrix_size;
-    int N_atom = matrix_size - 2;
+// // uncompress the row pointers into row indices
+// __global__ void populate_sparse_X_gpu(int *row_ptr_d, int *row_idx_d, int *nnz)
+// {
+//     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+//     int N_full = matrix_size;
+//     int N_atom = matrix_size - 2;
     
-    for(int i = idx; i < N_full - 1; i += blockDim.x * gridDim.x){
+//     for(int i = idx; i < N_full - 1; i += blockDim.x * gridDim.x){
 
-        for( int j = row_ptr_d[i]; j < row_ptr_d[i+1]; j++ )
-        {
-            //continue
-        }
-    }
+//         for( int j = row_ptr_d[i]; j < row_ptr_d[i+1]; j++ )
+//         {
+//             //continue
+//         }
+//     }
 
-}
+// }
 
 // assemble the data for the X matrix - 1D distribution over rows
 __global__ void populate_sparse_X_gpu(const double *posx_d, const double *posy_d, const double *posz_d,
@@ -1602,9 +1602,9 @@ void Assemble_X(int Natom, const double *posx, const double *posy, const double 
     gpuErrchk(cudaMemset((*X_data), 0, X_nnz[0] * sizeof(double)));
 
     // assemble the uncompressed row indices
-    double *X_row_indices;
-    gpuErrchk( cudaMalloc((void **)X_row_indices, X_nnz[0] * sizeof(int)) );
-    get_row_pointers<<<blocks, threads>>(*X_row_ptr, *X_nnz, *X_row_indices);
+    // double *X_row_indices;
+    // gpuErrchk( cudaMalloc((void **)X_row_indices, X_nnz[0] * sizeof(int)) );
+    // get_row_pointers<<<blocks, threads>>(*X_row_ptr, *X_nnz, *X_row_indices);
 
     // send the row indices to populate_sparse_X_gpu
 
