@@ -1,0 +1,126 @@
+Restarting from reordered_device_7.5.xyz
+--------------------------------
+Applied Voltage = 1 V
+--------------------------------
+Created folder: Results_1.000000
+--------------
+KMC step count: 0
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 6.4349e-05
+Z - calculation time - dissipated power [s]: 10.3442
+Z - calculation time - potential from boundaries [s]: 0.691308
+Z - calculation time - potential from charges [s]: 5.3731e-05
+Z - calculation time - KMC superstep [s]: 12.0883
+----------------------------------------------------
+KMC step count: 1
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 1.1388e-05
+Z - calculation time - dissipated power [s]: 11.0667
+Z - calculation time - potential from boundaries [s]: 0.682252
+Z - calculation time - potential from charges [s]: 2.2969e-05
+Z - calculation time - KMC superstep [s]: 11.749
+----------------------------------------------------
+KMC step count: 2
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 1.053e-05
+Z - calculation time - dissipated power [s]: 11.1837
+Z - calculation time - potential from boundaries [s]: 0.682283
+Z - calculation time - potential from charges [s]: 2.1938e-05
+Z - calculation time - KMC superstep [s]: 11.8661
+----------------------------------------------------
+KMC step count: 3
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 1.1349e-05
+Z - calculation time - dissipated power [s]: 10.9179
+Z - calculation time - potential from boundaries [s]: 0.681825
+Z - calculation time - potential from charges [s]: 2.226e-05
+Z - calculation time - KMC superstep [s]: 11.5998
+----------------------------------------------------
+KMC step count: 4
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 1.1752e-05
+Z - calculation time - dissipated power [s]: 11.235
+Z - calculation time - potential from boundaries [s]: 0.68171
+Z - calculation time - potential from charges [s]: 2.1913e-05
+Z - calculation time - KMC superstep [s]: 11.9168
+----------------------------------------------------
+KMC step count: 5
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 1.0745e-05
+Z - calculation time - dissipated power [s]: 11.0823
+Z - calculation time - potential from boundaries [s]: 0.682747
+Z - calculation time - potential from charges [s]: 2.4069e-05
+Z - calculation time - KMC superstep [s]: 11.7651
+----------------------------------------------------
+KMC step count: 6
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 1.0363e-05
+Z - calculation time - dissipated power [s]: 11.1727
+Z - calculation time - potential from boundaries [s]: 0.682307
+Z - calculation time - potential from charges [s]: 2.2318e-05
+Z - calculation time - KMC superstep [s]: 11.8551
+----------------------------------------------------
+KMC step count: 7
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 1.1354e-05
+Z - calculation time - dissipated power [s]: 11.0812
+Z - calculation time - potential from boundaries [s]: 0.682382
+Z - calculation time - potential from charges [s]: 2.1852e-05
+Z - calculation time - KMC superstep [s]: 11.7636
+----------------------------------------------------
+KMC step count: 8
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 7.767e-06
+Z - calculation time - dissipated power [s]: 11.1126
+Z - calculation time - potential from boundaries [s]: 0.682276
+Z - calculation time - potential from charges [s]: 1.7684e-05
+Z - calculation time - KMC superstep [s]: 11.7949
+----------------------------------------------------
+KMC step count: 9
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 1.1488e-05
+Z - calculation time - dissipated power [s]: 11.1095
+Z - calculation time - potential from boundaries [s]: 0.681463
+Z - calculation time - potential from charges [s]: 2.4335e-05
+Z - calculation time - KMC superstep [s]: 11.7911
+----------------------------------------------------
+KMC step count: 10
+V_vcm: 1
+KMC time is: 0
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 7.82e-06
+Z - calculation time - dissipated power [s]: 10.8187
+Z - calculation time - potential from boundaries [s]: 0.682383
+Z - calculation time - potential from charges [s]: 1.7194e-05
+Z - calculation time - KMC superstep [s]: 11.5011
+----------------------------------------------------
+KMC step count: 11
+V_vcm: 1
+KMC time is: 1
+Current [uA]: 0.000789163
+Z - calculation time - charge [s]: 1.1016e-05
+Z - calculation time - dissipated power [s]: 11.0607
+Z - calculation time - potential from boundaries [s]: 0.681955
+Z - calculation time - potential from charges [s]: 2.4489e-05
+Z - calculation time - KMC superstep [s]: 11.7428
+--------------------------------------
