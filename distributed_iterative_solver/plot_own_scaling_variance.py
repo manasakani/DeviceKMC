@@ -100,17 +100,25 @@ if __name__ == "__main__":
                         scale=st.sem(times[j])))
                 
 
-            yer_fft = []
+            yerr_confidence = []
             for j in range(len(sizes)):
-                yer_fft.append(np.copy(interval[j]))
-                yer_fft[j][0] = -yer_fft[j][0] + medians[j]
-                yer_fft[j][1] = yer_fft[j][1] - medians[j]
+                yerr_confidence.append(np.copy(interval[j]))
+                yerr_confidence[j][0] = -yerr_confidence[j][0] + medians[j]
+                yerr_confidence[j][1] = yerr_confidence[j][1] - medians[j]
 
-            yer_fft = np.array(yer_fft).T
+            eh_stds = []
+            for j in range(len(sizes)):
+                eh_stds.append(np.copy(interval[j]))
+                eh_stds[j][0] = stds[j]
+                eh_stds[j][1] = stds[j]
+
+
+            yerr_confidence = np.array(yerr_confidence).T
+            eh_stds = np.array(eh_stds).T
             x = np.array(sizes)
             ax.plot(x, medians, label=labels[i], color=colors[i], linestyle='dashed', linewidth=3)
             # ax.fill_between(x, inter_low, inter_high, alpha=0.2, color=colors[i])
-            plt.errorbar(x, medians, yerr=np.squeeze(yer_fft), color=colors[i], capsize=10, barsabove=True, marker='x', linestyle='None', linewidth=3)
+            plt.errorbar(x, medians, yerr=np.squeeze(eh_stds), color=colors[i], capsize=10, barsabove=True, marker='x', linestyle='None', linewidth=3)
 
         #plt.plot(sizes, sizes, label="Linear scaling", color="black", linestyle='dashed', linewidth=1)
         plt.plot(sizes, np.ones((len(sizes))), color="black", linestyle='dashed', linewidth=0.5)
@@ -127,4 +135,4 @@ if __name__ == "__main__":
         ax.set_xscale("log", base=2)
         ax.set_xticks(sizes, minor=False)
         ax.set_xticklabels(sizes, minor=False)
-        plt.savefig(images_path + "own_scaling.png", bbox_inches='tight', dpi=300)
+        plt.savefig(images_path + "own_scaling_variance.png", bbox_inches='tight', dpi=300)

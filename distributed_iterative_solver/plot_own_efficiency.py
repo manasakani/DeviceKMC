@@ -8,23 +8,23 @@ if __name__ == "__main__":
     plt.rcParams.update({'font.size': 20})
 
     number_of_measured_steps = 1
+    warmup = 2
     base_path = "/usr/scratch/mont-fort17/almaeder/kmc_measurements/own_260/"
-    libcomp_path = "/usr/scratch/mont-fort17/almaeder/kmc_measurements/own2/own_260/"
     images_path = "images/"
 
-    reference_name = "solve"
+    reference_name = "solve_cg"
+    nogather_name = "solve_cg_nogatherv_mpi"
     method_names_names = [
-        "solve_allgatherv3",
-        "solve_point_to_point3",
-        "solve_custom_datatype2",
-        "solve_gpu_packing3",
+        "solve_cg_allgatherv_mpi",
+        "solve_cg_nonblocking_point_to_point",
+        "solve_cg_nonblocking_point_to_point_fetch_specific",
+        "solve_cg_nonblocking_point_to_point_fetch_specific_custom_datatype",
+        "solve_cg_nonblocking_point_to_point_fetch_specific_gpu_packing",
         "solve_ginkgo",
-        "solve_petsc",
-        "solve_hypre"
-    ]
+        "petsc_cg_jacobi"]
     matsize = 260
 
-    sizes = [1, 2, 4, 8, 16, 32, 64]
+    sizes = [1, 2, 4, 8]
     colors = [
         "tab:blue",
         "tab:orange",
@@ -32,48 +32,20 @@ if __name__ == "__main__":
         "tab:red",
         "tab:purple",
         "tab:brown",
-        "tab:pink",
-        "tab:gray"
+        "tab:pink"
     ]
     labels = [
         "Allgatherv",
-        "Point to Point",
-        "+ Custom Datatype",
-        "+ GPU Packing",
+        "Nonblocking point-to-point",
+        "+ fetch specific",
+        "+ custom datatype",
+        "+ GPU packing",
         "Ginkgo",
-        "PETSc",
-        "HYPRE"
+        "PETSc"
     ]
-    paths = [
-        base_path,
-        base_path,
-        base_path,
-        base_path,
-        base_path,
-        base_path,
-        base_path
-    ]
+
 
     for step in range(1,number_of_measured_steps+1):
-        reference_path = base_path + reference_name + "1" + "_" + str(step) + "_1_0.txt"
-        reference_time = np.loadtxt(reference_path).flatten()
-
-        median_reference_time1 = np.median(reference_time)
-
-        reference_path = base_path + reference_name + "2" + "_" + str(step) + "_1_0.txt"
-        reference_time = np.loadtxt(reference_path).flatten()
-
-        median_reference_time2 = np.median(reference_time)
-        reference_path = base_path + reference_name + "3" + "_" + str(step) + "_1_0.txt"
-        reference_time = np.loadtxt(reference_path).flatten()
-
-        median_reference_time3 = np.median(reference_time)
-        reference_path = base_path + reference_name + "4" + "_" + str(step) + "_1_0.txt"
-        reference_time = np.loadtxt(reference_path).flatten()
-
-        median_reference_time4 = np.median(reference_time)
-
-        median_reference_time = np.min([median_reference_time1, median_reference_time2, median_reference_time3, median_reference_time4])
         fig, ax = plt.subplots()
         fig.set_size_inches(16, 9)
         for i, method_name in enumerate(method_names_names):
@@ -81,11 +53,12 @@ if __name__ == "__main__":
             times = [[] for j in range(len(sizes))]
             for j in range(len(sizes)):
                 for k in range(sizes[j]):
-                    times[j] += (np.loadtxt(paths[i] + method_name + "_" + str(step) + "_" + str(sizes[j]) + "_"+ str(k) +".txt").flatten()).tolist()
+                    times[j] += (np.loadtxt(base_path + method_name + str(matsize) + "_" + str(step) + "_" + str(sizes[j]) + "_"+ str(k) +"_.txt")[warmup:]).tolist()
             
             if i == 4:
                 print("d")
-            times = [median_reference_time/np.array(times[j]) for j in range(len(sizes))]
+            #questionable way to plot
+            out_times = [np.median(times[0])/np.array(times[j])/sizes[j] for j in range(len(sizes))]
 
         
             stds = []
@@ -93,11 +66,11 @@ if __name__ == "__main__":
             interval = []
             confidence = 0.95
             for j in range(len(sizes)):
-                stds.append(np.std(times[j]))
-                medians.append(np.median(times[j]))
-                interval.append(st.t.interval(confidence=confidence, df=len(times[j])-1,
-                        loc=np.median(times[j]),
-                        scale=st.sem(times[j])))
+                stds.append(np.std(out_times[j]))
+                medians.append(np.median(out_times[j]))
+                interval.append(st.t.interval(confidence=confidence, df=len(out_times[j])-1,
+                        loc=np.median(out_times[j]),
+                        scale=st.sem(out_times[j])))
                 
 
             yer_fft = []
@@ -118,13 +91,14 @@ if __name__ == "__main__":
         # ax.set_yscale("log")
         # ax.set_title(
         #     "")
-        ax.set_ylabel("Speedup")
+        ax.set_ylabel("Efficiency")
         ax.set_xlabel("Nodes")
         ax.set_xticks(sizes)
         ax.set_xticklabels(sizes)
         ax.legend()
         ax.set_ylim(bottom=0)
+        #ax.set_yscale("log")
         ax.set_xscale("log", base=2)
         ax.set_xticks(sizes, minor=False)
         ax.set_xticklabels(sizes, minor=False)
-        plt.savefig(images_path + "own_scaling.png", bbox_inches='tight', dpi=300)
+        plt.savefig(images_path + "own_efficiency.png", bbox_inches='tight', dpi=300)
