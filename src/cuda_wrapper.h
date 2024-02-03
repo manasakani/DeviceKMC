@@ -86,7 +86,16 @@ void Assemble_X(int Natom, const double *posx, const double *posy, const double 
                 const double high_G, const double low_G, const double loop_G,
                 int num_source_inj, int num_ground_ext, const int num_layers_contact,
                 int num_metals, double **X_data, int **X_row_ptr, int **X_col_indices, int *X_nnz);
-                         
+
+   // populate the values of the transmission matrix
+void Assemble_X2(int Natom, const double *posx, const double *posy, const double *posz,
+                const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_CB_edge,
+                const double *lattice, bool pbc, double nn_dist, const double tol, const double Vd, const double m_e, const double V0,
+                const double high_G, const double low_G, const double loop_G,
+                int num_source_inj, int num_ground_ext, const int num_layers_contact,
+                int num_metals, double **X_data, int **X_row_indices, int **X_row_ptr, int **X_col_indices, int *X_nnz);
+             
+
 // Initialize sparsity of the background potential solver
 void Assemble_K_sparsity(const double *posx, const double *posy, const double *posz,
                          const double *lattice, const bool pbc, const double cutoff_radius,

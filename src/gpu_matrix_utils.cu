@@ -1086,21 +1086,21 @@ __global__ void assemble_X_indices_gpu(const double *posx_d, const double *posy_
 // }
 
 // uncompress the row pointers into row indices
-__global__ void populate_sparse_X_gpu(int *row_ptr_d, int *row_idx_d, int *nnz)
-{
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int N_full = matrix_size;
-    int N_atom = matrix_size - 2;
+// __global__ void populate_sparse_X_gpu(int *row_ptr_d, int *row_idx_d, int *nnz)
+// {
+//     int idx = blockIdx.x * blockDim.x + threadIdx.x;
+//     int N_full = matrix_size;
+//     int N_atom = matrix_size - 2;
     
-    for(int i = idx; i < N_full - 1; i += blockDim.x * gridDim.x){
+//     for(int i = idx; i < N_full - 1; i += blockDim.x * gridDim.x){
 
-        for( int j = row_ptr_d[i]; j < row_ptr_d[i+1]; j++ )
-        {
-            //continue
-        }
-    }
+//         for( int j = row_ptr_d[i]; j < row_ptr_d[i+1]; j++ )
+//         {
+//             //continue
+//         }
+//     }
 
-}
+// }
 
 // assemble the data for the X matrix - 1D distribution over rows
 __global__ void populate_sparse_X_gpu(const double *posx_d, const double *posy_d, const double *posz_d,
@@ -1292,6 +1292,205 @@ __global__ void populate_sparse_X_gpu(const double *posx_d, const double *posy_d
                     }
 
                 }
+            }
+        }
+    }
+}
+
+
+__global__ void populate_sparse_X_gpu2(const double *posx_d, const double *posy_d, const double *posz_d,
+                                        const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_CB_edge,
+                                        const double *lattice, bool pbc, double nn_dist, const double tol,
+                                        const double high_G, const double low_G, const double loop_G, 
+                                        const double Vd, const double m_e, const double V0,
+                                        int num_source_inj, int num_ground_ext, const int num_layers_contact,
+                                        int num_metals, int matrix_size, int *row_indices_d, int *col_indices_d, double *data_d, int X_nnz)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int N_full = matrix_size;
+    int N_atom = matrix_size - 2;
+    
+    for(int id = idx; id < X_nnz; id += blockDim.x * gridDim.x){
+
+        int i = row_indices_d[id];
+        int j = id;
+
+        if(i >= N_full-1){
+            continue;
+        }
+
+        // col_indices_d[j] is the index of j in the matrix. j is the index of the data vector
+        // if dealing with a diagonal element, we add the positive value from i = i and j = N_full to include the ground node
+
+        // extraction boundary (row)
+        if(i == 0)
+        {
+            // diagonal element (0, 0) --> add the value from (0, N_full)
+            if (col_indices_d[j] == 0)
+            {
+                data_d[j] = +high_G;
+            }
+            // loop connection (0, 1)
+            if (col_indices_d[j] == 1)
+            {
+                data_d[j] = -loop_G;
+            }
+            // extraction connections from the device
+            if ( col_indices_d[j] > N_full - num_ground_ext )
+            {
+                data_d[j] = -high_G;
+            } 
+        }
+
+        // injection boundary (row)
+        if(i == 1)
+        {
+            // loop connection (1, 0)
+            if (col_indices_d[j] == 0)
+            {
+                data_d[j] = -loop_G;
+            }
+            // injection connections to the device
+            if ( col_indices_d[j] >= 2 || (col_indices_d[j] > N_full - num_ground_ext) )
+            {
+                data_d[j] = -high_G;
+            } 
+        }
+
+        // inner matrix terms
+        if (i >= 2)
+        {
+            // diagonal elements --> add the value from (i - 2, N_full - 2) if site i - 2 neighbors the ground node
+            if (i == col_indices_d[j])
+            {
+                double dist_angstrom = site_dist_gpu_2(posx_d[i - 2], posy_d[i - 2], posz_d[i - 2],
+                                                        posx_d[N_atom-1], posy_d[N_atom-1], posz_d[N_atom-1], 
+                                                        lattice[0], lattice[1], lattice[2], pbc);                                   
+                bool neighboring_ground = (dist_angstrom < nn_dist);
+                
+                if (neighboring_ground) 
+                {
+                    data_d[j] = +high_G;     // assuming all the connections to ground come from the right contact
+                } 
+            }
+
+            // extraction boundary (column)
+            if ( (col_indices_d[j] == 0) && (i > N_full - num_ground_ext) )
+            {
+                data_d[j] = -high_G;
+            }
+
+            // injection boundary (column)
+            if ( (col_indices_d[j] == 1) && (i < num_source_inj + 2) )
+            {
+                data_d[j] = -high_G;
+            }
+
+            // off-diagonal inner matrix elements
+            if ( (col_indices_d[j] >= 2) && (col_indices_d[j] != i)) 
+            {
+
+                double dist_angstrom = site_dist_gpu_2(posx_d[i - 2], posy_d[i - 2], posz_d[i - 2],
+                                                        posx_d[col_indices_d[j] - 2], posy_d[col_indices_d[j] - 2], posz_d[col_indices_d[j] - 2], 
+                                                        lattice[0], lattice[1], lattice[2], pbc);                                       
+                    
+                bool neighbor = (dist_angstrom < nn_dist);                                                      
+
+                // non-neighbor connections
+                if (!neighbor)
+                {
+                    bool any_vacancy1 = element[i - 2] == VACANCY;
+                    bool any_vacancy2 = element[col_indices_d[j] - 2] == VACANCY;
+
+                    // contacts, excluding the last layer 
+                    bool metal1p = is_in_array_gpu2(metals, element[i - 2], num_metals) 
+                                                && ((i - 2) > ((num_layers_contact - 1)*num_source_inj))
+                                                && ((i - 2) < (N_full - (num_layers_contact - 1)*num_ground_ext)); 
+
+                    bool metal2p = is_in_array_gpu2(metals, element[col_indices_d[j] - 2], num_metals)
+                                                && ((col_indices_d[j] - 2) > ((num_layers_contact - 1)*num_source_inj))
+                                                && ((col_indices_d[j] - 2) < (N_full - (num_layers_contact - 1)*num_ground_ext));  
+
+                    // types of tunnelling conditions considered
+                    bool trap_to_trap = (any_vacancy1 && any_vacancy2);
+                    bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
+                    bool contact_to_contact = (metal1p && metal2p);
+
+                    double local_E_drop = atom_CB_edge[i - 2] - atom_CB_edge[col_indices_d[j] - 2];                // [eV] difference in energy between the two atoms
+
+                    // compute the WKB tunneling coefficients for all the tunnelling conditions
+                    if ((trap_to_trap || contact_to_trap || contact_to_contact)  && (fabs(local_E_drop) > tol))
+                    {
+                            
+                        double prefac = -(sqrt( 2 * m_e ) / h_bar) * (2.0 / 3.0);           // [s/(kg^1/2 * m^2)] coefficient inside the exponential
+                        double dist = (1e-10)*dist_angstrom;                                // [m] 3D distance between atoms i and j
+
+                        if (contact_to_trap)
+                        {
+                            double energy_window = fabs(local_E_drop);                      // [eV] energy window for tunneling from the contacts
+                            double dV = 0.01;                                               // [V] energy spacing for numerical integration
+                            double dE = eV_to_J * dV;                                       // [eV] energy spacing for numerical integration
+                                    
+                            // integrate over all the occupied energy levels in the contact
+                            double T = 0.0;
+                            for (double iv = 0; iv < energy_window; iv += dE)
+                            {
+                                double E1 = eV_to_J * V0 + iv;                                  // [J] Energy distance to CB before tunnelling
+                                double E2 = E1 - fabs(local_E_drop);                            // [J] Energy distance to CB after tunnelling
+
+                                if (E2 > 0)                                                     // trapezoidal potential barrier (low field)                 
+                                {                                                           
+                                    T += exp(prefac * (dist / fabs(local_E_drop)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
+                                }
+
+                                if (E2 < 0)                                                      // triangular potential barrier (high field)                               
+                                {
+                                    T += exp(prefac * (dist / fabs(local_E_drop)) * ( pow(E1, 1.5) )); 
+                                } 
+                            }
+                            data_d[j] = -T;
+                        } 
+                        else 
+                        {
+                            double E1 = eV_to_J * V0;                                        // [J] Energy distance to CB before tunnelling
+                            double E2 = E1 - fabs(local_E_drop);                             // [J] Energy distance to CB after tunnelling
+                                    
+                            if (E2 > 0)                                                      // trapezoidal potential barrier (low field)
+                            {                                                           
+                                double T = exp(prefac * (dist / fabs(E1 - E2)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
+                                data_d[j] = -T;
+                            }
+
+                            if (E2 < 0)                                                        // triangular potential barrier (high field)
+                            {
+                                double T = exp(prefac * (dist / fabs(E1 - E2)) * ( pow(E1, 1.5) ));
+                                data_d[j] = -T;
+                            }
+                        }
+                    }
+                }
+
+                // direct terms
+                if ( neighbor )
+                {
+                    // contacts
+                    bool metal1 = is_in_array_gpu2<ELEMENT>(metals, element[i - 2], num_metals);
+                    bool metal2 = is_in_array_gpu2<ELEMENT>(metals, element[col_indices_d[j] - 2], num_metals);
+
+                    // conductive vacancy sites
+                    bool cvacancy1 = (element[i - 2] == VACANCY) && (atom_charge[i - 2] == 0);
+                    bool cvacancy2 = (element[col_indices_d[j] - 2] == VACANCY) && (atom_charge[col_indices_d[j] - 2] == 0);
+                    
+                    if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
+                    {
+                        data_d[j] = -high_G;
+                    }
+                    else
+                    {
+                        data_d[j] = -low_G;
+                    }
+                }
+
             }
         }
     }
@@ -1560,6 +1759,73 @@ void Assemble_X_sparsity(int Natom, const double *posx, const double *posy, cons
 }
 
 
+// populates the row pointers and column indices of X
+void Assemble_X_sparsity2(int Natom, const double *posx, const double *posy, const double *posz,
+                         const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_CB_edge,
+                         const double *lattice, bool pbc, double nn_dist, const double tol,
+                         int num_source_inj, int num_ground_ext, const int num_layers_contact,
+                         int num_metals,
+                         int **X_row_ptr,
+                         int **X_row_indices,
+                         int **X_col_indices,
+                         int *X_nnz)
+{
+
+    // number of atoms + ground node + driver nodes 
+    int Nfull = Natom + 2;
+    int matrix_size = Nfull; 
+
+    // Compute the number of nonzeros per row of the matrix (Nsub x Nsub)
+    int *nnz_per_row_d;
+    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
+    gpuErrchk( cudaMemset(nnz_per_row_d, 0, matrix_size * sizeof(int)) );
+
+    int threads = 512;
+    int blocks = (matrix_size + threads - 1) / threads;
+    calc_nnz_per_row_X_gpu<<<blocks, threads>>>(posx, posy, posz,
+                         metals, element, atom_charge, atom_CB_edge,
+                         lattice, pbc, nn_dist, tol,
+                         num_source_inj, num_ground_ext, num_layers_contact,
+                         num_metals, matrix_size, nnz_per_row_d);
+    gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
+
+    // diagonal and 0/1 and connections to ground and source
+    int nnz2 = 4 + num_source_inj + (matrix_size - Natom + num_ground_ext);
+
+
+
+    // Set the row pointers according to the cumulative sum of the nnz per row (total nnz is the last element of the row pointer)
+    gpuErrchk( cudaMalloc((void **)X_row_ptr, (matrix_size + 1 - 1) * sizeof(int)) );   // subtract 1 to ignore the ground node
+    gpuErrchk( cudaMemset((*X_row_ptr), 0, (matrix_size + 1 - 1) * sizeof(int)) );      // subtract 1 to ignore the ground node
+
+    void     *temp_storage_d = NULL;                                                    // determines temporary device storage requirements for inclusive prefix sum
+    size_t   temp_storage_bytes = 0;
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*X_row_ptr)+1, matrix_size - 1); // subtract 1 to ignore the ground node
+    gpuErrchk( cudaMalloc(&temp_storage_d, temp_storage_bytes) );                             // inclusive sum starting at second value to get the row ptr, which is the same as inclusive sum starting at first value and last value filled with nnz
+    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*X_row_ptr)+1, matrix_size - 1);
+    gpuErrchk( cudaMemcpy(X_nnz, (*X_row_ptr) + matrix_size - 1, sizeof(int), cudaMemcpyDeviceToHost) );
+    std::cout << "\nsparse nnz: " << *X_nnz << std::endl;
+
+
+
+    // assemble the column indices from 0 to Nsub (excluding the ground node)
+    gpuErrchk( cudaMalloc((void **)X_col_indices, X_nnz[0] * sizeof(int)) );
+    assemble_X_indices_gpu<<<blocks, threads>>>(posx, posy, posz,
+                         metals, element, atom_charge, atom_CB_edge,
+                         lattice, pbc, nn_dist, tol,
+                         num_source_inj, num_ground_ext, num_layers_contact,
+                         num_metals, matrix_size, nnz_per_row_d,
+                        (*X_row_ptr),
+                        (*X_col_indices));
+
+    cudaFree(temp_storage_d);
+    cudaFree(nnz_per_row_d);
+
+}
+
+
+
 __global__ void calc_diagonal_X_gpu(
     int *col_indices,
     int *row_ptr,
@@ -1602,9 +1868,9 @@ void Assemble_X(int Natom, const double *posx, const double *posy, const double 
     gpuErrchk(cudaMemset((*X_data), 0, X_nnz[0] * sizeof(double)));
 
     // assemble the uncompressed row indices
-    double *X_row_indices;
-    gpuErrchk( cudaMalloc((void **)X_row_indices, X_nnz[0] * sizeof(int)) );
-    get_row_pointers<<<blocks, threads>>(*X_row_ptr, *X_nnz, *X_row_indices);
+    // double *X_row_indices;
+    // gpuErrchk( cudaMalloc((void **)X_row_indices, X_nnz[0] * sizeof(int)) );
+    // get_row_pointers<<<blocks, threads>>(*X_row_ptr, *X_nnz, *X_row_indices);
 
     // send the row indices to populate_sparse_X_gpu
 
@@ -1663,6 +1929,50 @@ void Assemble_X(int Natom, const double *posx, const double *posy, const double 
 
 }
 
+
+
+void Assemble_X2(int Natom, const double *posx, const double *posy, const double *posz,
+                const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_CB_edge,
+                const double *lattice, bool pbc, double nn_dist, const double tol, const double Vd, const double m_e, const double V0,
+                const double high_G, const double low_G, const double loop_G,
+                int num_source_inj, int num_ground_ext, const int num_layers_contact,
+                int num_metals, double **X_data, int **X_row_indices,
+                int **X_row_ptr, int **X_col_indices, int *X_nnz){
+
+    // parallelize over rows
+    int Nfull = Natom + 2;
+    int threads2 = 512;
+    int blocks2 = (X_nnz[0] + threads2 - 1) / threads2;
+    int threads = 512;
+    int blocks = (Nfull + threads - 1) / threads;
+    // allocate the data array and initialize it to zeros
+    gpuErrchk(cudaMalloc((void **)X_data, X_nnz[0] * sizeof(double)));
+    gpuErrchk(cudaMemset((*X_data), 0, X_nnz[0] * sizeof(double)));
+
+
+    // assemble the off-diagonal values of X
+    populate_sparse_X_gpu2<<<blocks2, threads2>>>(posx, posy, posz,
+                                               metals, element, atom_charge, atom_CB_edge,
+                                               lattice, pbc, nn_dist, tol, high_G, low_G, loop_G,
+                                               Vd, m_e, V0,
+                                               num_source_inj, num_ground_ext, num_layers_contact,
+                                               num_metals, Nfull, *X_row_indices, *X_col_indices, *X_data, X_nnz[0]);
+    
+    // populate_sparse_X_gpu<<<blocks, threads>>>(posx, posy, posz,
+    //                                            metals, element, atom_charge, atom_CB_edge,
+    //                                            lattice, pbc, nn_dist, tol, high_G, low_G, loop_G,
+    //                                            Vd, m_e, V0,
+    //                                            num_source_inj, num_ground_ext, num_layers_contact,
+    //                                            num_metals, Nfull, *X_row_ptr, *X_col_indices, *X_data);
+
+    
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    // add the off diagonals onto the diagonal
+    calc_diagonal_X_gpu<<<blocks, threads>>>(*X_col_indices, *X_row_ptr, *X_data, Nfull);
+    gpuErrchk( cudaDeviceSynchronize() );
+
+}
 
 void Assemble_K_sparsity(const double *posx, const double *posy, const double *posz,
                          const double *lattice, const bool pbc,

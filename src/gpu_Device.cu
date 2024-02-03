@@ -1543,17 +1543,62 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
                         num_source_inj, num_ground_ext, num_layers_contact,
                         num_metals, &X_row_ptr, &X_col_indices, &X_nnz);
 
+    std::cout << "X_nnz: " << X_nnz << "\n";
+    int *X_row_indices_h = new int[X_nnz];
+    int *X_row_ptr_h = new int[N_atom + 2];
+
+    gpuErrchk( cudaMemcpy(X_row_ptr_h, X_row_ptr, (N_atom + 2) * sizeof(int), cudaMemcpyDeviceToHost) );
+    std::cout << X_row_ptr_h[N_atom + 1] << "\n";
+    for(int i = 0; i < N_atom + 1; i++){
+        for(int j = X_row_ptr_h[i]; j < X_row_ptr_h[i+1]; j++){
+            X_row_indices_h[j] = i;
+        }
+    }
+    int *X_row_indices;
+    gpuErrchk( cudaMalloc((void **)&X_row_indices, X_nnz * sizeof(int)) );
+    gpuErrchk( cudaMemcpy(X_row_indices, X_row_indices_h, X_nnz * sizeof(int), cudaMemcpyHostToDevice) );
+
+
+    
+
     auto t2 = std::chrono::steady_clock::now();
     std::chrono::duration<double> dt1 = t2 - t1;
     std::cout << "time to assemble X sparsity: " << dt1.count() << "\n";
 
     // Assemble the nonzero value array of X in CSR (from 0 to Nsub):
     double *X_data;                                                                                          // [1] Transmission matrix
-    Assemble_X(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+    // Assemble_X(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+    //            gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
+    //            gpubuf.lattice, pbc, nn_dist, tol, Vd, m_e, V0, high_G, low_G, loop_G,
+    //            num_source_inj, num_ground_ext, num_layers_contact,
+    //            num_metals, &X_data, &X_row_ptr, &X_col_indices, &X_nnz);
+
+    // double *X_data2;                                                                                          // [1] Transmission matrix
+    Assemble_X2(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
                gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
                gpubuf.lattice, pbc, nn_dist, tol, Vd, m_e, V0, high_G, low_G, loop_G,
                num_source_inj, num_ground_ext, num_layers_contact,
-               num_metals, &X_data, &X_row_ptr, &X_col_indices, &X_nnz);
+               num_metals, &X_data, &X_row_indices, &X_row_ptr, &X_col_indices, &X_nnz);
+    // gpuErrchk( cudaFree(X_row_indices) );
+    // double *X_data_h = new double[X_nnz];
+    // double *X_data2_h = new double[X_nnz];
+    // gpuErrchk( cudaMemcpy(X_data_h, X_data, X_nnz * sizeof(double), cudaMemcpyDeviceToHost) );
+    // gpuErrchk( cudaMemcpy(X_data2_h, X_data2, X_nnz * sizeof(double), cudaMemcpyDeviceToHost) );
+
+    // for (int i = 0; i < X_nnz; i++)
+    // {
+
+    //     // if (X_data_h[i] == X_data2_h[i])
+    //     // {
+    //     //     std::cout << "X_data match at index " << i << " with value " << X_data_h[i] << "\n";
+    //     // }
+    //     if (X_data_h[i] != X_data2_h[i])
+    //     {
+    //         std::cout << "X_data mismatch at index " << i << " with values " << X_data_h[i] << " and " << X_data2_h[i] << "\n";
+    //     }
+    // }
+
+
 
     auto t3 = std::chrono::steady_clock::now();
     std::chrono::duration<double> dt2 = t3 - t2;
