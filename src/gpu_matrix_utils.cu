@@ -1086,7 +1086,7 @@ __global__ void assemble_X_indices_gpu(const double *posx_d, const double *posy_
 // }
 
 // // uncompress the row pointers into row indices
-// __global__ void populate_sparse_X_gpu(int *row_ptr_d, int *row_idx_d, int *nnz)
+// __global__ void get_row_pointers(int *row_ptr_d, int *row_idx_d, int *nnz)
 // {
 //     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 //     int N_full = matrix_size;

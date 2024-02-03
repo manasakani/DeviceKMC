@@ -1632,7 +1632,7 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
     std::cout << "time to compute current: " << dt4.count() << "\n";
 
     std::cout << "I_macro: " << *imacro * (1e6) << "\n";
-    std::cout << "exiting after I_macro\n"; exit(1);
+    // std::cout << "exiting after I_macro\n"; exit(1);
 
     // **********************************************
     // 4. Calculate the dissipated power at each atom
