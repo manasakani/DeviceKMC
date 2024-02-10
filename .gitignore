@@ -1,14 +1,12 @@
 bin/
 obj/
-tests/contact1x1_device2x2/
-test3_globalTemperature/
-test4_localTemperature/
-test2_localTemperature/
-postprocessing_scripts/__pycache__/
-tests/prod_2xstructure/
-tests/7-crossbar_selected/
+data/
+postprocessing/__pycache__/
+final_parameters
 runs/
 voro/
+Results_*/
+.DS_Store
 
 # Other standard ignores
 .vscode/
@@ -22,5 +20,6 @@ voro/
 # Ignore files
 output.txt
 run_job.sh
+hosts
 
 # Ignore txt files

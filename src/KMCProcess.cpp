@@ -10,7 +10,7 @@
 #include <chrono>
 
 #ifdef USE_CUDA
-    #include "cuda_wrapper.h"
+    #include "gpu_solvers.h"
 #endif
 
 

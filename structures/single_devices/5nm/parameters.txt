@@ -1,0 +1,91 @@
+//******************************
+//  Simulation Parameters
+//******************************
+
+rnd_seed = 5													// random number for KMCProcess
+restart = 1														// restart calculation
+restart_xyz_file = reordered_device_5.xyz	 										// restart filename
+
+atom_xyz_file = NA							// if not restart, draws from the atom coordinates file
+interstitial_xyz_file = NA
+lattice = 108.984220 51.150000 51.150000 						// 1x1 device
+
+pristine = 1													// add initial vacancy concentration if starting from pristine
+initial_vacancy_concentration = 0.05 
+attempt_frequency = 10e13 										// [1/s]
+
+shift = 0														// translate cell across the periodic boundary
+shifts = 0.0 0.5 0.5
+
+nn_dist = 3.5 													// [Angstrom] neighbor distance
+
+perturb_structure = 1											// KMC event step ( turn off to only calculate fields )
+solve_potential = 1												// field solvers
+solve_current = 1
+solve_heating_global = 1
+solve_heating_local = 0
+																// for potential solver:
+sigma = 3.5e-10 												// [m] gaussian broadening
+epsilon = 23.0  												// [1] relative permittivity
+								
+																// for current solver (tunneling parameters)
+m_r = 0.85														// [1] relative effective mass
+V0 = 1.6  														// [eV] defect state energy
+
+																// for temperature solver
+k_therm = 1.1         											// [W/mK] thermal conductivity
+background_temp = 300 											// [K] contact temperature
+
+pbc = 0															// toggle for periodic boundary conditions
+
+V_switch = 0 0.101010101010101 0.202020202020202 0.303030303030303 0.404040404040404 0.505050505050505 0.606060606060606 0.707070707070707 0.808080808080808 0.909090909090909 1.01010101010101 1.11111111111111 1.21212121212121 1.31313131313131 1.41414141414141 1.51515151515152 1.61616161616162 1.71717171717172 1.81818181818182 1.91919191919192 2.02020202020202 2.12121212121212 2.22222222222222 2.32323232323232 2.42424242424242 2.52525252525253 2.62626262626263 2.72727272727273 2.82828282828283 2.92929292929293 3.03030303030303 3.13131313131313 3.23232323232323 3.33333333333333 3.43434343434343 3.53535353535354 3.63636363636364 3.73737373737374 3.83838383838384 3.93939393939394 4.04040404040404 4.14141414141414 4.24242424242424 4.34343434343434 4.44444444444444 4.54545454545455 4.64646464646465 4.74747474747475 4.84848484848485 4.94949494949495 5.05050505050505 5.15151515151515 5.25252525252525 5.35353535353535 5.45454545454545 5.55555555555556 5.65656565656566 5.75757575757576 5.85858585858586 5.95959595959596 6.06060606060606 6.16161616161616 6.26262626262626 6.36363636363636 6.46464646464646 6.56565656565657 6.66666666666667 6.76767676767677 6.86868686868687 6.96969696969697 7.07070707070707 7.17171717171717 7.27272727272727 7.37373737373737 7.47474747474747 7.57575757575758 7.67676767676768 7.77777777777778 7.87878787878788 7.97979797979798 8.08080808080808 8.18181818181818 8.28282828282828 8.38383838383838 8.48484848484848 8.58585858585859 8.68686868686869 8.78787878787879 8.88888888888889 8.98989898989899 9.09090909090909 9.19191919191919 9.29292929292929 9.39393939393939 9.49494949494949 9.5959595959596 9.6969696969697 9.7979797979798 9.8989898989899 10
+
+t_switch = 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3 , 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3 , 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3		// [s] timescale for switching
+
+Icc = 10000 													// [uA] enforced compliance current
+
+Rs = 1e-16 														// [Ohm] series resistance 
+
+log_freq = 500													// frequency of device snapshot generation (per x kmc steps)
+
+output_freq = 1 												// frequency of printing the steps into the output file
+
+verbose = 0							    						// this doesn't do anything yet
+
+num_atoms_first_layer = 576										// number of contact atoms in the first slice
+num_layers_contact = 10											// number of slices in the contact
+num_atoms_contact = 5760											// total number of contact atoms
+num_atoms_reservoir = 2160										// number of atoms in the oxygen reservoir
+metals = Ti N													// these atoms will be treated as conductive
+
+// Physical Constants
+double kB = 8.617333262e-5;        								// [eV/K]
+double q = 1.60217663e-19;         								// [C]
+double k = 8.987552e9 / epsilon;   								// [N m^2 / C^2]
+double h_bar_sq = 4.3957e-67;      								// [(Js)^2]
+double h_bar = 1.054571817e-34;    								// [Js]
+double h_bar_eV = 6.582119569e-16; 								// [eV]
+double m_0 = 9.11e-31;             								// [kg]
+double eV_to_J = 1.6e-19;          								// [C]
+//double m_e = m_r * m_0;            							// [kg]
+
+// Device constants
+t_ox = 52.6838e-10                       						// [m] thickness oxide
+A = 51.150000e-10 * 51.150000e-10 						// [m^2] device area 
+c_p = 1.92;                               						// [J/Kcm^3]
+k_th_metal = 29                                					// [W/mK]
+k_th_non_vacancy = 0.5                         					// [W/mK]
+k_th_vacancies = 5                             					// [W/mK]
+
+// Power update
+alpha = 0.1 													// power dissipation constant
+
+// Global thermal model
+dissipation_constant = 1e-13 									// in [J/Ks] Tunable parameter
+small_step = 1e-17
+
+// Local thermal model
+delta_t = 1e-13                									// step time [s] (rejection free event time == delta_t)
+delta = 1                    									// [a.u.]
+power_adjustment_term = 1 										// [a.u.]
+L_char = 3.5e-10               									// characteristic length [m]

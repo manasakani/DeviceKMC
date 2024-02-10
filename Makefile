@@ -5,26 +5,26 @@
 # USE TO COMPILE CPU-ONLY CODE, remember to make clean when switching
 # ***************************************************
 # *** IIS - Intel Compiler ***
-CXX = /usr/sepp/bin/icc-2020-af 
-MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
-OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
-CUDA_ROOT = /usr/local/cuda
-CXXFLAGS = -O3 -std=c++11 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
+# CXX = /usr/sepp/bin/icc-2020-af 
+# MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
+# OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
+# CUDA_ROOT = /usr/local/cuda
+# CXXFLAGS = -O3 -std=c++11 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/include -Wl, -liomp5 -lpthread -ldl -mkl -qopenmp -fopenmp
 # ***************************************************
 
 # USE TO COMPILE GPU CODE ON ATTELAS, remember to make clean when switching
 # ***************************************************
 # *** IIS - GNU C++ compiler (with C++17) + nvcc *** 
-#   CXX = /usr/sepp/bin/g++ 
-#   MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
-#   OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
-#   CUDA_ROOT = /usr/local/cuda
-#   CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
-#   NVCC = nvcc
-#   NVCCFLAGS = -O3 -std=c++17 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" --extended-lambda #-G -lineinfo # Last two are for the visual profiler # To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 
-#   LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver -lcusparse
-#   CXXFLAGS += -DUSE_CUDA 
-#   COMPILE_WITH_CUDA = -DCUDA 
+  CXX = /usr/sepp/bin/g++ 
+  MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
+  OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
+  CUDA_ROOT = /usr/local/cuda
+  CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
+  NVCC = nvcc
+  NVCCFLAGS = -O3 -std=c++17 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" --extended-lambda #-G -lineinfo # Last two are for the visual profiler # To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 
+  LDFLAGS = -L"${CUDA_ROOT}/lib64" -lcuda -lcudart -lcublas -lcusolver -lcusparse
+  CXXFLAGS += -DUSE_CUDA 
+  COMPILE_WITH_CUDA = -DCUDA 
 # ***************************************************
 
 # ***************************************************
@@ -41,7 +41,6 @@ CXXFLAGS = -O3 -std=c++11 -I$(OMPROOT) -I${CUDA_ROOT}/include -I$(MKLROOT)/inclu
 #  CXXFLAGS += -DUSE_CUDA 
 #  COMPILE_WITH_CUDA = -DCUDA 
 # ***************************************************
-
 
 # USE TO COMPILE GPU CODE WITH MPI ON PIZ DAINT, remember to make clean when switching
 # ***************************************************
@@ -70,8 +69,8 @@ else
 all: $(TEST_TARGET) 
 endif
 
-CUFILES = $(filter-out $(SRCDIR)/kernel_unit_tests.cu, $(wildcard $(SRCDIR)/*.cu))		# files only for testing have the form test_*.cu
-CPPFILES = $(filter-out $(wildcard $(SRCDIR)/test_*.cpp), $(wildcard $(SRCDIR)/*.cpp))	# files only for testing have the form test_*.cpp
+CUFILES = $(filter-out $(SRCDIR)/kernel_unit_tests.cu, $(wildcard $(SRCDIR)/*.cu))			# files only for testing have the form test_*.cu
+CPPFILES = $(filter-out $(wildcard $(SRCDIR)/test_*.cpp), $(wildcard $(SRCDIR)/*.cpp))		# files only for testing have the form test_*.cpp
 
 CU_OBJ_FILES = $(patsubst $(SRCDIR)/%.cu, $(OBJDIR)/%.o, $(CUFILES))
 CPP_OBJ_FILES = $(patsubst $(SRCDIR)/%.cpp, $(OBJDIR)/%.o, $(CPPFILES))
@@ -108,10 +107,12 @@ $(info MAKE INFO: Compile target - KMC Simulation ./bin/runKMC)
 $(TARGET): $(CU_OBJ_FILES) $(CPP_OBJ_FILES)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 		
-$(OBJDIR)/%.o: $(SRCDIR)/%.cpp $(DEPS) $(SRCDIR)/cuda_wrapper.h
+$(OBJDIR)/%.o: $(SRCDIR)/%.cpp $(DEPS) #$(SRCDIR)/gpu_solvers.h
+	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 		
-$(OBJDIR)/%.o: $(SRCDIR)/%.cu $(SRCDIR)/cuda_wrapper.h
+$(OBJDIR)/%.o: $(SRCDIR)/%.cu #$(SRCDIR)/gpu_solvers.h
+	@mkdir -p $(@D)
 	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 	
 # compile the tests for kernels
@@ -122,13 +123,13 @@ $(info MAKE INFO: Compile target - TESTS ./bin/runTests)
 $(TEST_TARGET): $(OBJDIR)/gpu_Device.o $(OBJDIR)/gpu_matrix_utils.o $(OBJDIR)/utils.o $(OBJDIR)/test_main.o 
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
-$(OBJDIR)/test_main.o: $(SRCDIR)/test_main.cpp $(SRCDIR)/cuda_wrapper.h
+$(OBJDIR)/test_main.o: $(SRCDIR)/test_main.cpp $(SRCDIR)/gpu_solvers.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(OBJDIR)/utils.o: $(SRCDIR)/utils.cpp $(SRCDIR)/cuda_wrapper.h
+$(OBJDIR)/utils.o: $(SRCDIR)/utils.cpp $(SRCDIR)/gpu_solvers.h
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(OBJDIR)/%.o: $(SRCDIR)/%.cu $(SRCDIR)/cuda_wrapper.h
+$(OBJDIR)/%.o: $(SRCDIR)/%.cu $(SRCDIR)/gpu_solvers.h
 	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
 endif

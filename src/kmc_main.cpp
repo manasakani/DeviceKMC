@@ -20,7 +20,7 @@ Copyright 2023 ETH Zurich and the Computational Nanoelectronics Group. All right
 #include "input_parser.h"
 
 #ifdef USE_CUDA
-#include "cuda_wrapper.h"
+#include "gpu_solvers.h"
 #endif
 
 int main(int argc, char **argv)

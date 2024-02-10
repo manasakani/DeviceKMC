@@ -2,13 +2,13 @@
 #include "utils.h"
 
 #ifdef USE_CUDA
-#include "cuda_wrapper.h"
+#include "gpu_solvers.h"
 #endif
 
 // forward declaration of device class
 class Device;
 
-// Member variables are pointers to GPU memory unless specified with _host
+// Member variables are pointers to GPU memory unless specified with _host (or integers passed by value)
 class GPUBuffers {
 
 public:
@@ -18,6 +18,7 @@ public:
     double *T_bg = nullptr;
     double *atom_power = nullptr;//, *atom_potential = nullptr;
     double *atom_CB_edge = nullptr;
+    double *atom_virtual_potentials = nullptr;
     int *atom_charge = nullptr;
 
     // unchanging parameters (site_) and ones which aren't copied back (atom_):
@@ -34,7 +35,7 @@ public:
     // cusolverDnHandle_t  cusolver_handle;
     // cusparseHandle_t cusparse_handle;
 
-    // CSR indices pre-computation
+    // CSR indices pre-computation for K
     int *Device_row_ptr_d = nullptr;                // CSR representation of the matrix which represents connectivity in the device
     int *Device_col_indices_d = nullptr;            
     int *contact_left_row_ptr = nullptr;            // CSR representation of the matrix which represents connectivity of the left contact
@@ -127,6 +128,12 @@ public:
         gpuErrchk( cudaMalloc((void **)&atom_power, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void **)&atom_CB_edge, N_atom_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void **)&atom_charge, N_ * sizeof(int)) );
+
+        cudaDeviceSynchronize();
+
+        // virtual potentials initial guess to store (solution vector for dissipated power solver):
+        gpuErrchk( cudaMalloc((void **)&atom_virtual_potentials, (N_atom_ + 2) * sizeof(double)) );
+        gpuErrchk( cudaMemset(atom_virtual_potentials, 0, (N_atom_ + 2) * sizeof(double)) );                          // initialize the solution vector for the dissipated power                                 
 
         cudaDeviceSynchronize();
 

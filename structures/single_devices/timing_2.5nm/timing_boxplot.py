@@ -4,12 +4,19 @@ import matplotlib.patches as mpatches
 import numpy as np
 
 # Define a dictionary to store the timing information
+# timing_data = {
+#     "KMC step count": [],
+#     "Z - calculation time - charge [s]": [],
+#     "Z - calculation time - dissipated power [s]": [],
+#     "Z - calculation time - potential from boundaries [s]": [],
+#     "Z - calculation time - potential from charges [s]": [],
+#     "Z - calculation time - kmc events [s]": [],
+#     "Z - calculation time - KMC superstep [s]": [],
+# }
 timing_data = {
     "KMC step count": [],
-    "Z - calculation time - charge [s]": [],
     "Z - calculation time - dissipated power [s]": [],
     "Z - calculation time - potential from boundaries [s]": [],
-    "Z - calculation time - potential from charges [s]": [],
     "Z - calculation time - kmc events [s]": [],
     "Z - calculation time - KMC superstep [s]": [],
 }
@@ -52,7 +59,7 @@ for box, color in zip(bp['boxes'], box_colors):
 
 # Set the y-axis to log scale
 ax.set_yscale('log')
-ax.set_ylim(1e-6, 1e2)
+ax.set_ylim(1e-4, 1e2)
 
 # Increase font size
 ax.tick_params(axis='both', which='major', labelsize=18)
@@ -73,7 +80,7 @@ for x, (values, color) in enumerate(zip(data, box_colors), start=1):
     track = 0
     for value in values:
         # ax.plot(x, value, 'o', color=color, alpha = x / len(data), markeredgewidth=0)
-        ax.plot(x, value, '.', markersize = 10, color=color, alpha = track / max(timing_data["KMC step count"]), markeredgewidth=0)
+        ax.plot(x, value, '.', markersize = 20, color=color, alpha = track / max(timing_data["KMC step count"]), markeredgewidth=0)
         track+=1
 
 # # Plot lines for each measurement with alpha corresponding to KMC step number

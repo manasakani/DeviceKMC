@@ -1,0 +1,91 @@
+//******************************
+//  Simulation Parameters
+//******************************
+
+rnd_seed = 5													// random number for KMCProcess
+restart = 1														// restart calculation
+restart_xyz_file = reordered_crossbar_10_2.5.xyz				// restart filename
+
+atom_xyz_file = reordered_crossbar_10_2.5.xyz					// if not restart, draws from the atom coordinates file
+interstitial_xyz_file = interstitials_crossbar_10_2.5.xyz
+lattice = 108.98 102.3 102.3				 					// 1x1 device
+
+pristine = 1													// add initial vacancy concentration if starting from pristine
+initial_vacancy_concentration = 0.05 
+attempt_frequency = 10e13 										// [1/s]
+
+shift = 0														// translate cell across the periodic boundary
+shifts = 0.0 0.5 0.5
+
+nn_dist = 3.5 													// [Angstrom] neighbor distance
+
+perturb_structure = 1											// KMC event step ( turn off to only calculate fields )
+solve_potential = 1												// field solvers
+solve_current = 0
+solve_heating_global = 0
+solve_heating_local = 0
+																// for potential solver:
+sigma = 3.5e-10 												// [m] gaussian broadening
+epsilon = 23.0  												// [1] relative permittivity
+								
+																// for current solver (tunneling parameters)
+m_r = 0.85														// [1] relative effective mass
+V0 = 1.6  														// [eV] defect state energy
+
+																// for temperature solver
+k_therm = 1.1         											// [W/mK] thermal conductivity
+background_temp = 300 											// [K] contact temperature
+
+pbc = 0															// toggle for periodic boundary conditions
+
+V_switch = 15 //, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+
+t_switch = 1 //e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3 , 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3		/ [s] timescale for switching		/ [s] timescale for switching
+
+Icc = 0.5 														// [uA] enforced compliance current
+
+Rs = 1e-16 														// [Ohm] series resistance 
+
+log_freq = 50													// frequency of device snapshot generation (per x kmc steps)
+
+output_freq = 1 												// frequency of printing the steps into the output file
+
+verbose = 0							    						// this doesn't do anything yet
+
+num_atoms_first_layer = 144										// number of contact atoms in the first slice
+num_layers_contact = 10											// number of slices in the contact
+num_atoms_contact = 11520										// total number of contact atoms
+num_atoms_reservoir = 0											// number of atoms in the oxygen reservoir
+metals = Ti N													// these atoms will be treated as conductive
+
+// Physical Constants
+double kB = 8.617333262e-5;        								// [eV/K]
+double q = 1.60217663e-19;         								// [C]
+double k = 8.987552e9 / epsilon;   								// [N m^2 / C^2]
+double h_bar_sq = 4.3957e-67;      								// [(Js)^2]
+double h_bar = 1.054571817e-34;    								// [Js]
+double h_bar_eV = 6.582119569e-16; 								// [eV]
+double m_0 = 9.11e-31;             								// [kg]
+double eV_to_J = 1.6e-19;          								// [C]
+//double m_e = m_r * m_0;            							// [kg]
+
+// Device constants
+t_ox = 52.6838e-10                       						// [m] thickness oxide
+A = 102.3e-10 * 102.3 											// [m^2] device area 
+c_p = 1.92;                               						// [J/Kcm^3]
+k_th_metal = 29                                					// [W/mK]
+k_th_non_vacancy = 0.5                         					// [W/mK]
+k_th_vacancies = 5                             					// [W/mK]
+
+// Power update
+alpha = 0.1 													// power dissipation constant
+
+// Global thermal model
+dissipation_constant = 1e-13 									// in [J/Ks] Tunable parameter
+small_step = 1e-17
+
+// Local thermal model
+delta_t = 1e-13                									// step time [s] (rejection free event time == delta_t)
+delta = 1                    									// [a.u.]
+power_adjustment_term = 1 										// [a.u.]
+L_char = 3.5e-10               									// characteristic length [m]

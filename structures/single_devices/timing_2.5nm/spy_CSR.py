@@ -18,86 +18,56 @@ def read_csr_matrix(folder_path, step):
     csr_matrix_data = csr_matrix((values, col_indices, row_ptr), shape=(m, m))
     return csr_matrix_data
 
-def print_nonzero_indices_and_values(matrix, label):
-    indices = np.nonzero(matrix)
-    for i, j in zip(indices[0], indices[1]):
-        print(f"Non-zero element at position ({i}, {j}) in {label}: {matrix[i, j]}")
-
-def visualize_and_save_sparsity_difference_log(csr_matrix_data_1, csr_matrix_data_2, folder_path, step_1, step_2):
-    difference_matrix = csr_matrix_data_2 - csr_matrix_data_1
-
-    # print("Non-zero indices and values in the difference matrix:")
-    # print_nonzero_indices_and_values(difference_matrix, f'Difference (Step {step_2} - Step {step_1})')
-
-    # Plot colors of the logarithm of the values
-    plt.imshow(np.log1p(np.abs(difference_matrix.toarray())), cmap='viridis', interpolation='none', aspect='auto')
-
-    plt.title(f'Logarithmic Sparsity Pattern Difference (Step {step_2} - Step {step_1})')
+def visualize_and_save_sparsity(csr_matrix_data, folder_path, step):
+    plt.spy(csr_matrix_data, markersize=1)
+    plt.title('Sparsity Pattern')
     plt.xlabel('Column Index')
     plt.ylabel('Row Index')
 
-    filename = os.path.join(folder_path, f"log_sparsity_pattern_difference_step#{step_1}_to_step#{step_2}.jpg")
+    filename = os.path.join(folder_path, f"sparsity_pattern_step#{step}.jpg")
     plt.savefig(filename)
     plt.show()
-
-def visualize_and_save_sparsity_difference(csr_matrix_data_1, csr_matrix_data_2, folder_path, step_1, step_2):
-    difference_matrix = csr_matrix_data_2 - csr_matrix_data_1
-
-    print("Non-zero indices and values in the difference matrix:")
-    print_nonzero_indices_and_values(difference_matrix, f'Difference (Step {step_2} - Step {step_1})')
-
-    plt.spy(difference_matrix, markersize=1)
-    plt.title(f'Sparsity Pattern Difference (Step {step_2} - Step {step_1})')
-    plt.xlabel('Column Index')
-    plt.ylabel('Row Index')
-
-    filename = os.path.join(folder_path, f"sparsity_pattern_difference_step#{step_1}_to_step#{step_2}.jpg")
-    plt.savefig(filename)
-    plt.show()
-
-def are_matrices_equal(matrix1, matrix2, tolerance=1e-12):
-    # Check if matrices have the same shape
-    if matrix1.shape != matrix2.shape:
-        return False
-
-    # Get non-zero elements and their positions for both matrices
-    nz_indices_1 = set(zip(matrix1.nonzero()[0], matrix1.nonzero()[1]))
-    nz_indices_2 = set(zip(matrix2.nonzero()[0], matrix2.nonzero()[1]))
-
-    # Check if non-zero elements match within the tolerance
-    if not all(np.isclose(matrix1[i, j], matrix2[i, j], atol=tolerance) for i, j in nz_indices_1.intersection(nz_indices_2)):
-        return False
-
-    return True
-
 
 def main():
-    if len(sys.argv) != 2:
-        print("Usage: python script.py <folder_name>")
-        sys.exit(1)
+    # if len(sys.argv) != 2:
+    #     print("Usage: python script.py <folder_name>")
+    #     sys.exit(1)
 
-    folder_path = sys.argv[1]
+    folder_path = './'# sys.argv[1]
+    step = 0
 
-    # Assuming steps 0 and 1 for illustration
-    step_0 = 0
-    step_1 = 1
+    # read the large sparse matrix
+    csr_matrix_data = read_csr_matrix(folder_path, step)
 
-    csr_matrix_data_0 = read_csr_matrix(folder_path, step_0)
-    csr_matrix_data_1 = read_csr_matrix(folder_path, step_1)
+    # Convert the sparse matrix to a dense matrix
+    dense_matrix = csr_matrix_data.toarray()
 
-    # Visualize and save sparsity pattern difference
-    # visualize_and_save_sparsity_difference(csr_matrix_data_0, csr_matrix_data_1, folder_path, step_0, step_1)
-    visualize_and_save_sparsity_difference_log(csr_matrix_data_0, csr_matrix_data_1, folder_path, step_0, step_1)
+    # read the dense submatrix
+    dense_submatrix_filename = os.path.join('./', 'T.txt')
+    dense_submatrix = np.loadtxt(dense_submatrix_filename)
 
-    # Check if matrices are equal
-    if are_matrices_equal(csr_matrix_data_0, csr_matrix_data_1):
-        print("Matrices are equal.")
-    else:
-        print("Matrices are not equal.")
-        print("Indices and values where matrices differ:")
-        indices_diff = np.nonzero(csr_matrix_data_0 != csr_matrix_data_1)
-        for i, j in zip(indices_diff[0], indices_diff[1]):
-            print(f"Position ({i}, {j}): Matrix 0 value = {csr_matrix_data_0[i, j]}, Matrix 1 value = {csr_matrix_data_1[i, j]}")
+    print(np.shape(dense_submatrix))
+
+    # read the insertion_indices
+    insertion_indices_filename = os.path.join('./', 'insertion_indices.txt')
+    insertion_indices = np.loadtxt(insertion_indices_filename, dtype=int)
+
+    print(np.shape(insertion_indices))
+
+    insertion_positions = insertion_indices +2
+
+    # Add the dense submatrix to the corresponding positions in the dense matrix
+    for i, row_index in enumerate(insertion_positions):
+        for j, col_index in enumerate(insertion_positions):
+            dense_matrix[row_index, col_index] += dense_submatrix[i, j]
+
+    # Convert the dense matrix back to a sparse matrix
+    updated_csr_matrix_data = csr_matrix(dense_matrix)
+
+    diff_matrix = updated_csr_matrix_data - csr_matrix_data
+
+    visualize_and_save_sparsity(updated_csr_matrix_data, folder_path, step)
+    # visualize_and_save_sparsity(diff_matrix, folder_path, step)
 
 if __name__ == "__main__":
     main()
