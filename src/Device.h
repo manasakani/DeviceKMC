@@ -95,6 +95,7 @@ public:
 
     // Fields:
     std::vector<int> site_charge;                       // [q] charge of each site
+    std::vector<double> site_CB_edge;                   // [eV] the conduction band edge of each site
     std::vector<double> site_potential_boundary;        // [V] potential of each site (boundary solution, homogenous poisson)
     std::vector<double> site_potential_charge;          // [V] potential of each site (charge solution, inhomogenous poisson)
     std::vector<double> site_power;                     // [W] power dissipated at each site
@@ -144,7 +145,8 @@ private:
     //**************************************************
 
     // Solve the Laplace equation to get the CB edge along the device
-    public: void setLaplacePotential(KMCParameters &p, double Vd);
+    public: void setLaplacePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers gpubuf, 
+                                     KMCParameters &p, double Vd);
 
     // update the charge of each vacancy and ion
     public: std::map<std::string, double> updateCharge(GPUBuffers gpubuf, std::vector<ELEMENT> metals);

@@ -117,6 +117,7 @@ int main(int argc, char **argv)
                       device.N, device.N_atom, device.site_x, device.site_y, device.site_z,
                       device.max_num_neighbors, device.sigma, device.k, 
                       device.lattice, device.neigh_idx, p.metals, p.metals.size());
+    gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
     initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer);
 #else
     GPUBuffers gpubuf;
@@ -147,7 +148,7 @@ int main(int argc, char **argv)
         // solve the Laplace Equation to get the CB edge energy at this voltage
         if (p.solve_current)
         {
-            device.setLaplacePotential(p, Vd);                                                      // homogenous poisson equation with boundary conditions
+            device.setLaplacePotential(handle, handle_cusolver, gpubuf, p, Vd);                     // homogenous poisson equation with contact BC
         }
 
         // setup output folder

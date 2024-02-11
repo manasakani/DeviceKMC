@@ -1,6 +1,8 @@
 #include "gpu_solvers.h"
 #include <cub/cub.cuh>
 
+// Sparse matrix assembly functions and iterative solvers
+
 #define NUM_THREADS 512
 const double eV_to_J = 1.60217663e-19;          // [C]
 const double h_bar = 1.054571817e-34;           // [Js]
@@ -317,7 +319,7 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     bool zero_guess = 0;    
 
     // Error tolerance for the norm of the residual in the CG steps
-    double tol = 1e-12; // increased from 1e-12
+    double tol = 1e-12;  // make this an input
 
     double one = 1.0;
     double n_one = -1.0;
@@ -465,7 +467,7 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     //     std::cout << copy_back[i] << " ";
     // }
     // std::cout << "\nPrinted solution vector, now exiting\n";
-    // // exit(1);
+    // exit(1);
 
     cudaFree(diagonal_values_inv_sqrt_d);
     cudaFree(MVBuffer); 

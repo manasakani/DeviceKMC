@@ -498,6 +498,7 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + gpubuf.N_, gpubuf.site_element, gpubuf.atom_z, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_charge, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + gpubuf.N_, gpubuf.site_element, gpubuf.atom_element, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_CB_edge, gpubuf.site_CB_edge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_CB_edge, is_defect());
     thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
 
     // auto t1 = std::chrono::steady_clock::now();
@@ -874,6 +875,7 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
     thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + gpubuf.N_, gpubuf.site_element, gpubuf.atom_z, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_charge, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + gpubuf.N_, gpubuf.site_element, gpubuf.atom_element, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_CB_edge, gpubuf.site_CB_edge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_CB_edge, is_defect());
     thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
 
     auto t1 = std::chrono::steady_clock::now();
@@ -1030,7 +1032,7 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
     std::chrono::duration<double> dt4 = t5 - t4;
     std::cout << "time to compute current: " << dt4.count() << "\n";
 
-    std::cout << "I_macro: " << *imacro * (1e6) << "\n";
+    // std::cout << "I_macro: " << *imacro * (1e6) << "\n";
     // std::cout << "exiting after I_macro\n"; exit(1);
 
     // **********************************************
@@ -1376,6 +1378,7 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
     thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + gpubuf.N_, gpubuf.site_element, gpubuf.atom_z, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_charge, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + gpubuf.N_, gpubuf.site_element, gpubuf.atom_element, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_CB_edge, gpubuf.site_CB_edge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_CB_edge, is_defect());
     thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
 
     // ***************************************************************************************

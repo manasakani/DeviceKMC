@@ -34,8 +34,8 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
     this->k = k = 8.987552e9 / p.epsilon;
     this->T_bg = p.background_temp;
 
-    // sort and prepare the raw coordinates
-    // sort_by_xyz(site_x, site_y, site_z, site_element, lattice);              // uncomment to sort the sites
+    // sort and prepare the raw coordinates - DO NOT SORT
+    sort_by_xyz(site_x, site_y, site_z, site_element, lattice);              // uncomment to sort the sites
     
     // shift the coordinates across periodic boundaries
     if (p.shift)
@@ -81,6 +81,7 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
 
     // initialize the size of the field vectors
     site_charge.resize(N, 0);
+    site_CB_edge.resize(N, 0);
     site_potential_boundary.resize(N, 0);
     site_potential_charge.resize(N, 0);
     site_power.resize(N, 0);
@@ -88,7 +89,7 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
 
     // Re-identify the atomic sites (differentiate from the vacancy sites and oxygen ions)
     updateAtomLists();
-    atom_CB_edge.resize(N_atom, 0);
+    // atom_CB_edge.resize(N_atom, 0);
 
     std::cout << "Loaded " << N << " sites into device" << " : " << N_atom << " atoms and " << N-N_atom << " interstitials " << "\n";
 
@@ -136,6 +137,7 @@ void Device::constructSiteNeighborList()
 
 void Device::updateAtomLists()
 {
+
     // reset the atoms arrays
     atom_x.clear();
     atom_y.clear();
@@ -143,6 +145,7 @@ void Device::updateAtomLists()
     atom_ind.clear();
     atom_element.clear();
     atom_charge.clear();
+    atom_CB_edge.clear();
     int atom_count = 0;
 
     // the elements of the atoms array are copies of the non-defects in the site array
@@ -158,6 +161,7 @@ void Device::updateAtomLists()
             atom_z.push_back(site_z[i]);
             atom_element.push_back(site_element[i]);
             atom_charge.push_back(site_charge[i]);
+            atom_CB_edge.push_back(site_CB_edge[i]);
             atom_ind.push_back(i);
             atom_count++;
             }

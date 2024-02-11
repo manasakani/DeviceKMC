@@ -4,10 +4,10 @@
 
 rnd_seed = 5													// random number for KMCProcess
 restart = 0														// restart calculation
-restart_xyz_file = ./final_parameters/snapshot_109_setsweep.xyz	   // restart filename
+restart_xyz_file = ./final_parameters/snapshot_109_setsweep.xyz	// restart filename
 
-atom_xyz_file = structure_files/atoms.xyz						// if not restart, draws from the atom coordinates file
-interstitial_xyz_file = structure_files/interstitials.xyz
+atom_xyz_file = structures/old_structures/atoms.xyz				// if not restart, draws from the atom coordinates file
+interstitial_xyz_file = structures/old_structures/interstitials.xyz
 lattice = 93.72586 26.914773122 26.6371955996 					// 1x1 device
 
 pristine = 1													// add initial vacancy concentration if starting from pristine

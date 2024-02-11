@@ -117,6 +117,12 @@ void set_gpu(int dev);
 // Potential Solver functions / potential_solver_gpu.cu
 //*****************************************************
 
+// Solve the Laplace equation to get the CB edge along the device
+void update_CB_edge_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle, GPUBuffers &gpubuf,
+                               const int N, const int N_left_tot, const int N_right_tot,
+                               const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist, 
+                               const int num_metals);
+
 // Updates the site-resolved charge (gpu_site_charge) based on a neighborhood condition
 void update_charge_gpu(ELEMENT *gpu_site_element, 
                        int *gpu_site_charge,

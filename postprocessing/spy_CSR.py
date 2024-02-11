@@ -20,6 +20,12 @@ def read_csr_matrix(folder_path, step):
 
 def visualize_and_save_sparsity(csr_matrix_data, folder_path, step):
     plt.spy(csr_matrix_data, markersize=1)
+
+    # # Create a masked array with zeros replaced by NaN
+    # masked_array = np.ma.masked_where(csr_matrix_data.toarray() == 0, csr_matrix_data.toarray())
+    # plt.imshow(masked_array, cmap='RdBu', interpolation='none')
+
+
     plt.title('Sparsity Pattern')
     plt.xlabel('Column Index')
     plt.ylabel('Row Index')

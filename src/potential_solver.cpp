@@ -1,17 +1,25 @@
 #include "Device.h"
 
 // Solve the Laplace equation to get the CB edge along the device
-void Device::setLaplacePotential(KMCParameters &p, double Vd)
+void Device::setLaplacePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers gpubuf, 
+                                 KMCParameters &p, double Vd)
 {
+    size_t N_left_tot = p.num_atoms_first_layer; 
+    size_t N_right_tot = p.num_atoms_first_layer;     
+    size_t N_interface = N - N_left_tot - N_right_tot;
 
-    // Re-identify the atomic sites (differentiate from the vacancy sites and oxygen ions)
-    updateAtomLists();
+// #ifdef USE_CUDA
 
-    size_t Natom = static_cast<size_t>(N_atom);
-    size_t N_left_tot = p.num_atoms_contact; 
-    size_t N_right_tot = p.num_atoms_contact + p.num_atoms_reservoir;              // change eventually to just first layer
-    size_t N_interface = N_atom - N_left_tot - N_right_tot;
-    double *K = (double *)calloc(Natom * Natom, sizeof(double));
+//     gpubuf.sync_HostToGPU(*this); // this one is needed, it's done before the first hostToGPU sync for a given bias point
+
+//     update_CB_edge_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+//                               Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size());
+
+//     gpubuf.sync_GPUToHost(*this); 
+
+// #else
+
+    double *K = (double *)calloc(N * N, sizeof(double));
     double *VL = (double *)malloc(N_left_tot * sizeof(double));
     double *VR = (double *)malloc(N_right_tot * sizeof(double));
     double *Ksub = (double *)calloc(N_interface, sizeof(double));
@@ -35,57 +43,57 @@ void Device::setLaplacePotential(KMCParameters &p, double Vd)
         }
 
 #pragma omp for
-        for (size_t i = 0; i < Natom; i++)
+        for (size_t i = 0; i < N; i++)
         {
-            for (size_t j = i; j < Natom; j++) 
+            for (size_t j = i; j < N; j++) 
             {
                 
-                double dist_angstrom = site_dist(atom_x[i], atom_y[i], atom_z[i],
-                                                 atom_x[j], atom_y[j], atom_z[j], 
-                                                 lattice, pbc);                              // [Angstrom] 3D distance between atoms i and j
+                double dist_angstrom = site_dist(site_x[i], site_y[i], site_z[i],
+                                                 site_x[j], site_y[j], site_z[j], 
+                                                 lattice, pbc);                              // [Angstrom] 3D distance between sites i and j
 
                 bool neighbor = (dist_angstrom < p.nn_dist) && (i != j);
                 if (i != j && neighbor)
                 {
-                    bool metal1 = is_in_vector<ELEMENT>(p.metals, atom_element[i]);
-                    bool metal2 = is_in_vector<ELEMENT>(p.metals, atom_element[j]);
+                    bool metal1 = is_in_vector<ELEMENT>(p.metals, site_element[i]);
+                    bool metal2 = is_in_vector<ELEMENT>(p.metals, site_element[j]);
 
                     if (metal1 || metal2)
                     {
-                        K[Natom * i + j] = -p.high_G;
-                        K[Natom * j + i] = -p.high_G;
+                        K[N * i + j] = -p.high_G;
+                        K[N * j + i] = -p.high_G;
                     }
                     else
                     {
-                        K[Natom * i + j] = -p.low_G;
-                        K[Natom * j + i] = -p.low_G;
+                        K[N * i + j] = -p.low_G;
+                        K[N * j + i] = -p.low_G;
                     }
                 }
             }
         }
     
 #pragma omp for
-        for (size_t i = 0; i < Natom; i++)
+        for (size_t i = 0; i < N; i++)
         {
-            for (size_t j = 0; j < Natom; j++)
+            for (size_t j = 0; j < N; j++)
             {
                 if (i != j)
                 {
-                    K[i * Natom + i] += -1 * K[i * Natom + j];
+                    K[i * N + i] += -1 * K[i * N + j];
                 }
             }
         }
 
 #pragma omp for
-        for (size_t i = N_left_tot; i < Natom - N_right_tot; i++)
+        for (size_t i = N_left_tot; i < N - N_right_tot; i++)
         {
             for (size_t j = 0; j < N_left_tot; j++)
             {
-                Ksub[i - N_left_tot] += K[i * Natom + j] * VL[j];
+                Ksub[i - N_left_tot] += K[i * N + j] * VL[j];
             }
-            for (size_t j = Natom - N_right_tot; j < Natom; j++)
+            for (size_t j = N - N_right_tot; j < N; j++)
             {
-                Ksub[i - N_left_tot] += K[i * Natom + j] * VR[j - (Natom - N_right_tot)];
+                Ksub[i - N_left_tot] += K[i * N + j] * VR[j - (N - N_right_tot)];
             }
         }
 
@@ -94,29 +102,30 @@ void Device::setLaplacePotential(KMCParameters &p, double Vd)
     // gesv(static_cast<int*>(&N_interface), &one, D, static_cast<int*>(&N_atom), ipiv, Ksub, static_cast<int*>(&N_interface), &info);
  
     // Ax = b -> VSW = -inv(D)*Ksub -> -D*VSW = Ksub
-    double* D = K + (N_left_tot * N_atom) + N_left_tot;
+    double* D = K + (N_left_tot * N) + N_left_tot;
     int N_interface_int = static_cast<int>(N_interface);
-    int N_atom_int = static_cast<int>(N_atom);
-    gesv(&N_interface_int, &one, D, &N_atom, ipiv, Ksub, &N_interface_int, &info);
+    int N_int = static_cast<int>(N);
+    gesv(&N_interface_int, &one, D, &N_int, ipiv, Ksub, &N_interface_int, &info);
     if (info)
     {
         std::cout << "WARNING: Info for gesv in setLaplacePotential is " << info << "\n";
     }
 
+
 #pragma omp parallel for
-    for (size_t i = 0; i < Natom; i++)
+    for (size_t i = 0; i < N; i++)
     {
         if (i < N_left_tot)
         {
-            atom_CB_edge[i] = VL[i];
+            site_CB_edge[i] = VL[i];
         }
-        else if ((i >= N_left_tot) && (i < (Natom - N_right_tot)))
+        else if ((i >= N_left_tot) && (i < (N - N_right_tot)))
         {
-            atom_CB_edge[i] = -1 * Ksub[i - N_left_tot];
+            site_CB_edge[i] = -1 * Ksub[i - N_left_tot];
         }
-        else if (i >= (Natom - N_right_tot))
+        else if (i >= (N - N_right_tot))
         {
-            atom_CB_edge[i] = VR[i - (Natom - N_right_tot)];
+            site_CB_edge[i] = VR[i - (N - N_right_tot)];
         }
     }
 
@@ -125,6 +134,8 @@ void Device::setLaplacePotential(KMCParameters &p, double Vd)
     free(VR);
     free(Ksub);
     free(ipiv);
+
+// #endif
 }
 
 // update the charge of each vacancy and ion

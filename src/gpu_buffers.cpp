@@ -14,7 +14,9 @@ void GPUBuffers::sync_HostToGPU(Device &device){
 
     size_t dataSize = N_ * sizeof(ELEMENT);
     if (dataSize != device.site_element.size() * sizeof(ELEMENT)) {
-        fprintf(stderr, "Size mismatch in GPU memory copy.\n");
+        std::cout << "N_: " << N_ << "\n";
+        std::cout << device.site_element.size() * sizeof(ELEMENT) << "\n";
+        fprintf(stderr, "ERROR: Size mismatch in GPU memory copy.\n");
         exit(EXIT_FAILURE);
     }
 
@@ -23,6 +25,7 @@ void GPUBuffers::sync_HostToGPU(Device &device){
     gpuErrchk( cudaMemcpy(site_element, device.site_element.data(), N_ * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_charge, device.site_charge.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_power, device.site_power.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
+    gpuErrchk( cudaMemcpy(site_CB_edge, device.site_CB_edge.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_potential_boundary, device.site_potential_boundary.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_potential_charge, device.site_potential_charge.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
     gpuErrchk( cudaMemcpy(site_temperature, device.site_temperature.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
@@ -40,6 +43,7 @@ void GPUBuffers::sync_GPUToHost(Device &device){
     gpuErrchk( cudaMemcpy(device.site_element.data(), site_element, N_ * sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_charge.data(), site_charge, N_ * sizeof(int), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_power.data(), site_power, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(device.site_CB_edge.data(), site_CB_edge, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_potential_boundary.data(), site_potential_boundary, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_potential_charge.data(), site_potential_charge, N_ * sizeof(double), cudaMemcpyDeviceToHost) );
     gpuErrchk( cudaMemcpy(device.site_temperature.data(), site_temperature, N_ * sizeof(double), cudaMemcpyDeviceToHost) );

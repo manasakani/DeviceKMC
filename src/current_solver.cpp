@@ -25,14 +25,14 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     if (sparse_iterative_solver) 
     {
         // one sparse matrix for T:
-        // update_power_gpu_sparse(handle, handle_cusolver, gpubuf, num_source_inj, num_ground_ext, p.num_layers_contact,
-        //                        Vd, pbc, high_G, low_G, loop_G, G0, tol,
-        //                        nn_dist, p.m_e, p.V0, p.metals.size(), &imacro, p.solve_heating_local, p.solve_heating_global, alpha);
-
-        // T seperated into a sparse neighbor matrix and a dense tunnel matrix
-        update_power_gpu_split(handle, handle_cusolver, gpubuf, num_source_inj, num_ground_ext, p.num_layers_contact,
+        update_power_gpu_sparse(handle, handle_cusolver, gpubuf, num_source_inj, num_ground_ext, p.num_layers_contact,
                                Vd, pbc, high_G, low_G, loop_G, G0, tol,
                                nn_dist, p.m_e, p.V0, p.metals.size(), &imacro, p.solve_heating_local, p.solve_heating_global, alpha);
+
+        // T seperated into a sparse neighbor matrix and a dense tunnel matrix
+        // update_power_gpu_split(handle, handle_cusolver, gpubuf, num_source_inj, num_ground_ext, p.num_layers_contact,
+        //                        Vd, pbc, high_G, low_G, loop_G, G0, tol,
+        //                        nn_dist, p.m_e, p.V0, p.metals.size(), &imacro, p.solve_heating_local, p.solve_heating_global, alpha);
     } else {
         update_power_gpu(handle, handle_cusolver, gpubuf, num_source_inj, num_ground_ext, p.num_layers_contact,
                         Vd, pbc, high_G, low_G, loop_G, G0, tol,
