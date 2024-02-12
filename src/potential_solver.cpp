@@ -8,16 +8,16 @@ void Device::setLaplacePotential(cublasHandle_t handle_cublas, cusolverDnHandle_
     size_t N_right_tot = p.num_atoms_first_layer;     
     size_t N_interface = N - N_left_tot - N_right_tot;
 
-// #ifdef USE_CUDA
+#ifdef USE_CUDA
 
-//     gpubuf.sync_HostToGPU(*this); // this one is needed, it's done before the first hostToGPU sync for a given bias point
+    gpubuf.sync_HostToGPU(*this); // this one is needed, it's done before the first hostToGPU sync for a given bias point
 
-//     update_CB_edge_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-//                               Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size());
+    update_CB_edge_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+                              Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size());
 
-//     gpubuf.sync_GPUToHost(*this); 
+    gpubuf.sync_GPUToHost(*this); 
 
-// #else
+#else
 
     double *K = (double *)calloc(N * N, sizeof(double));
     double *VL = (double *)malloc(N_left_tot * sizeof(double));
@@ -135,7 +135,7 @@ void Device::setLaplacePotential(cublasHandle_t handle_cublas, cusolverDnHandle_
     free(Ksub);
     free(ipiv);
 
-// #endif
+#endif
 }
 
 // update the charge of each vacancy and ion

@@ -177,21 +177,3 @@ with open(xyz_file_path, 'w') as xyz_file:
     write_xyz(xyz_file_path, *zip(*first_144))
     write_xyz(xyz_file_path, *zip(*sorted_device))
     write_xyz(xyz_file_path, *zip(*last_144))
-
-    # # Write the first 144 coordinates
-    # for sublist in first_144:
-    #     print(sublist)
-    #     print(sublist[0])
-    #     print(sublist[1])
-    #     # atoms, coordinates = zip(*sublist)
-    #     write_xyz(xyz_file_path, sublist[0], sublist[1])
-
-    # # Write the sorted coordinates
-    # for sublist in sorted_device:
-    #     atoms, coordinates = zip(*sublist)
-    #     write_xyz(xyz_file_path, atoms, coordinates)
-
-    # # Write the last 144 coordinates
-    # for sublist in last_144:
-    #     atoms, coordinates = zip(*sublist)
-    #     write_xyz(xyz_file_path, atoms, coordinates)

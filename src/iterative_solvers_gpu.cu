@@ -319,7 +319,7 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     bool zero_guess = 0;    
 
     // Error tolerance for the norm of the residual in the CG steps
-    double tol = 1e-12;  // make this an input
+    double tol = 1e-6;  // make this an input, used to be 1e-12
 
     double one = 1.0;
     double n_one = -1.0;

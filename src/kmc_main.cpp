@@ -233,6 +233,9 @@ int main(int argc, char **argv)
                 }
             }
 
+            auto tfield = std::chrono::steady_clock::now();
+            std::chrono::duration<double> dt_field = tfield - t0;
+
             // ********************************************************
             // ******************** Log results ***********************
             // ********************************************************
@@ -263,9 +266,14 @@ int main(int argc, char **argv)
                 break;
             }
 
+            auto tlog = std::chrono::steady_clock::now();
+            std::chrono::duration<double> dt_log = tlog - tfield;
+
             // Log timing info
             auto t1 = std::chrono::steady_clock::now();
             std::chrono::duration<double> dt = t1 - t0;
+            outputBuffer << "Z - calculation time - all fields [s]: " << dt_field.count() << "\n";
+            outputBuffer << "Z - calculation time - logging results [s]: " << dt_log.count() << "\n";
             outputBuffer << "Z - calculation time - KMC superstep [s]: " << dt.count() << "\n";
             outputBuffer << "--------------------------------------";
         } // while (kmc_time < t)

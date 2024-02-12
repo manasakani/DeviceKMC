@@ -87,10 +87,10 @@ def main():
 	
     # structure_xyz = '/usr/scratch/attelas8/manasa/DeviceKMC/structures/crossbars/10nm_2.1pitch/Results_15.000000/snapshot_44450.xyz'
     # structure_xyz = '/usr/scratch/attelas8/manasa/DeviceKMC/structures/crossbars/10nm_3.6pitch/Results_15.000000/snapshot_51200.xyz'
-    structure_xyz = '/usr/scratch/attelas8/manasa/DeviceKMC/structures/crossbars/10nm_5pitch/Results_15.000000/snapshot_50000.xyz'
+    # structure_xyz = '/usr/scratch/attelas8/manasa/DeviceKMC/structures/crossbars/10nm_5pitch/Results_15.000000/snapshot_50000.xyz'
     # structure_xyz = '/usr/scratch/attelas8/manasa/DeviceKMC/structures/single_devices/2.5nm/forming_sweep/form/Results_7.878788/snapshot_3000.xyz'
     # structure_xyz = '/usr/scratch/attelas8/manasa/DeviceKMC/structures/single_devices/5nm/forming_sweep/form/Results_5.555556/snapshot_5500.xyz'
-    # structure_xyz = '/usr/scratch/attelas8/manasa/DeviceKMC/structures/single_devices/7.5nm//Results_5.151515/snapshot_42400.xyz'
+    structure_xyz = '/usr/scratch/attelas8/manasa/DeviceKMC/structures/single_devices/7.5nm/Results_5.151515/snapshot_75900.xyz'
 
     imname = structure_xyz[0:-4]+'.jpg'
        
@@ -103,9 +103,8 @@ def main():
     seaborn.set(rc={'axes.facecolor':'white', 'figure.facecolor':'white'})
     
     #plt.scatter(y, z, c=x, cmap="GnBu_r", s=50, alpha=0.4, edgecolor='none', linewidth=1)
-    # plt.scatter(y, z, c=x, cmap="twilight", s=50, alpha=0.3, edgecolor='black', linewidth=0.3)
-    plt.scatter(y, z, s=100, alpha=0.1, edgecolor='black', linewidth=0.0)
-
+    plt.scatter(y, z, c=x, cmap="twilight", s=50, alpha=0.3, edgecolor='black', linewidth=0.0)
+    # plt.scatter(y, z, s=100, alpha=0.1, edgecolor='black', linewidth=0.0)
     
     cbar = plt.colorbar(label='x (nm)')  # Add label to colorbar
     cbar.ax.set_yticks([])
@@ -131,15 +130,15 @@ def main():
     rect3 = patches.Rectangle((x_start3, y_start3), x_end3 - x_start3, y_end3 - y_start3, linewidth=2, edgecolor='black', facecolor='none', alpha=0.5)
     rect4 = patches.Rectangle((x_start4, y_start4), x_end4 - x_start4, y_end4 - y_start4, linewidth=2, edgecolor='blue', facecolor='none', alpha=0.5)
 
-    # Add rectangles to the plot
-    plt.gca().add_patch(rect1)
-    plt.gca().add_patch(rect2)
-    plt.gca().add_patch(rect3)
-    plt.gca().add_patch(rect4)
+    # # Add rectangles to the plot
+    # plt.gca().add_patch(rect1)
+    # plt.gca().add_patch(rect2)
+    # plt.gca().add_patch(rect3)
+    # plt.gca().add_patch(rect4)
 
-    # Create legend for rectangles
-    legend_elements = [Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', markersize=10, alpha=0.5, label='selected top contact'),
-                    Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markersize=10, alpha=0.5, label='selected bottom contact')]
+    # # Create legend for rectangles
+    # legend_elements = [Line2D([0], [0], marker='o', color='w', markerfacecolor='blue', markersize=10, alpha=0.5, label='selected top contact'),
+    #                 Line2D([0], [0], marker='o', color='w', markerfacecolor='green', markersize=10, alpha=0.5, label='selected bottom contact')]
 
     # plt.legend(handles=legend_elements, loc='upper right', bbox_to_anchor=(1.0, 1.1))
 

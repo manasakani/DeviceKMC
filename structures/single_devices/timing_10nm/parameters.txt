@@ -4,9 +4,9 @@
 
 rnd_seed = 5													// random number for KMCProcess
 restart = 1														// restart calculation
-restart_xyz_file = reordered_device_10.xyz	 										// restart filename
+restart_xyz_file = reordered_device_10.xyz	 					// restart filename
 
-atom_xyz_file = NA							// if not restart, draws from the atom coordinates file
+atom_xyz_file = NA												// if not restart, draws from the atom coordinates file
 interstitial_xyz_file = NA
 lattice = 108.980000 102.300000 102.300000 						// 1x1 device
 
@@ -19,10 +19,10 @@ shifts = 0.0 0.5 0.5
 
 nn_dist = 3.5 													// [Angstrom] neighbor distance
 
-perturb_structure = 0											// KMC event step ( turn off to only calculate fields )
+perturb_structure = 1											// KMC event step ( turn off to only calculate fields )
 solve_potential = 1												// field solvers
-solve_current = 0
-solve_heating_global = 0
+solve_current = 1
+solve_heating_global = 1
 solve_heating_local = 0
 																// for potential solver:
 sigma = 3.5e-10 												// [m] gaussian broadening

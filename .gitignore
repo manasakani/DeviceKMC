@@ -16,6 +16,7 @@ Results_*/
 *.sln
 *.swp
 *.jpg
+*.png
 
 # Ignore files
 output.txt

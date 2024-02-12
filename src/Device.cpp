@@ -35,7 +35,7 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
     this->T_bg = p.background_temp;
 
     // sort and prepare the raw coordinates - DO NOT SORT
-    sort_by_xyz(site_x, site_y, site_z, site_element, lattice);              // uncomment to sort the sites
+    // sort_by_xyz(site_x, site_y, site_z, site_element, lattice);              // uncomment to sort the sites
     
     // shift the coordinates across periodic boundaries
     if (p.shift)

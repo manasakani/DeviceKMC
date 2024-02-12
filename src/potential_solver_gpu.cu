@@ -609,7 +609,7 @@ void update_CB_edge_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t 
     double *A_data_d = NULL;
     double *K_left_reduced_d = NULL;
     double *K_right_reduced_d = NULL;
-
+    
     // assemble the matrix that will solve for the CB edge vector
     Assemble_A_CB( gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                    gpubuf.lattice, pbc, nn_dist,
@@ -661,9 +661,6 @@ void update_CB_edge_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t 
     solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_data_d, gpubuf.Device_row_ptr_d, gpubuf.Device_col_indices_d, gpubuf.Device_nnz, N_interface, rhs, v_soln);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
-
-    // std::cout << "finished system solve for cb edge\n";
-    // exit(1);
 
     // ***************************************************************************
     // 3. Re-fix the boundary (for changes in applied potential across an IV sweep)
