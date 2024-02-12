@@ -1496,7 +1496,7 @@ if (solve_heating_local || solve_heating_global)
         gpuErrchk( cudaPeekAtLastError() );
 
         // Collect the forward currents into I_neg, the diagonals are once again the sum of each row
-        num_threads = 128;
+        num_threads = 512;
         blocks_per_row = (N_atom - 1) / num_threads + 1;
         num_blocks = blocks_per_row * gpubuf.N_;
         set_ineg<<<num_blocks, num_threads>>>(gpu_ineg, gpu_x, gpu_m, Vd, N_atom);

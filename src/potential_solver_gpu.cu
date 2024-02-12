@@ -962,7 +962,7 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const double *posx, const double *posy, const double *posz, 
                           const int *site_charge, double *site_potential_charge){
 
-    int num_threads = 1024;
+    int num_threads = 512;
     int blocks_per_row = (N - 1) / num_threads + 1; 
     int num_blocks = blocks_per_row * N; // NOTE: fix the kernel for block overflow!
 
@@ -970,5 +970,9 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     gpuErrchk( cudaMemset(site_potential_charge, 0, N * sizeof(double)) ); 
     gpuErrchk( cudaDeviceSynchronize() );
 
+    // this num_threads should be equal to NUM_THREADS
     calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential_charge);
+    gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
+    gpuErrchk( cudaPeekAtLastError() );
 }

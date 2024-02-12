@@ -10,7 +10,7 @@ atom_xyz_file = NA												// if not restart, draws from the atom coordinates
 interstitial_xyz_file = NA
 lattice = 108.980000 409.600000 409.600000			 					
 
-pristine = 0													// add initial vacancy concentration if starting from pristine
+pristine = 1													// add initial vacancy concentration if starting from pristine
 initial_vacancy_concentration = 0.05 
 attempt_frequency = 10e13 										// [1/s]
 
