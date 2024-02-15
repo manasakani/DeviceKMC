@@ -223,18 +223,18 @@ int main(int argc, char **argv) {
 
         delete[] row_ptr_local;
 
-        // std::string path_solve_petsc = get_filename(save_path, "solve_petsc", number_of_kmc_steps, size, rank);
-        // std::string path_solve_hypre = get_filename(save_path, "solve_hypre", number_of_kmc_steps, size, rank);
-        // std::string path_solve_ginkgo = get_filename(save_path, "solve_ginkgo", number_of_kmc_steps, size, rank);
-        // save_measurements(path_solve_petsc,
-        //     times_petsc + start_up_measurements,
-        //     true_number_of_measurements, true);
-        // save_measurements(path_solve_hypre,
-        //     times_hypre + start_up_measurements,
-        //     true_number_of_measurements, true);
-        // save_measurements(path_solve_ginkgo,
-        //     times_ginkgo + start_up_measurements,
-        //     true_number_of_measurements, true);
+        std::string path_solve_petsc = get_filename(save_path, "solve_petsc", number_of_kmc_steps, size, rank);
+        std::string path_solve_hypre = get_filename(save_path, "solve_hypre", number_of_kmc_steps, size, rank);
+        std::string path_solve_ginkgo = get_filename(save_path, "solve_ginkgo", number_of_kmc_steps, size, rank);
+        save_measurements(path_solve_petsc,
+            times_petsc + start_up_measurements,
+            true_number_of_measurements, true);
+        save_measurements(path_solve_hypre,
+            times_hypre + start_up_measurements,
+            true_number_of_measurements, true);
+        save_measurements(path_solve_ginkgo,
+            times_ginkgo + start_up_measurements,
+            true_number_of_measurements, true);
     }
 
     

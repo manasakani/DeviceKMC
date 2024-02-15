@@ -2,6 +2,8 @@
 #include <string>
 #include "utils.h"
 #include <mpi.h>
+#include <cstring>
+
 #include "iterative_solver_lib.h"
 
 #include <petsc.h>
@@ -18,16 +20,13 @@ int main(int argc, char **argv) {
 
     std::cout << "Hello World from rank " << rank << std::endl;
 
-    int matsize = 260;
+    int matsize = 80;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
-    //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
-    std::string save_path ="/scratch/snx3000/amaeder/measurements/single_node_libraries/";
-    save_path ="/scratch/snx3000/amaeder/measurements/own_260/";
+    std::string save_path ="/scratch/snx3000/amaeder/measurements/precon_80/";
 
     int matrix_size;
     int nnz;     
     if(matsize == 7){
-        save_path = "/scratch/snx3000/amaeder/measurements/dump/";
         matrix_size = 7302;
         nnz = 186684;        
     }
@@ -65,82 +64,33 @@ int main(int argc, char **argv) {
     int number_of_measurements = start_up_measurements + true_number_of_measurements;
     int number_of_kmc_steps = 1;
 
-    int max_iterations = 5000;
+    int max_iterations = 1000;
     double relative_tolerance = 1e-12;
     double absolute_tolerance = 1e-30;
     double divergence_tolerance = 1e+50;
 
-    // int number_of_methods = 6;
-    // std::string method_names[number_of_methods] = {
-    //     "cg_jacobi",
-    //     "cg_gropp_jacobi",
-    //     "bicg_jacobi",
-    //     "cg_sor",
-    //     "cg_gropp_sor",
-    //     "bicg_sor"
-    // };
-    // KSPType solver_types[number_of_methods] = {
-    //     KSPCG,
-    //     KSPGROPPCG,
-    //     KSPBCGS,
-    //     KSPCG,
-    //     KSPGROPPCG,
-    //     KSPBCGS
-    // };
-    // PCType preconditioners[number_of_methods] = {
-    //     PCJACOBI,
-    //     PCJACOBI,
-    //     PCJACOBI,
-    //     PCSOR,
-    //     PCSOR,
-    //     PCSOR
-    // };
-    // int number_of_methods = 4;
-    // std::string method_names[number_of_methods] = {
-    //     "cg_jacobi",
-    //     "bicg_jacobi",
-    //     "cg_sor",
-    //     "bicg_sor"
-    // };
-    // KSPType solver_types[number_of_methods] = {
-    //     KSPCG,
-    //     KSPBCGS,
-    //     KSPCG,
-    //     KSPBCGS
-    // };
-    // PCType preconditioners[number_of_methods] = {
-    //     PCJACOBI,
-    //     PCJACOBI,
-    //     PCSOR,
-    //     PCSOR
-    // };
-    // int number_of_methods = 3;
-    // std::string method_names[number_of_methods] = {
-    //     "cg_jacobi",
-    //     "cg_gropp_jacobi",
-    //     "bicg_jacobi"
-    // };
-    // KSPType solver_types[number_of_methods] = {
-    //     KSPCG,
-    //     KSPGROPPCG,
-    //     KSPBICG
-    // };
-    // PCType preconditioners[number_of_methods] = {
-    //     PCNONE,
-    //     PCNONE,
-    //     PCNONE
-    // };
-    int number_of_methods = 1;
+
+    int number_of_methods = 3;
     std::string method_names[number_of_methods] = {
-        "solve_petsc"
+        "solve_petsc_sor",
+        "solve_petsc_jacobi",
+        "solve_petsc_bjacobi"
     };
     KSPType solver_types[number_of_methods] = {
+        KSPCG,
+        KSPCG,
         KSPCG
     };
     PCType preconditioners[number_of_methods] = {
-        PCNONE
+        PCSOR,
+        PCJACOBI,
+        PCBJACOBI
     };
+    int blockss[number_of_methods] = {1, 1, 1};
+
     int iterations[number_of_methods][number_of_kmc_steps];
+
+
 
 
     for(int step = 0; step < number_of_kmc_steps; step++){
@@ -169,11 +119,16 @@ int main(int argc, char **argv) {
         int *col_indices_local = col_indices + nnz_start_index;
         double *data_local = data + nnz_start_index;
 
+        
+
+
         for(int method = 0; method < number_of_methods; method++){
-            
+
+            int *block_sizes = new int[matrix_size / blockss[method]];
+            std::memset(block_sizes, blockss[method], matrix_size / blockss[method] * sizeof(int));
             for(int measurement = 0; measurement < number_of_measurements; measurement++){
                 std::cout << "rank " << rank << " " << method_names[method] << " " << measurement << std::endl;
-                lib_to_compare::solve_petsc(
+                lib_to_compare::solve_petsc_precon(
                     rank,
                     data_local,
                     row_ptr_local,
@@ -190,22 +145,25 @@ int main(int argc, char **argv) {
                     absolute_tolerance,
                     divergence_tolerance,
                     &iterations[method][step],
-                    &times[method][measurement]
+                    &times[method][measurement],
+                    blockss[method],
+                    block_sizes                    
                 );
 
 
             }
+            delete[] block_sizes;
         }
 
         delete[] row_ptr_local;
 
-        for(int method = 0; method < number_of_methods; method++){
-            std::string path_solve_petsc = get_filename(save_path, method_names[method], number_of_kmc_steps, size, rank);
-            save_measurements(path_solve_petsc,
-                times[method] + start_up_measurements,
-                true_number_of_measurements, true);
+        // for(int method = 0; method < number_of_methods; method++){
+        //     std::string path_solve_petsc = get_filename(save_path, method_names[method], number_of_kmc_steps, size, rank);
+        //     save_measurements(path_solve_petsc,
+        //         times[method] + start_up_measurements,
+        //         true_number_of_measurements, true);
 
-        }
+        // }
 
     }
 

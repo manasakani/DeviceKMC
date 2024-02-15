@@ -41,6 +41,26 @@ int solve_petsc(
     int *iterations,
     double *time_taken);
 
+int solve_petsc_precon(
+    int rank,
+    double *data_local,
+    int *row_ptr_local,
+    int *col_indices_local,
+    double *rhs,
+    double *reference_solution,
+    int row_start_index,
+    int rows_per_rank, 
+    int matrix_size,
+    int max_iterations,
+    KSPType solver_type,
+    PCType preconditioner,
+    double relative_tolerance,
+    double absolute_tolerance,
+    double divergence_tolerance,
+    int *iterations,
+    double *time_taken,
+    int blocks,
+    int *block_sizes);
 
 void solve_hypre(
     double *data_local,
