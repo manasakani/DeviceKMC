@@ -126,3 +126,43 @@ void unpreecondition_vector(
         vector[i] = vector[i] * sqrt(diagonal[i]);
     }
 }
+
+void save_measurements(
+    std::string path,
+    double *times,
+    int measurements,
+    bool append)
+{
+    std::ofstream outputFile;
+    if (append){
+        outputFile.open(path, std::ios_base::app);
+    }
+    else{
+        outputFile.open(path);
+    }
+    if(outputFile.is_open()){
+        for(int i = 0; i < measurements; i++){
+            outputFile << times[i] << " ";
+        }
+        outputFile << '\n';
+    }
+    else{
+        std::printf("Error opening file\n");
+    }
+    outputFile.close();    
+}
+
+std::string get_filename(
+    std::string path,
+    std::string filename,
+    int number_of_kmc_steps,
+    int size,
+    int rank)
+{
+    std::string full_path = path + filename +
+        "_" + std::to_string(number_of_kmc_steps) +
+        "_" + std::to_string(size) + 
+        "_" + std::to_string(rank) +".txt";
+
+    return full_path;
+}

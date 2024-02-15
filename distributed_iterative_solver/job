@@ -2,10 +2,9 @@
 #SBATCH --job-name="iter_test"
 #SBATCH --account="s1212"
 #SBATCH --time=10:00:00
-#SBATCH --nodes=8
+#SBATCH --nodes=2
 #SBATCH --partition=normal
 #SBATCH --constraint=gpu
 
-
-srun  ./main
+srun ./main -use_gpu_aware_mpi 0 -pc_bjacobi_blocks 14126
 

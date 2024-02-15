@@ -45,3 +45,16 @@ void unpreecondition_vector(
     double *vector,
     double *diagonal,
     int matrix_size);
+
+void save_measurements(
+    std::string path,
+    double *times,
+    int measurements,
+    bool append);
+
+std::string get_filename(
+    std::string path,
+    std::string filename,
+    int number_of_kmc_steps,
+    int size,
+    int rank);

@@ -1,4 +1,4 @@
-#include "own_cg_to_compare.h"
+#include "cg_own_implementations.h"
 
 
 namespace own_test{
