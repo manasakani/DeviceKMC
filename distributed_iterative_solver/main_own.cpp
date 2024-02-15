@@ -20,12 +20,12 @@ int main(int argc, char **argv) {
     cudaError_t set_device_error = cudaSetDevice(0);
     std::cout << "rank " << rank << " set_device_error " << set_device_error << std::endl;
 
-    int matsize = 7;
+    int matsize = 400;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
     std::string save_path ="/scratch/snx3000/amaeder/measurements/own_260/";
     //data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
-
+    data_path = "/usr/scratch/mont-fort23/almaeder/kmc_matrices";
 
     int matrix_size;
     int nnz;     
@@ -39,8 +39,8 @@ int main(int argc, char **argv) {
         nnz = 1719652;        
     }
     else if(matsize == 400){
-        data_path = "/scratch/snx3000/amaeder/cross_bars";
-        save_path ="/scratch/snx3000/amaeder/measurements/400/";
+        // data_path = "/scratch/snx3000/amaeder/cross_bars";
+        // save_path ="/scratch/snx3000/amaeder/measurements/400/";
         matrix_size = 403605;
         nnz = 10007089;        
     }

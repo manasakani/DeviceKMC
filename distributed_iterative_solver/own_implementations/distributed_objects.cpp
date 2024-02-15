@@ -177,7 +177,7 @@ Distributed_matrix::Distributed_matrix(
         cudaErrchk(cudaMemcpy(cols_per_neighbour_d[k], cols_per_neighbour_h[k], nnz_cols_per_neighbour[k]*sizeof(int), cudaMemcpyHostToDevice));
         cudaErrchk(cudaMemcpy(rows_per_neighbour_d[k], rows_per_neighbour_h[k], nnz_rows_per_neighbour[k]*sizeof(int), cudaMemcpyHostToDevice));
     }
-
+    bool sorted = true;
     for(int d = 0; d < size; d++){
         if(rank == d){
             std::cout << "Check sorted indices" << std::endl;
@@ -187,12 +187,16 @@ Distributed_matrix::Distributed_matrix(
                     if(cols_per_neighbour_h[k][i] > cols_per_neighbour_h[k][i+1]){
                         std::cout << rank << " " << i << " " << cols_per_neighbour_h[k][i] << " " << cols_per_neighbour_h[k][i+1] << std::endl;
                         std::cout << rank << " " << "Error in sorted indices col" << std::endl;
+                        sorted = false;
+                        break;
                     }
                 }
                 for(int i = 0; i < nnz_rows_per_neighbour[k]-1; i++){
                     if(rows_per_neighbour_h[k][i] > rows_per_neighbour_h[k][i+1]){
                         std::cout << rank << " " << i << " " << rows_per_neighbour_h[k][i] << " " << rows_per_neighbour_h[k][i+1] << std::endl;
                         std::cout << rank << " " << "Error in sorted indices rows" << std::endl;
+                        sorted = false;
+                        break;
                     }
                 }
             }
@@ -200,7 +204,12 @@ Distributed_matrix::Distributed_matrix(
         sleep(1);
         MPI_Barrier(comm);
     }
-
+    if(sorted){
+        std::cout << rank << " " << "Indices are sorted" << std::endl;
+    }
+    else{
+        std::cout << rank << " " << "Indices are not sorted" << std::endl;
+    }
     
 
     std::cout << rank << " " << "Prepare buffers to fetch into: " << std::endl;
