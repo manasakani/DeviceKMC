@@ -2,7 +2,7 @@
 #SBATCH --job-name="iter_test"
 #SBATCH --account="s1212"
 #SBATCH --time=10:00:00
-#SBATCH --nodes=1
+#SBATCH --nodes=2
 #SBATCH --partition=normal
 #SBATCH --constraint=gpu
 
