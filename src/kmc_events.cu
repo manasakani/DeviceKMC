@@ -1,5 +1,5 @@
 #include "gpu_solvers.h"
-
+#include <omp.h>
 // Constants needed:
 constexpr double kB = 8.617333262e-5;           // [eV/K]
 
@@ -126,6 +126,23 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
 }
 
 
+__global__ void zero_out_events(EVENTTYPE *event_type, double *event_prob, const int *neigh_idx, int N, int nn, int i_to_delete, int j_to_delete){
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int i;
+    int j;
+    for (int id = idx; id < N * nn; id += blockDim.x * gridDim.x){
+        i = id / nn;
+        j = neigh_idx[id];
+
+        if (i == i_to_delete || j == j_to_delete || i == j_to_delete || j == i_to_delete){
+            event_type[id] = NULL_EVENT;
+            event_prob[id] = 0.0;
+        }
+    }
+
+}
+
+
 double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
                             const double *lattice, const int pbc, const double *T_bg, 
                             const double *freq, const double *sigma, const double *k,
@@ -137,6 +154,9 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
     // **** Build Event List ****
     // **************************
 
+    double time_event_list = 0.0;
+
+
     // the KMC event list arrays only exist in gpu memory
     EVENTTYPE *event_type; 
     double    *event_prob; 
@@ -146,6 +166,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
     int num_threads = 512;
     int num_blocks = (N * nn - 1) / num_threads + 1;
 
+    time_event_list = -omp_get_wtime();
     // populate the event_type and event_prob arrays:
     build_event_list<<<num_blocks, num_threads>>>(N, nn, neigh_idx, 
                                                   site_layer, lattice, pbc,
@@ -156,7 +177,8 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
 
     gpuErrchk( cudaDeviceSynchronize() );
     gpuErrchk( cudaPeekAtLastError() );
-
+    time_event_list += omp_get_wtime();
+    std::cout << "Time to build event list: " << time_event_list << "\n";
     // **************************
     // ** Event Execution Loop **
     // **************************
@@ -177,19 +199,31 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
     double freq_host;
     gpuErrchk( cudaMemcpy(&freq_host, freq, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
 
+
+    double time_incl_sum = 0.0;
+    double time_upper_bound = 0.0;
+    double time_which_event = 0.0;
+    double time_zero_prob = 0.0;
+
     double event_time = 0.0;
+    int counter = 0;
     while (event_time < 1 / freq_host) {
-
+        counter++;  
         // get the cumulative sum of the probabilities
+        time_incl_sum -= omp_get_wtime();
         thrust::inclusive_scan(thrust::device, event_prob, event_prob + N * nn, event_prob_cum);
+        time_incl_sum += omp_get_wtime();
 
+        time_upper_bound -= omp_get_wtime();
         // select an event
         double Psum_host;
         gpuErrchk( cudaMemcpy(&Psum_host, event_prob_cum + N * nn - 1, sizeof(double), cudaMemcpyDeviceToHost) );
         double number = rng.getRandomNumber() * Psum_host;
         int event_idx = thrust::upper_bound(thrust::device, event_prob_cum, event_prob_cum + N * nn, number) - event_prob_cum;
         // std::cout << "selected event: " << event_idx << "\n";
+        time_upper_bound += omp_get_wtime();
 
+        time_which_event -= omp_get_wtime();
         EVENTTYPE sel_event_type = NULL_EVENT;
         gpuErrchk( cudaMemcpy(&sel_event_type, event_type + event_idx, sizeof(EVENTTYPE), cudaMemcpyDeviceToHost) );
 
@@ -284,28 +318,44 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
             print("error: unidentified event key found: ");
             print(sel_event_type);
         }
+        time_which_event += omp_get_wtime();
+        time_zero_prob -= omp_get_wtime();
+        int threads = 1024;
+        int blocks = (N * nn - 1) / threads + 1;
+        zero_out_events<<<blocks, threads>>>(event_type, event_prob,
+            neigh_idx, N, nn, i_host, j_host);
 
-        // other site's events with i or j
-        int i_, j_;
-        for (auto idx = 0; idx < N * nn; ++idx){
-            i_ = std::floor(idx / nn);
-            j_ = neigh_idx_host[idx];
 
-            if (i_host == i_ || j_host == j_ || i_host == j_ || j_host == i_){
-                gpuErrchk( cudaMemset(event_type + idx, NULL_EVENT, 1 * sizeof(EVENTTYPE)) );
-                gpuErrchk( cudaMemset(event_prob + idx, 0.0, 1 * sizeof(double)) );
-            }
-        }
+        // // other site's events with i or j
+        // int i_, j_;
+        // for (auto idx = 0; idx < N * nn; ++idx){
+        //     i_ = std::floor(idx / nn);
+        //     j_ = neigh_idx_host[idx];
 
+        //     if (i_host == i_ || j_host == j_ || i_host == j_ || j_host == i_){
+        //         gpuErrchk( cudaMemset(event_type + idx, NULL_EVENT, 1 * sizeof(EVENTTYPE)) );
+        //         gpuErrchk( cudaMemset(event_prob + idx, 0.0, 1 * sizeof(double)) );
+        //     }
+        // }
+    
         // remove the conflicting events i an j and their probabilities
         gpuErrchk( cudaMemset(event_type + i_host * nn, NULL_EVENT, (nn - 1) * sizeof(EVENTTYPE)) );
         gpuErrchk( cudaMemset(event_type + j_host * nn, NULL_EVENT, (nn - 1) * sizeof(EVENTTYPE)) );
         gpuErrchk( cudaMemset(event_prob + i_host * nn, 0, (nn - 1) * sizeof(double)) );
         gpuErrchk( cudaMemset(event_prob + j_host * nn, 0, (nn - 1) * sizeof(double)) );
         gpuErrchk( cudaDeviceSynchronize() );
-
+        time_zero_prob += omp_get_wtime();
         event_time = -log(rng.getRandomNumber()) / Psum_host;
     }
+
+    std::cout << "Time to calculate inclusive sum: " << time_incl_sum << "\n";
+    std::cout << "Time to calculate upper bound: " << time_upper_bound << "\n";
+    std::cout << "Time to select event: " << time_which_event << "\n";
+    std::cout << "Time to zero out conflicting events: " << time_zero_prob << "\n";
+
+
+    std::cout << "Number of KMC steps: " << counter << "\n";
+
 
     gpuErrchk( cudaFree(event_prob_cum) );
     gpuErrchk( cudaFree(event_type) );
