@@ -10,6 +10,7 @@ if __name__ == "__main__":
     number_of_measured_steps = 1
     base_path = "/usr/scratch/mont-fort17/almaeder/kmc_measurements/own_260/"
     libcomp_path = "/usr/scratch/mont-fort17/almaeder/kmc_measurements/own2/own_260/"
+    base_path = "/usr/scratch/mont-fort23/almaeder/1600/"
     images_path = "images/"
 
     reference_name = "solve"
@@ -55,25 +56,25 @@ if __name__ == "__main__":
     ]
 
     for step in range(1,number_of_measured_steps+1):
-        reference_path = base_path + reference_name + "1" + "_" + str(step) + "_1_0.txt"
-        reference_time = np.loadtxt(reference_path).flatten()
+        # reference_path = base_path + reference_name + "1" + "_" + str(step) + "_1_0.txt"
+        # reference_time = np.loadtxt(reference_path).flatten()
 
-        median_reference_time1 = np.median(reference_time)
+        # median_reference_time1 = np.median(reference_time)
 
-        reference_path = base_path + reference_name + "2" + "_" + str(step) + "_1_0.txt"
-        reference_time = np.loadtxt(reference_path).flatten()
+        # reference_path = base_path + reference_name + "2" + "_" + str(step) + "_1_0.txt"
+        # reference_time = np.loadtxt(reference_path).flatten()
 
-        median_reference_time2 = np.median(reference_time)
-        reference_path = base_path + reference_name + "3" + "_" + str(step) + "_1_0.txt"
-        reference_time = np.loadtxt(reference_path).flatten()
+        # median_reference_time2 = np.median(reference_time)
+        # reference_path = base_path + reference_name + "3" + "_" + str(step) + "_1_0.txt"
+        # reference_time = np.loadtxt(reference_path).flatten()
 
-        median_reference_time3 = np.median(reference_time)
+        # median_reference_time3 = np.median(reference_time)
         reference_path = base_path + reference_name + "4" + "_" + str(step) + "_1_0.txt"
         reference_time = np.loadtxt(reference_path).flatten()
 
         median_reference_time4 = np.median(reference_time)
 
-        median_reference_time = np.min([median_reference_time1, median_reference_time2, median_reference_time3, median_reference_time4])
+        median_reference_time = np.min([median_reference_time4])
         fig, ax = plt.subplots()
         fig.set_size_inches(16, 9)
         for i, method_name in enumerate(method_names_names):

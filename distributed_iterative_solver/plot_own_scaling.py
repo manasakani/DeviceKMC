@@ -24,6 +24,7 @@ if __name__ == "__main__":
     number_of_measured_steps = 1
     base_path = "/usr/scratch/mont-fort17/almaeder/kmc_measurements/own_260/"
     libcomp_path = "/usr/scratch/mont-fort17/almaeder/kmc_measurements/own2/own_260/"
+    base_path = "/usr/scratch/mont-fort23/almaeder/1600/"
     images_path = "images/"
     sizes = [1, 2, 4, 8, 16, 32, 64]
     reference_name = "solve"
@@ -53,51 +54,51 @@ if __name__ == "__main__":
         "HYPRE"
     ]
 
-    method_names_names = [
-        "solve_petsc",
-        "solve_hypre",
-        "solve_ginkgo"
-    ]
-    colors = [
-        "tab:red",
-        "tab:pink",
-        "tab:purple",
-    ]
-    labels = [
-        "PETSc",
-        "HYPRE",
-        "Ginkgo"
-    ]
-
     # method_names_names = [
-    #     "solve_point_to_point3",
-    #     "solve_custom_datatype2",
-    #     "solve_gpu_packing3",
     #     "solve_petsc",
     #     "solve_hypre",
-    #     "solve_ginkgo",
-    #     "solve_allgatherv3"
+    #     "solve_ginkgo"
     # ]
     # colors = [
-    #     "tab:orange",
-    #     "tab:green",
-    #     "tab:gray",
     #     "tab:red",
     #     "tab:pink",
     #     "tab:purple",
-    #     "tab:blue"
     # ]
     # labels = [
-    #     "Point to Point",
-    #     "+ Custom Datatype",
-    #     "+ GPU Packing",
     #     "PETSc",
     #     "HYPRE",
-    #     "Ginkgo",
-    #     "Allgatherv"
+    #     "Ginkgo"
     # ]
 
-    numerp = 1
+    method_names_names = [
+        "solve_point_to_point3",
+        "solve_custom_datatype2",
+        "solve_gpu_packing3",
+        "solve_petsc",
+        "solve_hypre",
+        "solve_ginkgo",
+        "solve_allgatherv3"
+    ]
+    colors = [
+        "tab:orange",
+        "tab:green",
+        "tab:gray",
+        "tab:red",
+        "tab:pink",
+        "tab:purple",
+        "tab:blue"
+    ]
+    labels = [
+        "Point to Point",
+        "+ Custom Datatype",
+        "+ GPU Packing",
+        "PETSc",
+        "HYPRE",
+        "Ginkgo",
+        "Allgatherv"
+    ]
+
+    numerp = 0
 
     paths = [
         base_path,
@@ -110,25 +111,25 @@ if __name__ == "__main__":
     ]
 
     for step in range(1,number_of_measured_steps+1):
-        reference_path = base_path + reference_name + "1" + "_" + str(step) + "_1_0.txt"
-        reference_time = np.loadtxt(reference_path).flatten()
+        # reference_path = base_path + reference_name + "1" + "_" + str(step) + "_1_0.txt"
+        # reference_time = np.loadtxt(reference_path).flatten()
 
-        median_reference_time1 = np.median(reference_time)
+        # median_reference_time1 = np.median(reference_time)
 
-        reference_path = base_path + reference_name + "2" + "_" + str(step) + "_1_0.txt"
-        reference_time = np.loadtxt(reference_path).flatten()
+        # reference_path = base_path + reference_name + "2" + "_" + str(step) + "_1_0.txt"
+        # reference_time = np.loadtxt(reference_path).flatten()
 
-        median_reference_time2 = np.median(reference_time)
-        reference_path = base_path + reference_name + "3" + "_" + str(step) + "_1_0.txt"
-        reference_time = np.loadtxt(reference_path).flatten()
+        # median_reference_time2 = np.median(reference_time)
+        # reference_path = base_path + reference_name + "3" + "_" + str(step) + "_1_0.txt"
+        # reference_time = np.loadtxt(reference_path).flatten()
 
-        median_reference_time3 = np.median(reference_time)
+        # median_reference_time3 = np.median(reference_time)
         reference_path = base_path + reference_name + "4" + "_" + str(step) + "_1_0.txt"
         reference_time = np.loadtxt(reference_path).flatten()
 
         median_reference_time4 = np.median(reference_time)
 
-        median_reference_time = np.min([median_reference_time1, median_reference_time2, median_reference_time3, median_reference_time4])
+        median_reference_time = np.min([median_reference_time4])
         fig, ax = plt.subplots()
         fig.set_size_inches(16, 12)
         for i, method_name in enumerate(method_names_names):
@@ -178,7 +179,7 @@ if __name__ == "__main__":
         ax.set_xticks(sizes)
         ax.set_xticklabels(sizes)
         ax.legend(fontsize="28", loc="upper left")
-        ax.set_ylim(bottom=0,top=3.5)
+        # ax.set_ylim(bottom=0,top=3.5)
         ax.set_xscale("log", base=2)
         ax.set_xticks(sizes, minor=False)
         ax.set_xticklabels(sizes, minor=False)
