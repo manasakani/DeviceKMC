@@ -8,7 +8,7 @@ LDLIBS = -Wl,--copy-dt-needed-entries -lcuda -lcudart -lcublas -lcusolver -lcusp
 
 SOURCES = main_test_cg.cpp
 SOURCES += utils.cpp utils_gpu.cu 
-OWN_DIR = dist_iterative
+OWN_DIR = ../dist_iterative
 SOURCES += $(wildcard $(OWN_DIR)/*.cpp) $(wildcard $(OWN_DIR)/*.cu)
 
 CPP_SOURCES = $(filter %.cpp, $(SOURCES))
@@ -48,3 +48,4 @@ flags:
 .PHONY: clean
 clean:
 	rm -f $(BINARY) *.o
+	rm $(OWN_DIR)/*.o

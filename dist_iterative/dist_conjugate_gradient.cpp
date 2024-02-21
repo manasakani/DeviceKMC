@@ -2,6 +2,27 @@
 #include "dist_spmv.h"
 namespace iterative_solver{
 
+void split_matrix_uniform(
+    int matrix_size,
+    int size,
+    int *counts,
+    int *displacements)
+{
+    int rows_per_rank = matrix_size / size;    
+    for (int i = 0; i < size; ++i) {
+        if(i < matrix_size % size){
+            counts[i] = rows_per_rank+1;
+        }
+        else{
+            counts[i] = rows_per_rank;
+        }
+    }
+    displacements[0] = 0;
+    for (int i = 1; i < size; ++i) {
+        displacements[i] = displacements[i-1] + counts[i-1];
+    }
+
+}
 
 //template <void (*distributed_spmv)()>
 template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
@@ -31,7 +52,7 @@ void conjugate_gradient(
     int counts[size];
     int displacements[size];
     int rows_per_rank = matrix_size / size;    
-    split_matrix(matrix_size, size, counts, displacements);
+    split_matrix_uniform(matrix_size, size, counts, displacements);
 
     int row_start_index = displacements[rank];
     rows_per_rank = counts[rank];

@@ -1,7 +1,6 @@
 #pragma once
 #include <string> 
 #include <omp.h>
-#include "../utils.h"
 #include "utils_cg.h"
 #include <cuda_runtime.h>
 #include <cuda.h>

@@ -8,8 +8,8 @@
 #include <cuda_runtime.h>
 #include "utils_gpu.h"
 #include <cublas_v2.h>
-#include "dist_iterative/dist_conjugate_gradient.h"
-#include "dist_iterative/dist_spmv.h"
+#include "../dist_iterative/dist_conjugate_gradient.h"
+#include "../dist_iterative/dist_spmv.h"
 
 int main(int argc, char **argv) {
 

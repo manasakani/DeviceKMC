@@ -60,6 +60,7 @@
 # ****************************************************
 
 SRCDIR = src
+SRCDIR_CG = dist_iterative
 OBJDIR = obj
 BINDIR = bin
 
@@ -73,11 +74,17 @@ endif
 
 CUFILES = $(filter-out $(SRCDIR)/kernel_unit_tests.cu, $(wildcard $(SRCDIR)/*.cu))			# files only for testing have the form test_*.cu
 CPPFILES = $(filter-out $(wildcard $(SRCDIR)/test_*.cpp), $(wildcard $(SRCDIR)/*.cpp))		# files only for testing have the form test_*.cpp
+CUFILES_CG = $(wildcard $(SRCDIR_CG)/*.cu)
+CPPFILES_CG = $(wildcard $(SRCDIR_CG)/*.cpp)
 
 CU_OBJ_FILES = $(patsubst $(SRCDIR)/%.cu, $(OBJDIR)/%.o, $(CUFILES))
 CPP_OBJ_FILES = $(patsubst $(SRCDIR)/%.cpp, $(OBJDIR)/%.o, $(CPPFILES))
 SOURCES = $(wildcard $(SRCDIR)/*.cpp)
 OBJECTS = $(patsubst $(SRCDIR)/%.cpp,$(OBJDIR)/%.o,$(SOURCES))
+CU_OBJ_FILES_CG = $(patsubst $(SRCDIR_CG)/%.cu, $(OBJDIR)/%.o, $(CUFILES_CG))
+CPP_OBJ_FILES_CG = $(patsubst $(SRCDIR_CG)/%.cpp, $(OBJDIR)/%.o, $(CPPFILES_CG))
+SOURCES_CG = $(wildcard $(SRCDIR_CG)/*.cpp)
+OBJECTS_CG = $(patsubst $(SRCDIR_CG)/%.cpp,$(OBJDIR)/%.o,$(SOURCES_CG))
 
 DEPS = $(SRCDIR)/random_num.h $(SRCDIR)/input_parser.h
 
@@ -105,18 +112,34 @@ $(info MAKE INFO: Compiling with CUDA)
 ifeq ($(COMPILE_WITH_TESTS), )
 
 $(info MAKE INFO: Compile target - KMC Simulation ./bin/runKMC)
+$(info $(CUFILES_CG))
+$(info $(CPPFILES_CG))
+$(info $(SRCDIR)/%.cpp)
+$(info CU_OBJ_FILES: $(CU_OBJ_FILES))
+$(info CPP_OBJ_FILES: $(CPP_OBJ_FILES))
 
-$(TARGET): $(CU_OBJ_FILES) $(CPP_OBJ_FILES)
+$(info LDFLAGS: $(LDFLAGS))
+$(info TARGET: $(TARGET))
+
+
+$(TARGET): $(CU_OBJ_FILES) $(CPP_OBJ_FILES) $(CU_OBJ_FILES_CG) $(CPP_OBJ_FILES_CG)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
-		
+
+
+
 $(OBJDIR)/%.o: $(SRCDIR)/%.cpp $(DEPS) #$(SRCDIR)/gpu_solvers.h
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
-		
+$(OBJDIR)/%.o: $(SRCDIR_CG)/%.cpp #$(SRCDIR)/gpu_solvers.h
+	@mkdir -p $(@D)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<	
+
 $(OBJDIR)/%.o: $(SRCDIR)/%.cu #$(SRCDIR)/gpu_solvers.h
 	@mkdir -p $(@D)
 	$(NVCC) $(NVCCFLAGS) -c $< -o $@
-	
+$(OBJDIR)/%.o: $(SRCDIR_CG)/%.cu
+	@mkdir -p $(@D)
+	$(NVCC) $(NVCCFLAGS) -c $< -o $@	
 # compile the tests for kernels
 else
 
