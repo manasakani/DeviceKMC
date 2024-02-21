@@ -120,6 +120,7 @@ void solve_own_generic_mv(
 
 
     // create distributed matrix
+    std::printf("Creating distributed matrix\n");
     Distributed_matrix A_distributed(
         matrix_size,
         nnz_local,
@@ -131,7 +132,7 @@ void solve_own_generic_mv(
         MPI_COMM_WORLD,
         default_cusparseHandle
     );
-
+    std::printf("Creating distributed vector\n");
     Distributed_vector p_distributed(
         matrix_size,
         counts,
@@ -141,15 +142,12 @@ void solve_own_generic_mv(
         MPI_COMM_WORLD,
         default_cusparseHandle
     );
-
-
     //begin CG
     std::printf("CG starts\n");
     cudaErrchk(cudaStreamSynchronize(default_stream));
     cudaErrchk(cudaDeviceSynchronize());
     MPI_Barrier(comm);
     time_taken[0] = -omp_get_wtime();
-
     // norm of rhs for convergence check
     double norm2_rhs = 0;
     cublasErrchk(cublasDdot(cublasHandle, rows_per_rank, r_local_d, 1, r_local_d, 1, &norm2_rhs));
@@ -161,7 +159,6 @@ void solve_own_generic_mv(
     std::memcpy(p_distributed.vec_h[0], starting_guess_local_h,
         p_distributed.counts[rank] * sizeof(double));
 
-
     // A*x0
     distributed_mv(
         A_distributed,
@@ -170,6 +167,7 @@ void solve_own_generic_mv(
         default_stream,
         default_cusparseHandle
     );
+
     // cal residual r0 = b - A*x0
     // r_norm2_h = r0*r0
     cublasErrchk(cublasDaxpy(cublasHandle, rows_per_rank, &alpham1, Ap_local_d, 1, r_local_d, 1));
@@ -232,7 +230,7 @@ void solve_own_generic_mv(
 
     steps_taken[0] = k;
     if(rank == 0){
-        std::printf("iteration = %3d, residual = %e\n", k, sqrt(r_norm2_h[0]));
+        std::printf("iteration = %3d, relative residual = %e\n", k, sqrt(r_norm2_h[0]/norm2_rhs));
     }
 
 

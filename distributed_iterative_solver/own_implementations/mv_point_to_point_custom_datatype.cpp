@@ -79,6 +79,7 @@ void distributed_mv_custom_datatype2(
     double alpha = 1.0;
     double beta = 0.0;
 
+
     // pinned memory
     //streams
     if(A_distributed.size > 1){
@@ -92,7 +93,6 @@ void distributed_mv_custom_datatype2(
         MPI_Isend(p_distributed.vec_h[0], 1, A_distributed.send_types[i-1],
             send_idx, send_tag, A_distributed.comm, &A_distributed.send_requests[i]);
     }
-
 
 
     for(int i = 0; i < A_distributed.number_of_neighbours; i++){

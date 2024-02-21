@@ -78,9 +78,9 @@ void solve_hypre(
     double *time_taken);
 
 void solve_ginkgo(
-    double *data_local,
-    int *row_ptr_local,
-    int *col_indices_local,
+    double *data,
+    int *row_ptr,
+    int *col_indices,
     double *rhs,
     double *reference_solution,
     int matrix_size,

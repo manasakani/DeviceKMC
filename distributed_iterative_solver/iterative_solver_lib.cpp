@@ -441,9 +441,9 @@ void solve_hypre(
 
 
 void solve_ginkgo(
-    double *data_local,
-    int *row_ptr_local,
-    int *col_indices_local,
+    double *data,
+    int *row_ptr,
+    int *col_indices,
     double *rhs,
     double *reference_solution,
     int matrix_size,
@@ -524,19 +524,22 @@ void solve_ginkgo(
     x_data.size = {num_rows, 1};
     const auto range_start = partition->get_range_bounds()[rank];
     const auto range_end = partition->get_range_bounds()[rank + 1];
+
+
     std::cout << "rank: " << rank << " range_start: " << range_start << " range_end: " << range_end << std::endl;
-    for (int i = 0; i < range_end-range_start; i++) {
-        for(int j = row_ptr_local[i]; j < row_ptr_local[i+1]; j++){
-            A_data.nonzeros.emplace_back(i+range_start, col_indices_local[j], data_local[j]);
+    for (int i = range_start; i < range_end; i++) {
+        for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+            A_data.nonzeros.emplace_back(i, col_indices[j], data[j]);
         }
-        b_data.nonzeros.emplace_back(i+range_start, 0, rhs[i+range_start]);
-        x_data.nonzeros.emplace_back(i+range_start, 0, gko::zero<ValueType>());
+        b_data.nonzeros.emplace_back(i, 0, rhs[i]);
+        x_data.nonzeros.emplace_back(i, 0, gko::zero<ValueType>());
     }
 
     // Take timings.
     comm.synchronize();
+    
     ValueType t_init_end = gko::experimental::mpi::get_walltime();
-
+    std::cout << "rank " << rank << " t_init_end " << t_init_end - t_init << std::endl;
     // Read the matrix data, currently this is only supported on CPU executors.
     // This will also set up the communication pattern needed for the
     // distributed matrix-vector multiplication.
@@ -558,7 +561,7 @@ void solve_ginkgo(
     // Take timings.
     comm.synchronize();
     ValueType t_read_setup_end = gko::experimental::mpi::get_walltime();
-
+    std::cout << "rank " << rank << " t_read_setup_end " << t_read_setup_end - t_init << std::endl;
 
     // @sect3{Solve the Distributed System}
     // Generate the solver, this is the same as in the non-distributed case.
@@ -584,8 +587,9 @@ void solve_ginkgo(
     // Take timings.
     comm.synchronize();
     cudaDeviceSynchronize();
+    std::cout << "rank " << rank << "start solve" << std::endl;
     ValueType t_solver_generate_end = gko::experimental::mpi::get_walltime();
-
+    
     // Apply the distributed solver, this is the same as in the non-distributed
     // case.
     Ainv->apply(b, x);
@@ -594,28 +598,26 @@ void solve_ginkgo(
     cudaDeviceSynchronize();
     ValueType t_end = gko::experimental::mpi::get_walltime();
     comm.synchronize();
+    std::cout << "rank " << rank << "end solve" << std::endl;
 
     // Get the residual.
     auto res_norm = gko::as<vec>(logger->get_residual_norm());
-
     // auto initres_vec = gko::initialize<vec>({0.0}, exec);
     ValueType* result_d = x->get_local_values();
     ValueType* result_h = new ValueType[range_end-range_start];
     cudaMemcpy(result_h, result_d, (range_end-range_start)*sizeof(ValueType), cudaMemcpyDeviceToHost);
-
     // x->compute_norm2(initres_vec);
     
     // write(std::cout, res_norm);
     // write(std::cout, initres_vec);
     // std::cout << result_h[0] << std::endl;
-    double sum_solution = 0.0;
-    double sum_difference = 0.0;
-    for (int i = range_start; i < range_end; i++) {
-        sum_solution += reference_solution[i];
-        sum_difference += std::abs(reference_solution[i] - result_h[i]);
-    }
-    MPI_Allreduce(MPI_IN_PLACE, &sum_solution, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
+    // double sum_solution = 0.0;
+    // double sum_difference = 0.0;
+    // for (int i = range_start; i < range_end; i++) {
+    //     sum_solution += reference_solution[i];
+    //     sum_difference += std::abs(reference_solution[i] - result_h[i]);
+    // }
+    // MPI_Allreduce(MPI_IN_PLACE, &sum_solution, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
     iterations[0] = logger->get_num_iterations();
     time_taken[0] = t_end - t_solver_generate_end;
 
@@ -624,7 +626,6 @@ void solve_ginkgo(
     if (comm.rank() == 0) {
         // write(std::cout, res_norm);
         // clang-format off
-        std::cout << "difference/sum_ref " << sum_difference/sum_solution << std::endl;
         std::cout << "Num rows in matrix: " << num_rows
                   << "\nNum ranks: " << comm.size()
                   << "\nIteration count: " << logger->get_num_iterations()

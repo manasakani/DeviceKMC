@@ -133,14 +133,13 @@ void distributed_mv_point_to_point3(
 
     double alpha = 1.0;
     double beta = 0.0;
-
+    
     // pinned memory
     // streams
     if(A_distributed.size > 1){
         cudaErrchk(cudaMemcpy(p_distributed.vec_h[0], p_distributed.vec_d[0],
             A_distributed.rows_this_rank * sizeof(double), cudaMemcpyDeviceToHost));
     }
-    
     // post all send requests
     for(int i = 1; i < A_distributed.number_of_neighbours; i++){
         int send_idx = p_distributed.neighbours[i];
@@ -148,7 +147,6 @@ void distributed_mv_point_to_point3(
         MPI_Isend(p_distributed.vec_h[0], p_distributed.rows_this_rank,
                     MPI_DOUBLE, send_idx, send_tag, A_distributed.comm, &A_distributed.send_requests[i]);
     }
-
     for(int i = 0; i < A_distributed.number_of_neighbours; i++){
         // loop over neighbors
         if(i < A_distributed.number_of_neighbours-1){
@@ -189,7 +187,6 @@ void distributed_mv_point_to_point3(
         
     }
     MPI_Waitall(A_distributed.number_of_neighbours-1, &A_distributed.send_requests[1], MPI_STATUSES_IGNORE);
-
 
 }
 
