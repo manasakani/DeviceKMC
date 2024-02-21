@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
     cudaError_t set_device_error = cudaSetDevice(0);
     std::cout << "rank " << rank << " set_device_error " << set_device_error << std::endl;
 
-    int matsize = 400;
+    int matsize = 1600;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
     //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
     std::string save_path ="/scratch/snx3000/amaeder/measurements/own_260/";
@@ -39,10 +39,16 @@ int main(int argc, char **argv) {
         nnz = 1719652;        
     }
     else if(matsize == 400){
-        // data_path = "/scratch/snx3000/amaeder/cross_bars";
-        // save_path ="/scratch/snx3000/amaeder/measurements/400/";
+        data_path = "/scratch/snx3000/amaeder/cross_bars";
+        save_path ="/scratch/snx3000/amaeder/measurements/400/";
         matrix_size = 403605;
         nnz = 10007089;        
+    }
+    else if(matsize == 1600){
+        data_path = "/scratch/snx3000/amaeder/cross_bars";
+        save_path = "/scratch/snx3000/amaeder/measurements/1600/";
+        matrix_size = 1632355;
+        nnz = 41208963;        
     }
     else{
         data_path = "/scratch/snx3000/amaeder/kmc_random";
@@ -50,13 +56,13 @@ int main(int argc, char **argv) {
         nnz = 16481266;
     }
 
-    int start_up_measurements = 0;
-    int true_number_of_measurements = 1;
+    int start_up_measurements = 2;
+    int true_number_of_measurements = 5;
     int number_of_measurements = start_up_measurements + true_number_of_measurements;
     int number_of_kmc_steps = 1;
 
-    int max_iterations = 5000;
-    double relative_tolerance = 1e-12;
+    int max_iterations = 10000;
+    double relative_tolerance = 1e-8;
 
     int rows_per_rank = matrix_size / size;
     int remainder = matrix_size % size;
@@ -112,11 +118,11 @@ int main(int argc, char **argv) {
         std::string solution_filename;
 
         std::cout << "rank " << rank << " data_path " << data_path << std::endl;
-        if(matsize == 400){
-            data_filename = data_path + "/A_data"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
-            row_ptr_filename = data_path + "/A_row_ptr"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
-            col_indices_filename = data_path + "/A_col_indices"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
-            rhs_filename = data_path + "/A_rhs"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
+        if(matsize == 400 || matsize == 1600){
+            data_filename = data_path + "/A_data_rcm"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
+            row_ptr_filename = data_path + "/A_row_ptr_rcm"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
+            col_indices_filename = data_path + "/A_col_indices_rcm"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
+            rhs_filename = data_path + "/A_rhs_rcm"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
         }
         else{
             data_filename = data_path + "/A_data"+std::to_string(step)+".bin";
@@ -131,7 +137,7 @@ int main(int argc, char **argv) {
         std::cout << "rank " << rank << " col_indices_filename " << col_indices_filename << std::endl;
         std::cout << "rank " << rank << " rhs_filename " << rhs_filename << std::endl;
         std::cout << "rank " << rank << " solution_filename " << solution_filename << std::endl;
-        if(matsize == 400){
+        if(matsize == 400 || matsize == 1600){
             load_binary_array<double>(data_filename, data, nnz);
             load_binary_array<int>(row_ptr_filename, row_ptr, matrix_size+1);
             load_binary_array<int>(col_indices_filename, col_indices, nnz);
@@ -335,24 +341,24 @@ int main(int argc, char **argv) {
 
 
 
-        // for(int measurement = 0; measurement < number_of_measurements; measurement++){
-        //     MPI_Barrier(MPI_COMM_WORLD);
-        //     std::cout << "rank " << rank << " solve_allgatherv3 " << measurement << std::endl;
-        //     own_test::solve_cg_allgatherv3(
-        //         data_copy,
-        //         col_indices_copy,
-        //         row_ptr_copy,
-        //         rhs_copy,
-        //         reference_solution_copy,
-        //         starting_guess_copy,
-        //         matrix_size,
-        //         relative_tolerance,
-        //         max_iterations,
-        //         MPI_COMM_WORLD,
-        //         &iteration,
-        //         &times_allgatherv3[measurement]
-        //     );
-        // }
+        for(int measurement = 0; measurement < number_of_measurements; measurement++){
+            MPI_Barrier(MPI_COMM_WORLD);
+            std::cout << "rank " << rank << " solve_allgatherv3 " << measurement << std::endl;
+            own_test::solve_cg_allgatherv3(
+                data_copy,
+                col_indices_copy,
+                row_ptr_copy,
+                rhs_copy,
+                reference_solution_copy,
+                starting_guess_copy,
+                matrix_size,
+                relative_tolerance,
+                max_iterations,
+                MPI_COMM_WORLD,
+                &iteration,
+                &times_allgatherv3[measurement]
+            );
+        }
 
 
 
@@ -436,24 +442,24 @@ int main(int argc, char **argv) {
 
 
 
-        // for(int measurement = 0; measurement < number_of_measurements; measurement++){
-        //     MPI_Barrier(MPI_COMM_WORLD);
-        //     std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_custom_datatype2 " << measurement << std::endl;
-        //     own_test::solve_own_generic_mv<own_mv::distributed_mv_custom_datatype2>(
-        //         data_copy,
-        //         col_indices_copy,
-        //         row_ptr_copy,
-        //         rhs_copy,
-        //         reference_solution_copy,
-        //         starting_guess_copy,
-        //         matrix_size,
-        //         relative_tolerance,
-        //         max_iterations,
-        //         MPI_COMM_WORLD,
-        //         &iteration,
-        //         &times_custom2[measurement]
-        //     );
-        // }
+        for(int measurement = 0; measurement < number_of_measurements; measurement++){
+            MPI_Barrier(MPI_COMM_WORLD);
+            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_custom_datatype2 " << measurement << std::endl;
+            own_test::solve_own_generic_mv<own_mv::distributed_mv_custom_datatype2>(
+                data_copy,
+                col_indices_copy,
+                row_ptr_copy,
+                rhs_copy,
+                reference_solution_copy,
+                starting_guess_copy,
+                matrix_size,
+                relative_tolerance,
+                max_iterations,
+                MPI_COMM_WORLD,
+                &iteration,
+                &times_custom2[measurement]
+            );
+        }
 
 
 
@@ -500,24 +506,24 @@ int main(int argc, char **argv) {
 
 
 
-        // for(int measurement = 0; measurement < number_of_measurements; measurement++){
-        //     MPI_Barrier(MPI_COMM_WORLD);
-        //     std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing3 " << measurement << std::endl;
-        //     own_test::solve_own_generic_mv<own_mv::distributed_mv_gpu_packing3>(
-        //         data_copy,
-        //         col_indices_copy,
-        //         row_ptr_copy,
-        //         rhs_copy,
-        //         reference_solution_copy,
-        //         starting_guess_copy,
-        //         matrix_size,
-        //         relative_tolerance,
-        //         max_iterations,
-        //         MPI_COMM_WORLD,
-        //         &iteration,
-        //         &times_gpu_packing3[measurement]
-        //     );
-        // }
+        for(int measurement = 0; measurement < number_of_measurements; measurement++){
+            MPI_Barrier(MPI_COMM_WORLD);
+            std::cout << "rank " << rank << " solve_cg_nonblocking_point_to_point_gpu_packing3 " << measurement << std::endl;
+            own_test::solve_own_generic_mv<own_mv::distributed_mv_gpu_packing3>(
+                data_copy,
+                col_indices_copy,
+                row_ptr_copy,
+                rhs_copy,
+                reference_solution_copy,
+                starting_guess_copy,
+                matrix_size,
+                relative_tolerance,
+                max_iterations,
+                MPI_COMM_WORLD,
+                &iteration,
+                &times_gpu_packing3[measurement]
+            );
+        }
 
 
 
@@ -565,36 +571,36 @@ int main(int argc, char **argv) {
         delete[] rhs_copy;
         delete[] reference_solution_copy;
         delete[] starting_guess_copy;
-        // if(size < 2){
-        //     std::string path_solve_cg1 = get_filename(save_path, "solve1", number_of_kmc_steps, size, rank);
-        //     std::string path_solve_cg2 = get_filename(save_path, "solve2", number_of_kmc_steps, size, rank);
-        //     std::string path_solve_cg3 = get_filename(save_path, "solve3", number_of_kmc_steps, size, rank);
-        //     std::string path_solve_cg4 = get_filename(save_path, "solve4", number_of_kmc_steps, size, rank);
+        if(size < 2){
+            // std::string path_solve_cg1 = get_filename(save_path, "solve1", number_of_kmc_steps, size, rank);
+            // std::string path_solve_cg2 = get_filename(save_path, "solve2", number_of_kmc_steps, size, rank);
+            // std::string path_solve_cg3 = get_filename(save_path, "solve3", number_of_kmc_steps, size, rank);
+            std::string path_solve_cg4 = get_filename(save_path, "solve4", number_of_kmc_steps, size, rank);
 
-        //     save_measurements(path_solve_cg1,
-        //         times1 + start_up_measurements,
-        //         true_number_of_measurements, true);
-        //     save_measurements(path_solve_cg2,
-        //         times2 + start_up_measurements,
-        //         true_number_of_measurements, true);
-        //     save_measurements(path_solve_cg3,
-        //         times3 + start_up_measurements,
-        //         true_number_of_measurements, true);
-        //     save_measurements(path_solve_cg4,
-        //         times4 + start_up_measurements,
-        //         true_number_of_measurements, true);
-        // }
+            // save_measurements(path_solve_cg1,
+            //     times1 + start_up_measurements,
+            //     true_number_of_measurements, true);
+            // save_measurements(path_solve_cg2,
+            //     times2 + start_up_measurements,
+            //     true_number_of_measurements, true);
+            // save_measurements(path_solve_cg3,
+            //     times3 + start_up_measurements,
+            //     true_number_of_measurements, true);
+            save_measurements(path_solve_cg4,
+                times4 + start_up_measurements,
+                true_number_of_measurements, true);
+        }
         // std::string path_solve_allgatherv1 = get_filename(save_path, "solve_allgatherv1", number_of_kmc_steps, size, rank);
         // std::string path_solve_allgatherv2 = get_filename(save_path, "solve_allgatherv2", number_of_kmc_steps, size, rank);
-        // std::string path_solve_allgatherv3 = get_filename(save_path, "solve_allgatherv3", number_of_kmc_steps, size, rank);
+        std::string path_solve_allgatherv3 = get_filename(save_path, "solve_allgatherv3", number_of_kmc_steps, size, rank);
         // std::string path_solve_point_to_point1 = get_filename(save_path, "solve_point_to_point1", number_of_kmc_steps, size, rank);
         // std::string path_solve_point_to_point2 = get_filename(save_path, "solve_point_to_point2", number_of_kmc_steps, size, rank);
-        // std::string path_solve_point_to_point3 = get_filename(save_path, "solve_point_to_point3", number_of_kmc_steps, size, rank);
+        std::string path_solve_point_to_point3 = get_filename(save_path, "solve_point_to_point3", number_of_kmc_steps, size, rank);
         // std::string path_solve_custom_datatype1 = get_filename(save_path, "solve_custom_datatype1", number_of_kmc_steps, size, rank);
-        // std::string path_solve_custom_datatype2 = get_filename(save_path, "solve_custom_datatype2", number_of_kmc_steps, size, rank);
+        std::string path_solve_custom_datatype2 = get_filename(save_path, "solve_custom_datatype2", number_of_kmc_steps, size, rank);
         // std::string path_solve_gpu_packing1 = get_filename(save_path, "solve_gpu_packing1", number_of_kmc_steps, size, rank);
         // std::string path_solve_gpu_packing2 = get_filename(save_path, "solve_gpu_packing2", number_of_kmc_steps, size, rank);
-        // std::string path_solve_gpu_packing3 = get_filename(save_path, "solve_gpu_packing3", number_of_kmc_steps, size, rank);
+        std::string path_solve_gpu_packing3 = get_filename(save_path, "solve_gpu_packing3", number_of_kmc_steps, size, rank);
         // std::string path_solve_gpu_packing4 = get_filename(save_path, "solve_gpu_packing4", number_of_kmc_steps, size, rank);
         // std::string path_solve_gpu_packing5 = get_filename(save_path, "solve_gpu_packing5", number_of_kmc_steps, size, rank);
 
@@ -604,33 +610,33 @@ int main(int argc, char **argv) {
         // save_measurements(path_solve_allgatherv2,
         //     times_allgatherv2 + start_up_measurements,
         //     true_number_of_measurements, true);
-        // save_measurements(path_solve_allgatherv3,
-        //     times_allgatherv3 + start_up_measurements,
-        //     true_number_of_measurements, true);
+        save_measurements(path_solve_allgatherv3,
+            times_allgatherv3 + start_up_measurements,
+            true_number_of_measurements, true);
         // save_measurements(path_solve_point_to_point1,
         //     times_point_to_point1 + start_up_measurements,
         //     true_number_of_measurements, true);
         // save_measurements(path_solve_point_to_point2,
         //     times_point_to_point2 + start_up_measurements,
         //     true_number_of_measurements, true);
-        // save_measurements(path_solve_point_to_point3,
-        //     times_point_to_point3 + start_up_measurements,
-        //     true_number_of_measurements, true);
+        save_measurements(path_solve_point_to_point3,
+            times_point_to_point3 + start_up_measurements,
+            true_number_of_measurements, true);
         // save_measurements(path_solve_custom_datatype1,
         //     times_custom1 + start_up_measurements,
         //     true_number_of_measurements, true);
-        // save_measurements(path_solve_custom_datatype2,
-        //     times_custom2 + start_up_measurements,
-        //     true_number_of_measurements, true);
+        save_measurements(path_solve_custom_datatype2,
+            times_custom2 + start_up_measurements,
+            true_number_of_measurements, true);
         // save_measurements(path_solve_gpu_packing1,
         //     times_gpu_packing1 + start_up_measurements,
         //     true_number_of_measurements, true);
         // save_measurements(path_solve_gpu_packing2,
         //     times_gpu_packing2 + start_up_measurements,
         //     true_number_of_measurements, true);
-        // save_measurements(path_solve_gpu_packing3,
-        //     times_gpu_packing3 + start_up_measurements,
-        //     true_number_of_measurements, true);
+        save_measurements(path_solve_gpu_packing3,
+            times_gpu_packing3 + start_up_measurements,
+            true_number_of_measurements, true);
         // save_measurements(path_solve_gpu_packing4,
         //     times_gpu_packing4 + start_up_measurements,
         //     true_number_of_measurements, true);

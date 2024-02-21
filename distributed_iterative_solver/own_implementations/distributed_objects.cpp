@@ -230,9 +230,6 @@ Distributed_matrix::Distributed_matrix(
     recv_types = new MPI_Datatype[number_of_neighbours];
     for(int k = 0; k < number_of_neighbours-1; k++){
 
-        std::cout << rank << " " << k+1 <<  " " <<number_of_neighbours<< std::endl;
-
-
         int *lengths = new int[nnz_rows_per_neighbour[k+1]];
         for(int i = 0; i < nnz_rows_per_neighbour[k+1]; i++){
             lengths[i] = 1;

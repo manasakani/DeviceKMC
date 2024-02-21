@@ -26,10 +26,12 @@ int main(int argc, char **argv) {
 
     std::cout << "Hello World from rank " << rank << std::endl;
 
-    int matsize = 260;
+    int matsize = 1600;
     std::string data_path = "/scratch/snx3000/amaeder/"+std::to_string(matsize)+"k_piz_daint_data";
-    std::string save_path ="/scratch/snx3000/amaeder/measurements/single_node_libraries/";
-    save_path ="/scratch/snx3000/amaeder/measurements/own_260/";
+    //std::string save_path ="/scratch/snx3000/amaeder/measurements/self_preconditioned_scaling_measurement/";
+    std::string save_path ="/scratch/snx3000/amaeder/measurements/own_260/";
+    //data_path = "/usr/scratch/mont-fort17/almaeder/kmc_"+std::to_string(matsize)+"k/system_K";
+    data_path = "/usr/scratch/mont-fort23/almaeder/kmc_matrices";
 
     int matrix_size;
     int nnz;     
@@ -42,11 +44,24 @@ int main(int argc, char **argv) {
         matrix_size = 70630;
         nnz = 1719652;        
     }
+    else if(matsize == 400){
+        data_path = "/scratch/snx3000/amaeder/cross_bars";
+        save_path ="/scratch/snx3000/amaeder/measurements/400/";
+        matrix_size = 403605;
+        nnz = 10007089;        
+    }
+    else if(matsize == 1600){
+        data_path = "/scratch/snx3000/amaeder/cross_bars";
+        save_path = "/scratch/snx3000/amaeder/measurements/1600/";
+        matrix_size = 1632355;
+        nnz = 41208963;        
+    }
     else{
         data_path = "/scratch/snx3000/amaeder/kmc_random";
         matrix_size = 262144;
         nnz = 16481266;
     }
+
 
 
     int counts[size];
@@ -84,13 +99,13 @@ int main(int argc, char **argv) {
     cudaMalloc(&reference_solution_d, matrix_size * sizeof(double));
     cudaMalloc(&diagonal_d, matrix_size * sizeof(double));
 
-    int start_up_measurements = 2;
-    int true_number_of_measurements = 5;
+    int start_up_measurements = 0;
+    int true_number_of_measurements = 1;
     int number_of_measurements = start_up_measurements + true_number_of_measurements;
     int number_of_kmc_steps = 1;
 
     int max_iterations = 5000;
-    double relative_tolerance = 1e-12;
+    double relative_tolerance = 1e-8;
     double absolute_tolerance = 1e-30;
     double divergence_tolerance = 1e+50;
 
@@ -104,18 +119,46 @@ int main(int argc, char **argv) {
         double times_petsc[number_of_measurements];
         double times_hypre[number_of_measurements];
         double times_ginkgo[number_of_measurements];
+        std::string data_filename;
+        std::string row_ptr_filename;
+        std::string col_indices_filename;
+        std::string rhs_filename;
+        std::string solution_filename;
+        std::cout << "rank " << rank << " data_path " << data_path << std::endl;
+        if(matsize == 400 || matsize == 1600){
+            data_filename = data_path + "/A_data_rcm"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
+            row_ptr_filename = data_path + "/A_row_ptr_rcm"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
+            col_indices_filename = data_path + "/A_col_indices_rcm"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
+            rhs_filename = data_path + "/A_rhs_rcm"+std::to_string(matrix_size)+"_"+std::to_string(step)+".bin";
+        }
+        else{
+            data_filename = data_path + "/A_data"+std::to_string(step)+".bin";
+            row_ptr_filename = data_path + "/A_row_ptr"+std::to_string(step)+".bin";
+            col_indices_filename = data_path + "/A_col_indices"+std::to_string(step)+".bin";
+            rhs_filename = data_path + "/A_rhs"+std::to_string(step)+".bin";
+            solution_filename = data_path + "/solution"+std::to_string(step)+".bin";
+        }
+        std::cout << "rank " << rank << " Loading data" << std::endl;
+        std::cout << "rank " << rank << " data_filename " << data_filename << std::endl;
+        std::cout << "rank " << rank << " row_ptr_filename " << row_ptr_filename << std::endl;
+        std::cout << "rank " << rank << " col_indices_filename " << col_indices_filename << std::endl;
+        std::cout << "rank " << rank << " rhs_filename " << rhs_filename << std::endl;
+        std::cout << "rank " << rank << " solution_filename " << solution_filename << std::endl;
+        if(matsize == 400 || matsize == 1600){
+            load_binary_array<double>(data_filename, data, nnz);
+            load_binary_array<int>(row_ptr_filename, row_ptr, matrix_size+1);
+            load_binary_array<int>(col_indices_filename, col_indices, nnz);
+            load_binary_array<double>(rhs_filename, rhs, matrix_size);
+        }
+        else{
+            load_binary_array<double>(data_filename, data, nnz);
+            load_binary_array<int>(row_ptr_filename, row_ptr, matrix_size+1);
+            load_binary_array<int>(col_indices_filename, col_indices, nnz);
+            load_binary_array<double>(rhs_filename, rhs, matrix_size);
+            load_binary_array<double>(solution_filename, reference_solution, matrix_size);
+        }
 
-        std::string data_filename = data_path + "/A_data"+std::to_string(step)+".bin";
-        std::string row_ptr_filename = data_path + "/A_row_ptr"+std::to_string(step)+".bin";
-        std::string col_indices_filename = data_path + "/A_col_indices"+std::to_string(step)+".bin";
-        std::string rhs_filename = data_path + "/A_rhs"+std::to_string(step)+".bin";
-        std::string solution_filename = data_path + "/solution"+std::to_string(step)+".bin";
-
-        load_binary_array<double>(data_filename, data, nnz);
-        load_binary_array<int>(row_ptr_filename, row_ptr, matrix_size+1);
-        load_binary_array<int>(col_indices_filename, col_indices, nnz);
-        load_binary_array<double>(rhs_filename, rhs, matrix_size);
-        load_binary_array<double>(solution_filename, reference_solution, matrix_size);
+        std::cout << "rank " << rank << " data loaded" << std::endl;
 
         cudaMemcpy(data_d, data, nnz * sizeof(double), cudaMemcpyHostToDevice);
         cudaMemcpy(row_ptr_d, row_ptr, (matrix_size+1) * sizeof(int), cudaMemcpyHostToDevice);
@@ -209,9 +252,9 @@ int main(int argc, char **argv) {
         for(int i = 0; i < number_of_measurements; i++) {
             std::cout << "rank " << rank << " solve_ginkgo " << i << std::endl;
             lib_to_compare::solve_ginkgo(
-                data_local,
-                row_ptr_local,
-                col_indices_local,
+                data,
+                row_ptr,
+                col_indices,
                 rhs,
                 reference_solution,
                 matrix_size,
@@ -223,18 +266,18 @@ int main(int argc, char **argv) {
 
         delete[] row_ptr_local;
 
-        std::string path_solve_petsc = get_filename(save_path, "solve_petsc", number_of_kmc_steps, size, rank);
-        std::string path_solve_hypre = get_filename(save_path, "solve_hypre", number_of_kmc_steps, size, rank);
-        std::string path_solve_ginkgo = get_filename(save_path, "solve_ginkgo", number_of_kmc_steps, size, rank);
-        save_measurements(path_solve_petsc,
-            times_petsc + start_up_measurements,
-            true_number_of_measurements, true);
-        save_measurements(path_solve_hypre,
-            times_hypre + start_up_measurements,
-            true_number_of_measurements, true);
-        save_measurements(path_solve_ginkgo,
-            times_ginkgo + start_up_measurements,
-            true_number_of_measurements, true);
+        // std::string path_solve_petsc = get_filename(save_path, "solve_petsc", number_of_kmc_steps, size, rank);
+        // std::string path_solve_hypre = get_filename(save_path, "solve_hypre", number_of_kmc_steps, size, rank);
+        // std::string path_solve_ginkgo = get_filename(save_path, "solve_ginkgo", number_of_kmc_steps, size, rank);
+        // save_measurements(path_solve_petsc,
+        //     times_petsc + start_up_measurements,
+        //     true_number_of_measurements, true);
+        // save_measurements(path_solve_hypre,
+        //     times_hypre + start_up_measurements,
+        //     true_number_of_measurements, true);
+        // save_measurements(path_solve_ginkgo,
+        //     times_ginkgo + start_up_measurements,
+        //     true_number_of_measurements, true);
     }
 
     
