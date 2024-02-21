@@ -423,7 +423,7 @@ __global__ void populate_data_T_tunnel(double *X, const double *posx, const doub
 }
 
 
-__global__ void calc_diagonal_T_gpu( int *col_indices, int *row_ptr, double *data, int matrix_size)
+__global__ void calc_diagonal_T_gpu( int *col_indices, int *row_ptr, double *data, int matrix_size, double *diagonal)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     for(int i = idx; i < matrix_size - 1; i += blockDim.x * gridDim.x){ // MINUS ONE
@@ -434,6 +434,7 @@ __global__ void calc_diagonal_T_gpu( int *col_indices, int *row_ptr, double *dat
                 tmp += data[j];
             }
         }
+        diagonal[i] = -tmp;
         //write the sum of the off-diagonals onto the existing diagonal element
         for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
             if(i == col_indices[j]){
@@ -468,6 +469,74 @@ __global__ void copy_pdisp(double *site_power, ELEMENT *element, const ELEMENT *
         bool metal = is_in_array_gpu(metals, element[atom_gpu_index[idx]], num_metals);
         if (!metal)
             site_power[atom_gpu_index[idx]] = -1 * alpha * pdisp[idx];
+    }
+}
+
+//extracts the diagonal of the dense submatrix into a global vector
+__global__ void extract_diag_tunnel(
+    double *tunnel_matrix,
+    int *tunnel_indices, 
+    int num_tunnel_points,
+    double *diagonal
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int i = idx; i < num_tunnel_points; i += blockDim.x * gridDim.x)
+    {
+        // +2 since first two indices are the ground and injection nodes
+        diagonal[tunnel_indices[i] + 2] += tunnel_matrix[i * num_tunnel_points + i];
+    }
+}
+
+__global__ void inverse_vector(double *vec, int N)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for (int i = idx; i < N; i += blockDim.x * gridDim.x)
+    {
+        vec[i] = 1.0 / vec[i];
+    }
+}
+
+template <int NTHREADS>
+__global__ void get_imacro_sparse(const double *x_values, const int *x_row_ptr, const int *x_col_ind,
+                                  const double *m, double *imacro)
+{
+    int num_threads = blockDim.x;
+    int bid = blockIdx.x;
+    int tid = threadIdx.x;
+    int total_tid = bid * num_threads + tid;
+    int total_threads = num_threads * gridDim.x;
+
+    int row_start = x_row_ptr[1] + 2;
+    int row_end = x_row_ptr[2];
+
+    __shared__ double buf[NTHREADS];
+    buf[tid] = 0.0;
+ 
+    for (int idx = row_start + total_tid; idx < row_end; idx += total_threads)
+    {
+        int col_index = x_col_ind[idx];
+        if (col_index >= 2) 
+        {
+            // buf[tid] += x_values[idx] * (m[0] - m[col_index]);               // extracted (= injected when including ground node)
+            buf[tid] += x_values[idx] * (m[col_index] - m[1]);                  // injected
+        }
+    }
+
+    int width = num_threads / 2;
+    while (width != 0)
+    {
+        __syncthreads();
+        if (tid < width)
+        {
+            buf[tid] += buf[tid + width];
+        }
+        width /= 2;
+    }
+
+    if (tid == 0)
+    {
+        atomicAdd(imacro, buf[0]);
     }
 }
 
@@ -631,11 +700,15 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
 
     // **************************************************************************
     // 6. Reduce the diagonals
+    double *diagonal_d;
+    gpuErrchk( cudaMalloc((void **)&diagonal_d, Nfull * sizeof(double)) );
+    gpuErrchk( cudaMemset(diagonal_d, 0, Nfull * sizeof(double) ) );
+
 
     // reduce the diagonal for the sparse banded matrix
     num_threads = 512;
     num_blocks = (Nfull + num_threads - 1) / num_threads;
-    calc_diagonal_T_gpu<<<num_blocks, num_threads>>>(neighbor_col_indices_d, neighbor_row_ptr_d, neighbor_data_d, Nfull);
+    calc_diagonal_T_gpu<<<num_blocks, num_threads>>>(neighbor_col_indices_d, neighbor_row_ptr_d, neighbor_data_d, Nfull, diagonal_d);
     gpuErrchk( cudaPeekAtLastError() );
 
     // reduce the diagonal for the dense tunnel matrix
@@ -653,6 +726,26 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     write_to_diag<<<blocks_per_row, num_threads>>>(tunnel_matrix_d, tunnel_diag_d, num_tunnel_points);
     gpuErrchk( cudaPeekAtLastError() );
     cudaDeviceSynchronize();
+
+    //diagonal_d contains already the diagonal of the neighbor matrix
+    extract_diag_tunnel<<<blocks_per_row, num_threads>>>(
+        tunnel_matrix_d,
+        tunnel_indices, 
+        num_tunnel_points,
+        diagonal_d);
+    inverse_vector<<<blocks_per_row, num_threads>>>(diagonal_d, Nfull);
+
+    double *diagonal_inv_d = diagonal_d;
+
+
+    // double *diagonal_inv_h = (double *)calloc(Nfull, sizeof(double));
+    // gpuErrchk( cudaMemcpy(diagonal_inv_h, diagonal_inv_d, Nfull * sizeof(double), cudaMemcpyDeviceToHost) );
+    // for (int i = 0; i < Nfull; i++){
+    //     std::cout << diagonal_inv_h[i] << " ";
+    // }   
+    // std::cout << "\n";
+    // exit(1);
+
 
     // the sparse matrix of the neighbor connectivity is contained in [neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_data_d]
     // the dense matrix of the non-neighbor connectivity is contained in [tunnel_matrix_d] with size num_tunnel_points
@@ -716,7 +809,7 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     int Nsub = Nfull - 1;
     solve_sparse_CG_splitmatrix(handle, cusparseHandle, tunnel_matrix_d, num_tunnel_points, 
                                 neighbor_data_d, neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_nnz, 
-                                Nsub, tunnel_indices, gpu_m, gpu_virtual_potentials);
+                                Nsub, tunnel_indices, gpu_m, gpu_virtual_potentials, diagonal_inv_d);
 
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
@@ -730,7 +823,7 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     }
 
     std::cout << "done system solve\n";
-    exit(1);
+    // exit(1);
 
     // auto t4 = std::chrono::steady_clock::now();
     // std::chrono::duration<double> dt3 = t4 - t3;
@@ -739,27 +832,37 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
 
     // // ****************************************************
     // // 3. Calculate the net current flowing into the device
+    double *gpu_imacro;
+    gpuErrchk( cudaMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       // [A] The macroscopic device current
+    cudaDeviceSynchronize();
+
 
     // // scale the virtual potentials by G0 (conductance quantum) instead of multiplying inside the X matrix
-    // thrust::device_ptr<double> gpu_virtual_potentials_ptr = thrust::device_pointer_cast(gpu_virtual_potentials);
-    // thrust::transform(gpu_virtual_potentials_ptr, gpu_virtual_potentials_ptr + N_atom + 2, gpu_virtual_potentials_ptr, thrust::placeholders::_1 * G0);
+    thrust::device_ptr<double> gpu_virtual_potentials_ptr = thrust::device_pointer_cast(gpu_virtual_potentials);
+    thrust::transform(gpu_virtual_potentials_ptr, gpu_virtual_potentials_ptr + N_atom + 2, gpu_virtual_potentials_ptr, thrust::placeholders::_1 * G0);
 
     // // macroscopic device current
-    // gpuErrchk( cudaMemset(gpu_imacro, 0, sizeof(double)) ); 
-    // cudaDeviceSynchronize();
+    gpuErrchk( cudaMemset(gpu_imacro, 0, sizeof(double)) ); 
+    cudaDeviceSynchronize();
 
     // // dot product of first row of X[i] times M[0] - M[i]
-    // num_threads = 512;
-    // num_blocks = (N_atom - 1) / num_threads + 1;
-    // get_imacro_sparse<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(X_data, X_row_ptr, X_col_indices, gpu_virtual_potentials, gpu_imacro);
-    // gpuErrchk( cudaPeekAtLastError() );
-    // cudaDeviceSynchronize();
+    num_threads = 512;
+    num_blocks = (N_atom - 1) / num_threads + 1;
+    get_imacro_sparse<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(
+        neighbor_data_d, neighbor_row_ptr_d, neighbor_col_indices_d, gpu_virtual_potentials, gpu_imacro);
+    gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
 
-    // gpuErrchk( cudaMemcpy(imacro, gpu_imacro, sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( cudaMemcpy(imacro, gpu_imacro, sizeof(double), cudaMemcpyDeviceToHost) );
 
-    // // auto t5 = std::chrono::steady_clock::now();
-    // // std::chrono::duration<double> dt4 = t5 - t4;
-    // // std::cout << "time to compute current: " << dt4.count() << "\n";
+    std::cout << solve_heating_local  << "\n";
+    std::cout << solve_heating_global << "\n";
+
+    //TODO does not work now
+    // implement the heating calculation (possible from the splitting)
+    // ineg would be possible the following way: -aij*xij so -aij xsparseij - aij xdenseij
+
+    exit(1);
 
     // std::cout << "I_macro: " << *imacro * (1e6) << "\n";
     // std::cout << "exiting after I_macro\n"; exit(1);
@@ -777,48 +880,7 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
 
 // *** FULL SPARSE MATRIX VERSION ***
 
-template <int NTHREADS>
-__global__ void get_imacro_sparse(const double *x_values, const int *x_row_ptr, const int *x_col_ind,
-                                  const double *m, double *imacro)
-{
-    int num_threads = blockDim.x;
-    int bid = blockIdx.x;
-    int tid = threadIdx.x;
-    int total_tid = bid * num_threads + tid;
-    int total_threads = num_threads * gridDim.x;
 
-    int row_start = x_row_ptr[1] + 2;
-    int row_end = x_row_ptr[2];
-
-    __shared__ double buf[NTHREADS];
-    buf[tid] = 0.0;
- 
-    for (int idx = row_start + total_tid; idx < row_end; idx += total_threads)
-    {
-        int col_index = x_col_ind[idx];
-        if (col_index >= 2) 
-        {
-            // buf[tid] += x_values[idx] * (m[0] - m[col_index]);               // extracted (= injected when including ground node)
-            buf[tid] += x_values[idx] * (m[col_index] - m[1]);                  // injected
-        }
-    }
-
-    int width = num_threads / 2;
-    while (width != 0)
-    {
-        __syncthreads();
-        if (tid < width)
-        {
-            buf[tid] += buf[tid + width];
-        }
-        width /= 2;
-    }
-
-    if (tid == 0)
-    {
-        atomicAdd(imacro, buf[0]);
-    }
-}
 
 // does not assume that the column indices are sorted
 __global__ void set_ineg_sparse(double *ineg_values, int *ineg_row_ptr, int *ineg_col_indices, const double *x_values, const int *x_row_ptr, const int *x_col_indices, const double *m, double Vd, int N)

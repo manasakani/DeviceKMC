@@ -651,12 +651,27 @@ __global__ void add_submatrix_product(double *M, double *y, double *r, int msub,
     }
 }
 
+__global__ void elementwise_vector_vector(
+    double * __restrict__ array1,
+    double * __restrict__ array2,
+    double * __restrict__ result,
+    int size
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    for(int i = idx; i < size; i += blockDim.x * gridDim.x){
+        result[i] = array1[i] * array2[i];
+    }
+
+}
+
 // Iterative sparse linear solver using CG steps on matrix represented in mixed sparse/dense format 
 // the insertion indices specify the correspondence between the (dense) submatrix rows/cols and the (sparse) full matrix rows/cols
 void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
                                  double* M, int msub, double* A_data, int* A_row_ptr, int* A_col_indices, const int A_nnz, 
-                                 int m, int *insertion_indices, double *d_x, double *d_y){
-
+                                 int m, int *insertion_indices, double *d_x, double *d_y,
+                                 double *diagonal_inv_d){
     // A is an m x m sparse matrix in CSR format
     // M is an msub x msub dense matrix
     // the full system matrix is 
@@ -706,10 +721,14 @@ void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t 
 
     // initialize variables for the residual calculation
     double h_norm;
-    double *d_r, *d_p, *d_temp;
+    double *d_r, *d_p, *d_temp, *d_z;
     gpuErrchk( cudaMalloc((void**)&d_r, m * sizeof(double)) ); 
-    gpuErrchk( cudaMalloc((void**)&d_p, m * sizeof(double)) ); 
+    gpuErrchk( cudaMalloc((void**)&d_p, m * sizeof(double)) );
     gpuErrchk( cudaMalloc((void**)&d_temp, m * sizeof(double)) ); 
+    gpuErrchk( cudaMalloc((void**)&d_z, m * sizeof(double)) );
+    gpuErrchk(cudaMemcpy(d_r, d_x, m * sizeof(double), cudaMemcpyDeviceToDevice));
+
+    // gpuErrchk(cuda)
 
     // for SpMV:
     // - d_x is right hand side vector
@@ -731,75 +750,78 @@ void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t 
 
     // r = (A + M)*y = A*y + M*y
     status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                          vecY, zero_d, vecR, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);         // r = A*y
+                          vecY, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);         // r = A*y
 
     // do r += M*y in a single CUDA kernel by multiplying M by the sub-vector of y 
     // specified by in the indices in 'insertion indices', and adding the result to r. 
-    int threads = 512;
+    int threads = 1024;
     int blocks = (m + threads - 1) / threads;
-    add_submatrix_product<<<blocks, threads>>>(M, d_y, d_r, msub, insertion_indices);                   // r += M*y
+    add_submatrix_product<<<blocks, threads>>>(M, d_y, d_temp, msub, insertion_indices);                   // r += M*y
 
     //gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -x + r
-    //gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError( cublasDcopy(handle_cublas, m, d_r, 1, d_p, 1) );                                    // p = r
-    //gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError( cublasDscal(handle_cublas, m, &n_one, d_p, 1) );                                    // p = -p
-    //gpuErrchk( cudaDeviceSynchronize() );
+    //CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -x + r
+    
+    // r = b - Ax0
+    CheckCublasError(cublasDaxpy(handle_cublas, m, &n_one, d_temp, 1, d_r, 1));
+
+    // Mz0 = r0
+    elementwise_vector_vector<<<blocks, threads>>>(
+        d_r,
+        diagonal_inv_d,
+        d_z,
+        m
+    ); 
+
+
+    double r1, r0, b, a, na, dot;
 
     // calculate the error (norm of the residual)
-    CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
-    gpuErrchk( cudaDeviceSynchronize() );
-    
-    // Conjugate Gradient steps
-    int counter = 0;
-    double t, tnew, alpha, beta, alpha_temp;
-    while (h_norm > tol){
+    CheckCublasError(cublasDdot(handle_cublas, m, d_r, 1, d_z, 1, &r1));
 
-        // alpha = rT * r / (pT * A * p)
-        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                         // t = rT * r
-        //gpuErrchk( cudaDeviceSynchronize() );
+    int k = 1;
+    while (r1 > tol * tol && k <= 1000) {
+        
+        if(k > 1){
+            b = r1 / r0;
+            CheckCublasError(cublasDscal(handle_cublas, m, &b, d_p, 1));
 
+            CheckCublasError(cublasDaxpy(handle_cublas, m, &one, d_z, 1, d_p, 1));   
+        }
+        else {
+            CheckCublasError(cublasDcopy(handle_cublas, m, d_z, 1, d_p, 1));
+        }
         // temp = (A + M)*p = A*p + M*p
         status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
                               vecP, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer); // temp = A*p
         add_submatrix_product<<<blocks, threads>>>(M, d_p, d_temp, msub, insertion_indices);           // temp += M*p
-
-        //gpuErrchk( cudaDeviceSynchronize() );
-        CheckCublasError( cublasDdot (handle_cublas, m, d_p, 1, d_temp, 1, &alpha_temp) );             // alpha = pT*temp = pT*A*p
-        //gpuErrchk( cudaDeviceSynchronize() );
-        alpha = t / alpha_temp; 
-
-        // y = y + alpha * p
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &alpha, d_p, 1, d_y, 1));                       // y = y + alpha * p
-        //gpuErrchk( cudaDeviceSynchronize() );
-
-        // r = r + alpha * A * p 
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &alpha, d_temp, 1, d_r, 1));                    // r = r + alpha * temp
-        //gpuErrchk( cudaDeviceSynchronize() );
-
-        // beta = (rT * r) / t
-        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &tnew) );                       // tnew = rT * r
-        //gpuErrchk( cudaDeviceSynchronize() );
-        beta = tnew / t;
-
-        // p = -r + beta * p
-        CheckCublasError(cublasDscal(handle_cublas, m, &beta, d_p, 1));                                  // p = p * beta
-        //gpuErrchk( cudaDeviceSynchronize() );
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1));                         // p = p - r
-        //gpuErrchk( cudaDeviceSynchronize() );
-
-        // calculate the error (norm of the residual)
-        CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
-        //gpuErrchk( cudaDeviceSynchronize() );
-        std::cout << "solve_sparse_CG_splitmatrix residual: " << h_norm << "\n";
-
-        counter++;
-        if (counter > 50000){
-            std::cout << "WARNING: might be stuck in diverging CG iterations, check the residual!\n";
-        }
+        CheckCublasError(cublasDdot(handle_cublas, m, d_p, 1, d_temp, 1, &dot));
+        a = r1 / dot;
+        CheckCublasError(cublasDaxpy(handle_cublas, m, &a, d_p, 1, d_y, 1));
+        na = -a;
+        CheckCublasError(cublasDaxpy(handle_cublas, m, &na, d_temp, 1, d_r, 1));
+        // Mz = r
+        elementwise_vector_vector<<<blocks, threads>>>(
+            d_r,
+            diagonal_inv_d,
+            d_z,
+            m
+        ); 
+        r0 = r1;
+        CheckCublasError(cublasDdot(handle_cublas, m, d_r, 1, d_z, 1, &r1));
+        // gpuErrchk(cudaStreamSynchronize(stream));
+        k++;
     }
-    std::cout << "# CG steps: " << counter << "\n";
+
+    double *h_y = (double *)calloc(m, sizeof(double));
+    gpuErrchk( cudaMemcpy(h_y, d_y, m * sizeof(double), cudaMemcpyDeviceToHost) );
+    double sum = 0.0;
+    for (int i = 0; i < m; i++){
+        sum += 1e30*h_y[i]*h_y[i];
+    }
+    std::cout << "sum of solution vector: " << sum << "\n";
+
+    std::cout << "# CG split steps: " << k << "\n";
+    std::cout << "solve_sparse_CG_splitmatrix residual: " << r1 << "\n";
 
     cudaFree(MVBuffer); 
     cudaFree(one_d);
@@ -808,15 +830,16 @@ void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t 
     cudaFree(d_r);
     cudaFree(d_p);
     cudaFree(d_temp);
+    cudaFree(d_z);
 
-    // check solution vector
-    double *copy_back = (double *)calloc(m, sizeof(double));
-    gpuErrchk( cudaMemcpy(copy_back, d_y, m * sizeof(double), cudaMemcpyDeviceToHost) );
-    for (int i = 0; i < m; i++){
-        std::cout << copy_back[i] << " ";
-    }
-    std::cout << "exiting after printing the solution vector\n";
-    exit(1);
+    // // check solution vector
+    // double *copy_back = (double *)calloc(m, sizeof(double));
+    // gpuErrchk( cudaMemcpy(copy_back, d_y, m * sizeof(double), cudaMemcpyDeviceToHost) );
+    // for (int i = 0; i < m; i++){
+    //     std::cout << copy_back[i] << " ";
+    // }
+    // std::cout << "exiting after printing the solution vector\n";
+    // exit(1);
     
 }
 
