@@ -257,7 +257,8 @@ std::map<std::string, double> Device::updatePotential(cublasHandle_t handle_cubl
 
     poisson_gridless_gpu(p.num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                         gpubuf.site_charge, gpubuf.site_potential_charge); 
+                         gpubuf.site_charge, gpubuf.site_potential_charge,
+                         gpubuf.rank, gpubuf.size, gpubuf.count_sites, gpubuf.displ_sites); 
 
     // gpubuf.sync_GPUToHost(*this); // comment out to avoid memory copy in GPU-only implementation
 

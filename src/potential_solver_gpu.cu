@@ -10,15 +10,15 @@ const double eV_to_J = 1.60217663e-19;          // [C]
 __global__ void update_charge(const ELEMENT *element, 
                               int *charge, 
                               const int *neigh_idx, 
-                              const int N, const int nn, 
+                              const int N, 
+                              const int nn,
                               const ELEMENT* metals, const int num_metals){
 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    int total_threads = blockDim.x * gridDim.x;
     int Vnn = 0;
 
     // each thread gets a different site to evaluate
-    for (int idx = tid; idx < N; idx += total_threads) {
+    for (int idx = tid; idx < N; idx += blockDim.x * gridDim.x) {
         
         if (tid < N && element[tid] == VACANCY){
             charge[tid] = 2;
@@ -56,8 +56,8 @@ void update_charge_gpu(ELEMENT *d_site_element,
                        int *d_neigh_idx, int N, int nn, 
                        const ELEMENT *d_metals, const int num_metals){
 
-    int num_threads = 512;
-    int num_blocks = (N * nn - 1) / num_threads + 1;
+    int num_threads = 1024;
+    int num_blocks = (N * nn + num_threads - 1) / num_threads;
 
     update_charge<<<num_blocks, num_threads>>>(d_site_element, d_site_charge, d_neigh_idx, N, nn, d_metals, num_metals);
 }
@@ -908,14 +908,15 @@ template <int NTHREADS>
 __global__ void calculate_pairwise_interaction(const double* posx, const double* posy, const double*posz, 
                                                const double *lattice, const int pbc, 
                                                const int N, const double *sigma, const double *k, 
-                                               const int *charge, double* potential){
+                                               const int *charge, double* potential,
+                                               const int row_start, const int row_end){
 
     // Version with reduction, where every thread evaluates site-site interaction term
     int num_threads = blockDim.x;
-    int blocks_per_row = (N - 1) / num_threads + 1;
+    int blocks_per_row = (N + num_threads - 1) / num_threads;
     int block_id = blockIdx.x;
 
-    int row = block_id / blocks_per_row;
+    int row = block_id / blocks_per_row + row_start;
     int scol = (block_id % blocks_per_row) * num_threads;
     int lcol = min(N, scol + num_threads);
 
@@ -925,7 +926,7 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
     double dist;
     int i, j;
 
-    for (int ridx = row; ridx < N; ridx += gridDim.x) {
+    for (int ridx = row; ridx < row_end; ridx += gridDim.x) {
 
         buf[tid] = 0.0;
         if (tid + scol < lcol) {
@@ -960,18 +961,21 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
 void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice, 
                           const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz, 
-                          const int *site_charge, double *site_potential_charge){
+                          const int *site_charge, double *site_potential_charge,
+                          const int rank, const int size, const int *count, const int *displ
+                          ){
 
-    int num_threads = 512;
-    int blocks_per_row = (N - 1) / num_threads + 1; 
-    int num_blocks = blocks_per_row * N; // NOTE: fix the kernel for block overflow!
+    int num_threads = NUM_THREADS;
+    int blocks_per_row = (N + NUM_THREADS - 1) / NUM_THREADS; 
+    int num_blocks = blocks_per_row * count[rank]; // NOTE: fix the kernel for block overflow!
 
     // set the inhomogenous poisson solution to zero before populating it
     gpuErrchk( cudaMemset(site_potential_charge, 0, N * sizeof(double)) ); 
     gpuErrchk( cudaDeviceSynchronize() );
 
     // this num_threads should be equal to NUM_THREADS
-    calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice, pbc, N, sigma, k, site_charge, site_potential_charge);
+    calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, NUM_THREADS, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice,
+        pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank]);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
     gpuErrchk( cudaPeekAtLastError() );

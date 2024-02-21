@@ -65,7 +65,8 @@ void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle,
 // the insertion indices specify the correspondence between the (dense) submatrix rows/cols and the (sparse) full matrix rows/cols
 void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
                                  double* M, int msub, double* A_data, int* A_row_ptr, int* A_col_indices, const int A_nnz, 
-                                 int m, int *insertion_indices, double *d_x, double *d_y);
+                                 int m, int *insertion_indices, double *d_x, double *d_y,
+                                 double *diagonal_inv_d);
 
 // Iterative sparse linear solver using CG steps and Jacobi preconditioner
 void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
@@ -144,7 +145,8 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
 void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice,
                           const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz,
-                          const int *site_charge, double *site_potential_charge);
+                          const int *site_charge, double *site_potential_charge,
+                          const int rank, const int size, const int *count, const int *displ);
 
 
 //**************************************************

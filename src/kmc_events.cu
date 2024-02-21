@@ -178,7 +178,6 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
     gpuErrchk( cudaDeviceSynchronize() );
     gpuErrchk( cudaPeekAtLastError() );
     time_event_list += omp_get_wtime();
-    std::cout << "Time to build event list: " << time_event_list << "\n";
     // **************************
     // ** Event Execution Loop **
     // **************************
@@ -321,7 +320,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
         time_which_event += omp_get_wtime();
         time_zero_prob -= omp_get_wtime();
         int threads = 1024;
-        int blocks = (N * nn - 1) / threads + 1;
+        int blocks = (N * nn + threads - 1) / threads;
         zero_out_events<<<blocks, threads>>>(event_type, event_prob,
             neigh_idx, N, nn, i_host, j_host);
 
@@ -347,14 +346,14 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
         time_zero_prob += omp_get_wtime();
         event_time = -log(rng.getRandomNumber()) / Psum_host;
     }
+    // std::cout << "Time to build event list: " << time_event_list << "\n";
+    // std::cout << "Time to calculate inclusive sum: " << time_incl_sum << "\n";
+    // std::cout << "Time to calculate upper bound: " << time_upper_bound << "\n";
+    // std::cout << "Time to select event: " << time_which_event << "\n";
+    // std::cout << "Time to zero out conflicting events: " << time_zero_prob << "\n";
 
-    std::cout << "Time to calculate inclusive sum: " << time_incl_sum << "\n";
-    std::cout << "Time to calculate upper bound: " << time_upper_bound << "\n";
-    std::cout << "Time to select event: " << time_which_event << "\n";
-    std::cout << "Time to zero out conflicting events: " << time_zero_prob << "\n";
 
-
-    std::cout << "Number of KMC steps: " << counter << "\n";
+    std::cout << "Number of KMC events: " << counter << "\n";
 
 
     gpuErrchk( cudaFree(event_prob_cum) );

@@ -12,6 +12,7 @@ Copyright 2023 ETH Zurich and the Computational Nanoelectronics Group. All right
 #include <chrono>
 #include <map>
 #include <iomanip>
+#include <mpi.h>
 
 #include "KMCProcess.h"
 #include "utils.h"
@@ -23,8 +24,17 @@ Copyright 2023 ETH Zurich and the Computational Nanoelectronics Group. All right
 #include "gpu_solvers.h"
 #endif
 
+
+
+
 int main(int argc, char **argv)
 {
+
+    //***********************************
+    // Initialize MPI
+    //***********************************
+    MPI_Init(&argc, &argv);
+
 
     //***********************************
     // Setup accelerators (GPU)
@@ -116,7 +126,7 @@ int main(int argc, char **argv)
     GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,                         
                       device.N, device.N_atom, device.site_x, device.site_y, device.site_z,
                       device.max_num_neighbors, device.sigma, device.k, 
-                      device.lattice, device.neigh_idx, p.metals, p.metals.size());
+                      device.lattice, device.neigh_idx, p.metals, p.metals.size(), MPI_COMM_WORLD);
     gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
     initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer);
 #else
@@ -172,8 +182,57 @@ int main(int argc, char **argv)
 #ifdef USE_CUDA
         gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
 #endif
+        int counter = 0;
         while (kmc_time < t)
         {
+            counter += 1;
+            if (counter > 10)
+            {
+                #ifdef USE_CUDA
+                        gpubuf.sync_GPUToHost(device);                                                                  // initialize the device attributes in gpu memory
+                #endif
+                std::cout << std::inner_product(device.site_potential_boundary.begin(), device.site_potential_boundary.end(), device.site_potential_boundary.begin(), 0.0) << std::endl;
+                std::cout << std::inner_product(device.site_potential_charge.begin(), device.site_potential_charge.end(), device.site_potential_charge.begin(), 0.0) << std::endl;
+                std::cout << 1e30*std::inner_product(device.site_power.begin(), device.site_power.end(), device.site_power.begin(), 0.0) << std::endl;
+                std::cout << std::inner_product(device.site_temperature.begin(), device.site_temperature.end(), device.site_temperature.begin(), 0.0) << std::endl;
+                std::cout << 1e30*std::inner_product(device.site_CB_edge.begin(), device.site_CB_edge.end(), device.site_CB_edge.begin(), 0.0) << std::endl;
+                std::cout << std::inner_product(device.site_charge.begin(), device.site_charge.end(), device.site_charge.begin(), 0.0) << std::endl;
+
+                // reference numbers
+                // 154063.2381959107588045
+                // 1175.6852129080082250
+                // 0.1275703891182530
+                // 3388500000.0000000000000000
+                // 0.0041937411587294
+                // 1360.0000000000000000
+
+                double tol = 1e-8;
+                double cond1 = std::abs(std::inner_product(device.site_potential_boundary.begin(), device.site_potential_boundary.end(), device.site_potential_boundary.begin(), 0.0)
+                    - 154063.2381959107588045)/std::abs(154063.2381959107588045);
+                double cond2 = std::abs(std::inner_product(device.site_potential_charge.begin(), device.site_potential_charge.end(), device.site_potential_charge.begin(), 0.0)
+                    - 1175.6852129080082250)/std::abs(1175.6852129080082250);
+                double cond3 = std::abs(1e30*std::inner_product(device.site_power.begin(), device.site_power.end(), device.site_power.begin(), 0.0)
+                    - 0.1275703891182530)/std::abs(0.1275703891182530);
+                double cond4 = std::abs(std::inner_product(device.site_temperature.begin(), device.site_temperature.end(), device.site_temperature.begin(), 0.0)
+                    - 3388500000.0000000000000000)/std::abs(3388500000.0000000000000000);
+                double cond5 = std::abs(1e30*std::inner_product(device.site_CB_edge.begin(), device.site_CB_edge.end(), device.site_CB_edge.begin(), 0.0)
+                    - 0.0041937411587294)/std::abs(0.0041937411587294);
+                double cond6 = std::abs(std::inner_product(device.site_charge.begin(), device.site_charge.end(), device.site_charge.begin(), 0.0)
+                    - 1360.0000000000000000)/std::abs(1360.0000000000000000);
+
+                if (cond1 > tol || cond2 > tol || cond3 > tol || cond4 > tol || cond5 > tol || cond6 > tol)
+                {
+                    std::cout << "Error in the device attributes" << std::endl;
+                    std::cout << "cond1 site_potential_boundary: " << cond1 << std::endl;
+                    std::cout << "cond2 site_potential_charge: " << cond2 << std::endl;
+                    std::cout << "cond3 site_power: " << cond3 << std::endl;
+                    std::cout << "cond4 site_temperature: " << cond4 << std::endl;
+                    std::cout << "cond5 site_CB_edge: " << cond5 << std::endl;
+                    std::cout << "cond6 site_charge: " << cond6 << std::endl;
+                }
+
+                exit(1);
+            }
             outputBuffer << "--------------\n";
             outputBuffer << "KMC step count: " << kmc_step_count << "\n";
             auto t0 = std::chrono::steady_clock::now();
@@ -190,7 +249,15 @@ int main(int argc, char **argv)
                 resultMap.insert(chargeMap.begin(), chargeMap.end());                                  
                 
                  // update site-resolved potential
-                std::map<std::string, double> potentialMap = device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);        
+                std::map<std::string, double> potentialMap = device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);   
+                double *partial_site_potential_charge_h = new double[gpubuf.count_sites[gpubuf.rank]];
+                cudaMemcpy(partial_site_potential_charge_h,
+                    gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank] , gpubuf.count_sites[gpubuf.rank] * sizeof(double), cudaMemcpyDeviceToHost);
+                MPI_Allgatherv(partial_site_potential_charge_h, gpubuf.count_sites[gpubuf.rank], MPI_DOUBLE,
+                    device.site_potential_charge.data(), gpubuf.count_sites, gpubuf.displ_sites, MPI_DOUBLE, MPI_COMM_WORLD);
+                cudaMemcpy(gpubuf.site_potential_charge, device.site_potential_charge.data(), gpubuf.N_ * sizeof(double), cudaMemcpyHostToDevice);
+
+                delete[] partial_site_potential_charge_h;
                 resultMap.insert(potentialMap.begin(), potentialMap.end());                                   
             }
 
@@ -295,5 +362,12 @@ int main(int argc, char **argv)
     // close logger
     outputFile << outputBuffer.str();
     outputFile.close();
+
+    //***********************************
+    // Finalize MPI
+    //***********************************
+    MPI_Finalize();
+
+
     return 0;
 }
