@@ -35,7 +35,6 @@ void gpu_packing(
         cudaErrchk(cudaEventRecord(A_distributed.events_send[i], A_distributed.streams_send[i]));
     }
     
-
     for(int i = 1; i < A_distributed.number_of_neighbours; i++){
         int send_idx = p_distributed.neighbours[i];
         int send_tag = std::abs(send_idx-A_distributed.rank);

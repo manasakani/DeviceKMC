@@ -150,8 +150,7 @@ void conjugate_gradient(
         col_indices_local_h,
         row_indptr_local_h,
         data_local_h,
-        MPI_COMM_WORLD,
-        default_cusparseHandle
+        MPI_COMM_WORLD
     );
     std::printf("Creating distributed vector\n");
     Distributed_vector p_distributed(
@@ -160,8 +159,7 @@ void conjugate_gradient(
         displacements,
         A_distributed.number_of_neighbours,
         A_distributed.neighbours,
-        MPI_COMM_WORLD,
-        default_cusparseHandle
+        MPI_COMM_WORLD
     );
     //begin CG
     std::printf("CG starts\n");

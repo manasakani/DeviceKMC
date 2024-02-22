@@ -6,14 +6,12 @@ Distributed_vector::Distributed_vector(
     int *displacements,
     int number_of_neighbours,
     int *neighbours,
-    MPI_Comm comm,
-    cusparseHandle_t &cusparseHandle
+    MPI_Comm comm
 ){
     std::cout << "Constructing distributed vector" << std::endl;
     MPI_Comm_size(comm, &size);
     MPI_Comm_rank(comm, &rank);
     this->matrix_size = matrix_size;
-    this->cusparseHandle = cusparseHandle;
     this->comm = comm;
     this->counts = new int[size];
     this->displacements = new int[size];

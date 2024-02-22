@@ -22,7 +22,6 @@ class Distributed_vector{
         double **vec_h;
         double **vec_d;
         cusparseDnVecDescr_t *descriptors;
-        cusparseHandle_t cusparseHandle;
 
     Distributed_vector(
         int matrix_size,
@@ -30,8 +29,7 @@ class Distributed_vector{
         int *displacements,
         int number_of_neighbours,
         int *neighbours,
-        MPI_Comm comm,
-        cusparseHandle_t &cusparseHandle);
+        MPI_Comm comm);
     ~Distributed_vector();
 
 };
@@ -72,7 +70,6 @@ class Distributed_matrix{
         int **col_indices_d;
         int **row_ptr_d;
         cusparseSpMatDescr_t *descriptors;
-        cusparseHandle_t cusparseHandle;
 
         // Data types for MPI
         // assumes symmetric matrix
@@ -108,39 +105,54 @@ class Distributed_matrix{
         cudaEvent_t *events_recv;
         cudaEvent_t *events_send;
 
+    // construct the distributed matrix
+    // input is the whol count[rank] * matrix size
+    // csr part of the matrix
     Distributed_matrix(
         int matrix_size,
         int nnz,
         int *counts,
         int *displacements,
-        int *col_indices,
-        int *row_ptr,
-        double *data,
-        MPI_Comm comm,
-        cusparseHandle_t &cusparseHandle);
+        int *col_indices_in,
+        int *row_ptr_in,
+        double *data_in,
+        MPI_Comm comm);
 
-    
+    // construct the distributed matrix
+    // input is correctly split
+    // data is not set
+    Distributed_matrix(
+        int matrix_size,
+        int *counts_in,
+        int *displacements_in,
+        int number_of_neighbours,
+        int *neighbours_in,
+        int **col_indices_in_d,
+        int **row_ptr_in_d,
+        int *nnz_per_neighbour_in,
+        MPI_Comm comm);
+
 
     ~Distributed_matrix();
 
     private:
         void find_neighbours(
-            int *col_indices,
-            int *row_ptr
+            int *col_indices_in,
+            int *row_ptr_in
         );
 
         void construct_neighbours_list(
         );
 
         void construct_nnz_per_neighbour(
-            int *col_indices,
-            int *row_ptr
+            int *col_indices_in,
+            int *row_ptr_in
         );
 
         void split_csr(
-            int *col_indices,
-            int *row_ptr,
-            double *data
+            int *col_indices_in,
+            int *row_ptr_in,
+            double *data_in
         );
 
         
@@ -152,5 +164,15 @@ class Distributed_matrix{
         void construct_rows_per_neighbour();
 
         void construct_cols_per_neighbour(); 
+
+        void check_sorted();
+
+        void construct_mpi_data_types();
+
+        void create_events_streams();
+
+        void create_host_memory();
+
+        void create_device_memory(cusparseHandle_t &cusparseHandle);
 
 };
