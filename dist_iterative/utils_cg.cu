@@ -269,3 +269,53 @@ void fused_daxpy2(
         n
     );
 }
+
+__global__ void _elementwise_vector_vector(
+    double * __restrict__ array1,
+    double * __restrict__ array2,
+    double * __restrict__ result,
+    int size
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    for(int i = idx; i < size; i += blockDim.x * gridDim.x){
+        result[i] = array1[i] * array2[i];
+    }
+
+}
+
+void elementwise_vector_vector(
+    double *array1,
+    double *array2,
+    double *result,
+    int size
+)
+{
+    int block_size = 1024;
+    int num_blocks = (size + block_size - 1) / block_size;
+    _elementwise_vector_vector<<<num_blocks, block_size>>>(
+        array1,
+        array2,
+        result,
+        size
+    );
+}
+
+void elementwise_vector_vector(
+    double *array1,
+    double *array2,
+    double *result,
+    int size,
+    cudaStream_t stream
+)
+{
+    int block_size = 1024;
+    int num_blocks = (size + block_size - 1) / block_size;
+    _elementwise_vector_vector<<<num_blocks, block_size, 0, stream>>>(
+        array1,
+        array2,
+        result,
+        size
+    );
+}

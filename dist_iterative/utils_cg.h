@@ -78,3 +78,16 @@ void fused_daxpy2(
     double *y2,
     int n,
     cudaStream_t stream);
+
+void elementwise_vector_vector(
+    double *array1,
+    double *array2,
+    double *result,
+    int size);
+
+void elementwise_vector_vector(
+    double *array1,
+    double *array2,
+    double *result,
+    int size,
+    cudaStream_t stream);

@@ -24,7 +24,8 @@ void test_preconditioned(
     double relative_tolerance,
     int max_iterations,
     MPI_Comm comm,
-    double *time_taken)
+    double *time_taken,
+    double *diag_inv_d)
 {
     MPI_Barrier(comm);
 
@@ -89,18 +90,30 @@ void test_preconditioned(
     cudaMemcpy(x_local_d, starting_guess_h + row_start_index,
         rows_per_rank * sizeof(double), cudaMemcpyHostToDevice);
 
+
     MPI_Barrier(comm);
     cudaDeviceSynchronize();
     time_taken[0] = MPI_Wtime();
 
-    iterative_solver::conjugate_gradient<dspmv::gpu_packing>(
+    double *diag_inv_local_d = diag_inv_d + row_start_index;
+    iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing>(
         A_distributed,
         p_distributed,
         r_local_d,
         x_local_d,
+        diag_inv_local_d,
         relative_tolerance,
         max_iterations,
         comm);
+
+    // iterative_solver::conjugate_gradient<dspmv::gpu_packing>(
+    //     A_distributed,
+    //     p_distributed,
+    //     r_local_d,
+    //     x_local_d,
+    //     relative_tolerance,
+    //     max_iterations,
+    //     comm);
 
     time_taken[0] = MPI_Wtime() - time_taken[0];
     std::cout << "rank " << rank << " time_taken " << time_taken[0] << std::endl;
@@ -128,7 +141,6 @@ void test_preconditioned(
     cudaFree(r_local_d);
     cudaFree(x_local_d);
 
-
     MPI_Barrier(comm);
 }
 
@@ -144,7 +156,8 @@ void test_preconditioned<dspmv::gpu_packing>(
     double relative_tolerance,
     int max_iterations,
     MPI_Comm comm,
-    double *time_taken);
+    double *time_taken,
+    double *diagonal_d);
 
 
 int main(int argc, char **argv) {
@@ -199,7 +212,7 @@ int main(int argc, char **argv) {
     int number_of_kmc_steps = 1;
 
     int max_iterations = 10000;
-    double relative_tolerance = 1e-8;
+    double relative_tolerance = 1e-12;
 
     int rows_per_rank = matrix_size / size;
     int remainder = matrix_size % size;
@@ -295,27 +308,35 @@ int main(int argc, char **argv) {
         cudaMemcpy(rhs_d, rhs, matrix_size * sizeof(double), cudaMemcpyHostToDevice);
         cudaMemcpy(reference_solution_d, reference_solution, matrix_size * sizeof(double), cudaMemcpyHostToDevice);
 
-        extract_diagonal_gpu(
+        // extract_diagonal_inv_sqrt(
+        //     data_d,
+        //     col_indices_d,
+        //     row_ptr_d,
+        //     diagonal_d,
+        //     matrix_size
+        // );
+        // symmetric_precondition_matrix_gpu(
+        //     data_d,
+        //     col_indices_d,
+        //     row_ptr_d,
+        //     diagonal_d,
+        //     matrix_size
+        // );
+        // precondition_vector_gpu(
+        //     rhs_d,
+        //     diagonal_d,
+        //     matrix_size
+        // );
+        // unpreecondition_vector_gpu(
+        //     reference_solution_d,
+        //     diagonal_d,
+        //     matrix_size
+        // );
+
+        extract_diagonal_inv(
             data_d,
             col_indices_d,
             row_ptr_d,
-            diagonal_d,
-            matrix_size
-        );
-        symmetric_precondition_matrix_gpu(
-            data_d,
-            col_indices_d,
-            row_ptr_d,
-            diagonal_d,
-            matrix_size
-        );
-        precondition_vector_gpu(
-            rhs_d,
-            diagonal_d,
-            matrix_size
-        );
-        unpreecondition_vector_gpu(
-            reference_solution_d,
             diagonal_d,
             matrix_size
         );
@@ -345,7 +366,8 @@ int main(int argc, char **argv) {
                 relative_tolerance,
                 max_iterations,
                 MPI_COMM_WORLD,
-                &times_gpu_packing[measurement]
+                &times_gpu_packing[measurement],
+                diagonal_d
             );
         }
 
