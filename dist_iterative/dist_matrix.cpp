@@ -78,38 +78,25 @@ Distributed_matrix::Distributed_matrix(
     int *nnz_per_neighbour_in,
     MPI_Comm comm)
 {
-    std::cout << 0 << std::endl;
     cusparseHandle_t cusparseHandle;
     cusparseErrchk(cusparseCreate(&cusparseHandle));
 
-    std::cout << 0.1 << std::endl;
-
     MPI_Comm_size(comm, &size);
     MPI_Comm_rank(comm, &rank);
-
-    std::cout << 0.2 << std::endl;
 
     this->matrix_size = matrix_size;
     this->comm = comm;
     this->number_of_neighbours = number_of_neighbours;
 
-    std::cout << 0.3 << std::endl;
-
     nnz = 0;
     rows_this_rank = counts_in[rank];
-
-    std::cout << 0.4 << std::endl;
 
     counts = new int[size];
     displacements = new int[size];
     
-    std::cout << 0.5 << std::endl;
-
     neighbours_flag = new bool[size];
     neighbours = new int[number_of_neighbours];
     nnz_per_neighbour = new int[number_of_neighbours];
-
-    std::cout << 1 << std::endl;
 
     for(int i = 0; i < size; i++){
         counts[i] = counts_in[i];
@@ -127,7 +114,6 @@ Distributed_matrix::Distributed_matrix(
         nnz += nnz_per_neighbour[k];
     }
 
-    std::cout << 2 << std::endl;
     // order of calls is important
 
     create_host_memory();
@@ -140,7 +126,6 @@ Distributed_matrix::Distributed_matrix(
         cudaErrchk(cudaMemcpy(col_indices_h[k], col_indices_in_d[k], nnz_per_neighbour[k]*sizeof(int), cudaMemcpyDeviceToHost));
         cudaErrchk(cudaMemcpy(row_ptr_h[k], row_ptr_in_d[k], (rows_this_rank+1)*sizeof(int), cudaMemcpyDeviceToHost));
     }
-    std::cout << 3 << std::endl;
     construct_nnz_cols_per_neighbour();
     construct_nnz_rows_per_neighbour();
     construct_cols_per_neighbour();
@@ -148,7 +133,6 @@ Distributed_matrix::Distributed_matrix(
     check_sorted();
     construct_mpi_data_types();
     create_events_streams();
-    std::cout << 4 << std::endl;
     cusparseErrchk(cusparseDestroy(cusparseHandle));
 }
 

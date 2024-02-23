@@ -14,20 +14,15 @@
 
 namespace iterative_solver{
 
-template <void (*distributed_mv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
+template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
 void conjugate_gradient(
-    double *data_h,
-    int *col_indices_h,
-    int *row_indptr_h,
-    double *r_h,
-    double *reference_solution,
-    double *starting_guess_h,
-    int matrix_size,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
     double relative_tolerance,
     int max_iterations,
-    MPI_Comm comm,
-    int *steps_taken,
-    double *time_taken);
+    MPI_Comm comm);
 
 } // namespace iterative_solver
 

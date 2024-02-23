@@ -11,6 +11,142 @@
 #include "../dist_iterative/dist_conjugate_gradient.h"
 #include "../dist_iterative/dist_spmv.h"
 
+
+template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
+void test_preconditioned(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm,
+    double *time_taken)
+{
+    MPI_Barrier(comm);
+
+    std::printf("PCG test starts\n");
+    
+
+    int rank, size;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+    // prepare for allgatherv
+    int counts[size];
+    int displacements[size];
+    int rows_per_rank = matrix_size / size;    
+    split_matrix(matrix_size, size, counts, displacements);
+
+    int row_start_index = displacements[rank];
+    rows_per_rank = counts[rank];
+
+    int *row_indptr_local_h = new int[rows_per_rank+1];
+    double *r_local_h = new double[rows_per_rank];
+    for (int i = 0; i < rows_per_rank+1; ++i) {
+        row_indptr_local_h[i] = row_indptr_h[i+row_start_index] - row_indptr_h[row_start_index];
+    }
+    for (int i = 0; i < rows_per_rank; ++i) {
+        r_local_h[i] = r_h[i+row_start_index];
+    }
+    int nnz_local = row_indptr_local_h[rows_per_rank];
+    int *col_indices_local_h = new int[nnz_local];
+    double *data_local_h = new double[nnz_local];
+
+    for (int i = 0; i < nnz_local; ++i) {
+        col_indices_local_h[i] = col_indices_h[i+row_indptr_h[row_start_index]];
+        data_local_h[i] = data_h[i+row_indptr_h[row_start_index]];
+    }
+
+    // create distributed matrix
+    std::printf("Creating distributed matrix\n");
+    Distributed_matrix A_distributed(
+        matrix_size,
+        nnz_local,
+        counts,
+        displacements,
+        col_indices_local_h,
+        row_indptr_local_h,
+        data_local_h,
+        comm
+    );
+    std::printf("Creating distributed vector\n");
+    Distributed_vector p_distributed(
+        matrix_size,
+        counts,
+        displacements,
+        A_distributed.number_of_neighbours,
+        A_distributed.neighbours,
+        comm
+    );
+    double *r_local_d;
+    double *x_local_d;
+    cudaMalloc(&r_local_d, rows_per_rank * sizeof(double));
+    cudaMalloc(&x_local_d, rows_per_rank * sizeof(double));
+    cudaMemcpy(r_local_d, r_local_h, rows_per_rank * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(x_local_d, starting_guess_h + row_start_index,
+        rows_per_rank * sizeof(double), cudaMemcpyHostToDevice);
+
+    MPI_Barrier(comm);
+    cudaDeviceSynchronize();
+    time_taken[0] = MPI_Wtime();
+
+    iterative_solver::conjugate_gradient<dspmv::gpu_packing>(
+        A_distributed,
+        p_distributed,
+        r_local_d,
+        x_local_d,
+        relative_tolerance,
+        max_iterations,
+        comm);
+
+    time_taken[0] = MPI_Wtime() - time_taken[0];
+    std::cout << "rank " << rank << " time_taken " << time_taken[0] << std::endl;
+
+    //copy solution to host
+    cudaErrchk(cudaMemcpy(r_local_h, x_local_d, rows_per_rank * sizeof(double), cudaMemcpyDeviceToHost));
+
+
+    double difference = 0;
+    double sum_ref = 0;
+    for (int i = 0; i < rows_per_rank; ++i) {
+        difference += std::sqrt( (r_local_h[i] - reference_solution[i+row_start_index]) * (r_local_h[i] - reference_solution[i+row_start_index]) );
+        sum_ref += std::sqrt( (reference_solution[i+row_start_index]) * (reference_solution[i+row_start_index]) );
+    }
+    MPI_Allreduce(MPI_IN_PLACE, &difference, 1, MPI_DOUBLE, MPI_SUM, comm);
+    MPI_Allreduce(MPI_IN_PLACE, &sum_ref, 1, MPI_DOUBLE, MPI_SUM, comm);
+    if(rank == 0){
+        std::cout << "difference/sum_ref " << difference/sum_ref << std::endl;
+    }
+
+    delete[] row_indptr_local_h;
+    delete[] r_local_h;
+    delete[] col_indices_local_h;
+    delete[] data_local_h;
+    cudaFree(r_local_d);
+    cudaFree(x_local_d);
+
+
+    MPI_Barrier(comm);
+}
+
+template 
+void test_preconditioned<dspmv::gpu_packing>(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm,
+    double *time_taken);
+
+
 int main(int argc, char **argv) {
 
     MPI_Init(&argc, &argv);
@@ -198,7 +334,7 @@ int main(int argc, char **argv) {
         for(int measurement = 0; measurement < number_of_measurements; measurement++){
             MPI_Barrier(MPI_COMM_WORLD);
             std::cout << "rank " << rank << " gpu_packing " << measurement << std::endl;
-            iterative_solver::conjugate_gradient<dspmv::gpu_packing>(
+            test_preconditioned<dspmv::gpu_packing>(
                 data,
                 col_indices,
                 row_ptr,
@@ -209,7 +345,6 @@ int main(int argc, char **argv) {
                 relative_tolerance,
                 max_iterations,
                 MPI_COMM_WORLD,
-                &iteration,
                 &times_gpu_packing[measurement]
             );
         }
@@ -218,7 +353,7 @@ int main(int argc, char **argv) {
         // for(int measurement = 0; measurement < number_of_measurements; measurement++){
         //     MPI_Barrier(MPI_COMM_WORLD);
         //     std::cout << "rank " << rank << " gpu_packing_cam " << measurement << std::endl;
-        //     iterative_solver::conjugate_gradient<dspmv::gpu_packing_cam>(
+        //     test_preconditioned<dspmv::gpu_packing_cam>(
         //         data,
         //         col_indices,
         //         row_ptr,
@@ -229,8 +364,7 @@ int main(int argc, char **argv) {
         //         relative_tolerance,
         //         max_iterations,
         //         MPI_COMM_WORLD,
-        //         &iteration,
-        //         &times_gpu_packing_cam[measurement]
+        //         &times_gpu_packing[measurement]
         //     );
         // }
 
