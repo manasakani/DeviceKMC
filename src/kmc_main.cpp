@@ -40,6 +40,7 @@ int main(int argc, char **argv)
     // Setup accelerators (GPU)
     //***********************************
 
+
 #ifdef USE_CUDA
     char gpu_string[1000];
     get_gpu_info(gpu_string, 0);

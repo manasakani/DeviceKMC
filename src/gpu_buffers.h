@@ -48,7 +48,6 @@ public:
     int Device_nnz, contact_left_nnz, contact_right_nnz;
 
 
-
     // NOT gpu pointers, passed by value
     int num_metal_types_ = 0;
     int N_ = 0;                                     // number of sites in the device
@@ -73,8 +72,10 @@ public:
     // MPI data split
     MPI_Comm comm;
     int rank, size;
+    // Distribution of sites without boundaries
     int *count_K_device = nullptr;
     int *displ_K_device = nullptr;
+    // Distribution of sites with boundaries
     int *count_sites = nullptr;
     int *displ_sites = nullptr;
     Distributed_matrix *K_distributed = nullptr;
