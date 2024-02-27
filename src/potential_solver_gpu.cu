@@ -1,5 +1,6 @@
 #include "gpu_solvers.h"
 
+//#define NUM_THREADS 512
 #define NUM_THREADS 512
 const double eV_to_J = 1.60217663e-19;          // [C]
 
@@ -781,8 +782,8 @@ __global__ void inverse_diag(
 }
 
 __global__ void sum_AB_into_A(
-    double *A,
-    double *B,
+    double * __restrict__ A,
+    double * __restrict__ B,
     int N
 )
 {
@@ -975,35 +976,30 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
 void sum_and_gather_potential(GPUBuffers &gpubuf)
 {
     // sum the potential vectors
-    int num_threads = 1024;
-    int blocks_per_row = (gpubuf.N_ - 1) / num_threads + 1;
-    int num_blocks = blocks_per_row * gpubuf.N_;
+    int threads = 512;
+    int blocks = (gpubuf.count_sites[gpubuf.rank] + threads- 1) / threads;
 
     // compute the off-diagonal elements of K
-    sum_AB_into_A<<<num_blocks, num_threads>>>(gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank], 
+    sum_AB_into_A<<<blocks, threads>>>(gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank], 
                                                gpubuf.site_potential_boundary + gpubuf.displ_sites[gpubuf.rank],
                                                gpubuf.count_sites[gpubuf.rank]);
     
     // copy potential vectors to host
-    double *potential_local_h = (double *)calloc(gpubuf.count_sites[gpubuf.rank], sizeof(double));
-    double *potential_h = (double *)calloc(gpubuf.N_, sizeof(double));
+    //double *potential_local_h = (double *)calloc(gpubuf.count_sites[gpubuf.rank], sizeof(double));
+    //double *potential_h = (double *)calloc(gpubuf.N_, sizeof(double));
 
-    gpuErrchk( cudaMemcpy(potential_local_h, gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank], 
+    gpuErrchk( cudaMemcpy(gpubuf.potential_local_h, gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank], 
                 gpubuf.count_sites[gpubuf.rank] * sizeof(double), cudaMemcpyDeviceToHost) );
 
     // allgather potential vector - site_potential_charge contains the sum
-    MPI_Allgatherv(potential_local_h, gpubuf.count_sites[gpubuf.rank],
-        MPI_DOUBLE, potential_h,
+    MPI_Allgatherv(gpubuf.potential_local_h, gpubuf.count_sites[gpubuf.rank],
+        MPI_DOUBLE, gpubuf.potential_h,
         gpubuf.count_sites, gpubuf.displ_sites, MPI_DOUBLE, MPI_COMM_WORLD);
-    
-    gpuErrchk( cudaMemcpy(gpubuf.site_potential_charge, potential_h,
+
+    // copy potential vector to device    
+    gpuErrchk( cudaMemcpy(gpubuf.site_potential_charge, gpubuf.potential_h,
         gpubuf.N_ * sizeof(double), cudaMemcpyHostToDevice) );
 
-
-    // copy potential vector to device
-
-    free(potential_local_h);
-    free(potential_h);
 }
 
 // solves site-resolved background potential using dense matrix assembly and direct LU-solver schemes
@@ -1163,8 +1159,11 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
                 dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
                                              posx[j], posy[j], posz[j], 
                                              lattice[0], lattice[1], lattice[2], pbc);
+                // implement cutoff radius
+                if (dist > 1e-9) {
+                    break;
+                } 
                 buf[tid] = v_solve_gpu(dist, charge[j], sigma, k);
-
             }
         }
 
@@ -1193,7 +1192,7 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
 
     int num_threads = NUM_THREADS;
     int blocks_per_row = (N + NUM_THREADS - 1) / NUM_THREADS; 
-    int num_blocks = blocks_per_row * count[rank]; // NOTE: fix the kernel for block overflow!
+    int num_blocks = blocks_per_row * count[rank];
 
     // set the inhomogenous poisson solution to zero before populating it
     gpuErrchk( cudaMemset(site_potential_charge, 0, N * sizeof(double)) ); 

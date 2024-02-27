@@ -25,8 +25,6 @@ Copyright 2023 ETH Zurich and the Computational Nanoelectronics Group. All right
 #endif
 
 
-
-
 int main(int argc, char **argv)
 {
 
@@ -35,6 +33,9 @@ int main(int argc, char **argv)
     //***********************************
     MPI_Init(&argc, &argv);
 
+    int mpi_size, mpi_rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
     //***********************************
     // Setup accelerators (GPU)
@@ -44,9 +45,11 @@ int main(int argc, char **argv)
 #ifdef USE_CUDA
     char gpu_string[1000];
     get_gpu_info(gpu_string, 0);
+    if (!mpi_rank)
     printf("Will use this GPU: %s\n", gpu_string);
     set_gpu(0);
 #else
+    if (!mpi_rank)
     std::cout << "Simulation will not use any accelerators.\n";
 #endif
 
@@ -55,6 +58,7 @@ int main(int argc, char **argv)
     #pragma omp single
     {
         int num_threads = omp_get_num_threads();
+        if (!mpi_rank)
         std::cout << "Number of OMP threads: " << num_threads << std::endl;
     }
 }
@@ -65,8 +69,9 @@ int main(int argc, char **argv)
     
     KMCParameters p(argv[1]);                                                       // stores simulation parameters
     std::ostringstream outputBuffer;                                                // holds output data to dump into a txt file
-    std::remove("output.txt");
-    std::ofstream outputFile("output.txt", std::ios_base::app);
+    std::string output_filename = "output" + std::to_string(mpi_size) + "_" + std::to_string(mpi_rank) + ".txt";
+    std::remove(output_filename.c_str());
+    std::ofstream outputFile(output_filename, std::ios_base::app);
 
     //*******************************************************
     // Initialize the Atomistic simulation domain (the Device)
@@ -95,6 +100,7 @@ int main(int argc, char **argv)
         xyz_files.push_back(p.interstitial_xyz_file);
     }
 
+    if (!mpi_rank)
     std::cout << "Constructing device...\n"; 
     Device device(xyz_files, p);                                                    // contains the simulation domain and field solver functions
 
@@ -184,64 +190,64 @@ int main(int argc, char **argv)
 #ifdef USE_CUDA
         gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
 #endif
-        int counter = 0;
+        // int counter = 0;
         while (kmc_time < t)
         {
-            counter += 1;
-            if (counter > 10)
-            {
-                #ifdef USE_CUDA
-                        gpubuf.sync_GPUToHost(device);                                                                  // initialize the device attributes in gpu memory
-                #endif
-                std::cout << std::inner_product(device.site_potential_boundary.begin(), device.site_potential_boundary.end(), device.site_potential_boundary.begin(), 0.0) << std::endl;
-                std::cout << std::inner_product(device.site_potential_charge.begin(), device.site_potential_charge.end(), device.site_potential_charge.begin(), 0.0) << std::endl;
-                std::cout << 1e30*std::inner_product(device.site_power.begin(), device.site_power.end(), device.site_power.begin(), 0.0) << std::endl;
-                std::cout << std::inner_product(device.site_temperature.begin(), device.site_temperature.end(), device.site_temperature.begin(), 0.0) << std::endl;
-                std::cout << 1e30*std::inner_product(device.site_CB_edge.begin(), device.site_CB_edge.end(), device.site_CB_edge.begin(), 0.0) << std::endl;
-                std::cout << std::inner_product(device.site_charge.begin(), device.site_charge.end(), device.site_charge.begin(), 0.0) << std::endl;
+            // counter += 1;
+            // if (counter > 10)
+            // {
+            //     #ifdef USE_CUDA
+            //             gpubuf.sync_GPUToHost(device);                                                                  // initialize the device attributes in gpu memory
+            //     #endif
+            //     std::cout << std::inner_product(device.site_potential_boundary.begin(), device.site_potential_boundary.end(), device.site_potential_boundary.begin(), 0.0) << std::endl;
+            //     std::cout << std::inner_product(device.site_potential_charge.begin(), device.site_potential_charge.end(), device.site_potential_charge.begin(), 0.0) << std::endl;
+            //     std::cout << 1e30*std::inner_product(device.site_power.begin(), device.site_power.end(), device.site_power.begin(), 0.0) << std::endl;
+            //     std::cout << std::inner_product(device.site_temperature.begin(), device.site_temperature.end(), device.site_temperature.begin(), 0.0) << std::endl;
+            //     std::cout << 1e30*std::inner_product(device.site_CB_edge.begin(), device.site_CB_edge.end(), device.site_CB_edge.begin(), 0.0) << std::endl;
+            //     std::cout << std::inner_product(device.site_charge.begin(), device.site_charge.end(), device.site_charge.begin(), 0.0) << std::endl;
 
-                // reference numbers
-                // 154063.2381959107588045
-                // 1175.6852129080082250
-                // 0.1275703891182530
-                // 3388500000.0000000000000000
-                // 0.0041937411587294
-                // 1360.0000000000000000
+            //     // reference numbers
+            //     // 154063.2381959107588045
+            //     // 1175.6852129080082250
+            //     // 0.1275703891182530
+            //     // 3388500000.0000000000000000
+            //     // 0.0041937411587294
+            //     // 1360.0000000000000000
 
-                double tol = 1e-14;
+            //     double tol = 1e-14;
                 
-                double cond1 = std::abs(std::inner_product(device.site_potential_boundary.begin(), device.site_potential_boundary.end(), device.site_potential_boundary.begin(), 0.0)
-                    - 154205.4863536667253356)/std::abs(154205.4863536667253356);
-                double cond2 = std::abs(std::inner_product(device.site_potential_charge.begin(), device.site_potential_charge.end(), device.site_potential_charge.begin(), 0.0)
-                    - 1175.5857035358233134)/std::abs(1175.5857035358233134);
-                double cond3 = std::abs(1e30*std::inner_product(device.site_power.begin(), device.site_power.end(), device.site_power.begin(), 0.0)
-                    - 0.1275306576365134)/std::abs(0.1275306576365134);
-                double cond4 = std::abs(std::inner_product(device.site_temperature.begin(), device.site_temperature.end(), device.site_temperature.begin(), 0.0)
-                    - 3388500000.0000000000000000)/std::abs(3388500000.0000000000000000);
-                double cond5 = std::abs(1e30*std::inner_product(device.site_CB_edge.begin(), device.site_CB_edge.end(), device.site_CB_edge.begin(), 0.0)
-                    - 0.0041937542959175)/std::abs(0.0041937542959175);
-                double cond6 = std::abs(std::inner_product(device.site_charge.begin(), device.site_charge.end(), device.site_charge.begin(), 0.0)
-                    - 1360.0000000000000000)/std::abs(1360.0000000000000000);
+            //     double cond1 = std::abs(std::inner_product(device.site_potential_boundary.begin(), device.site_potential_boundary.end(), device.site_potential_boundary.begin(), 0.0)
+            //         - 154205.4863536667253356)/std::abs(154205.4863536667253356);
+            //     double cond2 = std::abs(std::inner_product(device.site_potential_charge.begin(), device.site_potential_charge.end(), device.site_potential_charge.begin(), 0.0)
+            //         - 1175.5857035358233134)/std::abs(1175.5857035358233134);
+            //     double cond3 = std::abs(1e30*std::inner_product(device.site_power.begin(), device.site_power.end(), device.site_power.begin(), 0.0)
+            //         - 0.1275306576365134)/std::abs(0.1275306576365134);
+            //     double cond4 = std::abs(std::inner_product(device.site_temperature.begin(), device.site_temperature.end(), device.site_temperature.begin(), 0.0)
+            //         - 3388500000.0000000000000000)/std::abs(3388500000.0000000000000000);
+            //     double cond5 = std::abs(1e30*std::inner_product(device.site_CB_edge.begin(), device.site_CB_edge.end(), device.site_CB_edge.begin(), 0.0)
+            //         - 0.0041937542959175)/std::abs(0.0041937542959175);
+            //     double cond6 = std::abs(std::inner_product(device.site_charge.begin(), device.site_charge.end(), device.site_charge.begin(), 0.0)
+            //         - 1360.0000000000000000)/std::abs(1360.0000000000000000);
 
-                if (cond1 > tol || cond2 > tol || cond3 > tol || cond4 > tol || cond5 > tol || cond6 > tol)
-                {
-                    std::cout << "Error in the device attributes" << std::endl;
-                    std::cout << "cond1 site_potential_boundary: " << cond1 << std::endl;
-                    std::cout << "cond2 site_potential_charge: " << cond2 << std::endl;
-                    std::cout << "cond3 site_power: " << cond3 << std::endl;
-                    std::cout << "cond4 site_temperature: " << cond4 << std::endl;
-                    std::cout << "cond5 site_CB_edge: " << cond5 << std::endl;
-                    std::cout << "cond6 site_charge: " << cond6 << std::endl;
-                }
-                else{
-                    std::cout << "Device attributes are correct" << std::endl;
-                }
+            //     if (cond1 > tol || cond2 > tol || cond3 > tol || cond4 > tol || cond5 > tol || cond6 > tol)
+            //     {
+            //         std::cout << "Error in the device attributes" << std::endl;
+            //         std::cout << "cond1 site_potential_boundary: " << cond1 << std::endl;
+            //         std::cout << "cond2 site_potential_charge: " << cond2 << std::endl;
+            //         std::cout << "cond3 site_power: " << cond3 << std::endl;
+            //         std::cout << "cond4 site_temperature: " << cond4 << std::endl;
+            //         std::cout << "cond5 site_CB_edge: " << cond5 << std::endl;
+            //         std::cout << "cond6 site_charge: " << cond6 << std::endl;
+            //     }
+            //     else{
+            //         std::cout << "Device attributes are correct" << std::endl;
+            //     }
 
-                MPI_Barrier(MPI_COMM_WORLD);
-                sleep(1);
+            //     MPI_Barrier(MPI_COMM_WORLD);
+            //     sleep(1);
 
-                exit(1);
-            }
+            //     exit(1);
+            // }
             outputBuffer << "--------------\n";
             outputBuffer << "KMC step count: " << kmc_step_count << "\n";
             auto t0 = std::chrono::steady_clock::now();
@@ -258,15 +264,7 @@ int main(int argc, char **argv)
                 resultMap.insert(chargeMap.begin(), chargeMap.end());                                  
                 
                  // update site-resolved potential
-                std::map<std::string, double> potentialMap = device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);   
-                // double *partial_site_potential_charge_h = new double[gpubuf.count_sites[gpubuf.rank]];
-                // cudaMemcpy(partial_site_potential_charge_h,
-                //     gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank] , gpubuf.count_sites[gpubuf.rank] * sizeof(double), cudaMemcpyDeviceToHost);
-                // MPI_Allgatherv(partial_site_potential_charge_h, gpubuf.count_sites[gpubuf.rank], MPI_DOUBLE,
-                //     device.site_potential_charge.data(), gpubuf.count_sites, gpubuf.displ_sites, MPI_DOUBLE, MPI_COMM_WORLD);
-                // cudaMemcpy(gpubuf.site_potential_charge, device.site_potential_charge.data(), gpubuf.N_ * sizeof(double), cudaMemcpyHostToDevice);
-
-                //delete[] partial_site_potential_charge_h;
+                std::map<std::string, double> potentialMap = device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);
                 resultMap.insert(potentialMap.begin(), potentialMap.end());                                   
             }
 

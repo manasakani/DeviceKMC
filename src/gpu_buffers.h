@@ -33,6 +33,11 @@ public:
     double *sigma, *k, *lattice, *freq;
     int *neigh_idx, *site_layer = nullptr;
 
+    // host vectors used for the collection and sum of the distributed potential
+    double *potential_local_h = nullptr; // = (double *)calloc(gpubuf.count_sites[gpubuf.rank], sizeof(double));
+    double *potential_h = nullptr; // (double *)calloc(gpubuf.N_, sizeof(double));
+
+
     // CUDA library handles
     // cublasHandle_t cublas_handle;
     // cusolverDnHandle_t  cusolver_handle;
@@ -184,6 +189,10 @@ public:
         gpuErrchk( cudaMalloc((void **)&atom_CB_edge, N_atom_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void **)&atom_charge, N_ * sizeof(int)) );
 
+        // host vectors used for the collection and sum of the distributed potential
+        gpuErrchk( cudaMallocHost((void **)&potential_local_h, count_sites[rank] * sizeof(double)) );
+        gpuErrchk( cudaMallocHost((void **)&potential_h, N_ * sizeof(double)) );
+            
         cudaDeviceSynchronize();
 
         // virtual potentials initial guess to store (solution vector for dissipated power solver):

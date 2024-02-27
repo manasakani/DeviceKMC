@@ -24,3 +24,8 @@ run_job.sh
 hosts
 
 # Ignore txt files
+output*.txt
+
+# profiling with nsys
+*.qdrep
+*.nsys-rep
