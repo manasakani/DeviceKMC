@@ -455,10 +455,14 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
     gpuErrchk( cudaFree(neighbor_nnz_per_row_d) );
 
 
-    gpuErrchk( cudaMemGetInfo(&free, &total) );
-
-    // in gigabytes:
-    std::cout << "Memory free: " << free/1024/1024/1024 << " total: " << total/1024/1024/1024 << std::endl;
+    // This populates the site_CB_edge vector, and runs once at the beginning (not distributed)
+    // needs to be distributed in the future if ever OOM (use a function pointer to the correct kernel for CB edge)
+    Assemble_K_sparsity(gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+                        gpubuf.lattice, pbc, nn_dist,
+                        N_interface, N_left_tot, N_right_tot,
+                        &gpubuf.Device_row_ptr_d, &gpubuf.Device_col_indices_d, &gpubuf.Device_nnz,
+                        &gpubuf.contact_left_col_indices, &gpubuf.contact_left_row_ptr, &gpubuf.contact_left_nnz,
+                        &gpubuf.contact_right_col_indices, &gpubuf.contact_right_row_ptr, &gpubuf.contact_right_nnz);
 
 }
 
