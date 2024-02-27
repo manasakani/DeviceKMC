@@ -273,7 +273,6 @@ std::map<std::string, double> KMCProcess::executeKMCStep(GPUBuffers gpubuf, Devi
     //                                          gpubuf.site_potential_boundary, gpubuf.site_potential_charge, gpubuf.site_temperature,
     //                                          gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
 
-
     double event_time = execute_kmc_step_mpi(
                                             gpubuf.comm,
                                             device.N,
@@ -283,7 +282,7 @@ std::map<std::string, double> KMCProcess::executeKMCStep(GPUBuffers gpubuf, Devi
                                             gpubuf.lattice, device.pbc, gpubuf.T_bg, 
                                             gpubuf.freq, gpubuf.sigma, gpubuf.k,
                                             gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
-                                            gpubuf.site_potential_boundary, gpubuf.site_potential_charge, gpubuf.site_temperature,
+                                            gpubuf.site_potential_charge, gpubuf.site_temperature,
                                             gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
 
 

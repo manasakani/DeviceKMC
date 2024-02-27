@@ -151,6 +151,8 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const int *site_charge, double *site_potential_charge,
                           const int rank, const int size, const int *count, const int *displ);
 
+// sums the site_potential_boundary and site_potential_charge into the site_potential_charge
+void sum_and_gather_potential(GPUBuffers &gpubuf);
 
 //**************************************************
 // Current solver functions / current_solver_gpu.cu
@@ -214,7 +216,7 @@ double execute_kmc_step_mpi(
         const double *lattice, const int pbc, const double *T_bg, 
         const double *freq, const double *sigma, const double *k,
         const double *posx, const double *posy, const double *posz, 
-        const double *site_potential_boundary, const double *site_potential_charge, const double *site_temperature,
+        const double *site_potential_charge, const double *site_temperature,
         ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
 
 

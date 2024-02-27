@@ -35,7 +35,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                                  const int *layer, const double *lattice, const int pbc, 
                                  const double *T_bg, const double *freq, const double *sigma, const double *k, 
                                  const double *posx, const double *posy, const double *posz,
-                                 const double *potential_boundary, const double *potential_charge, const double *temperature,
+                                 const double *potential_charge, const double *temperature,
                                  const ELEMENT *element, const int *charge, EVENTTYPE *event_type, double *event_prob)
 {
     int total_tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -55,11 +55,13 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                                                 posx[j], posy[j], posz[j], 
                                                 lattice[0], lattice[1], lattice[2], pbc);
 
+            // potential_charge now contains the sum of the potential
+
             // Generation
             if (element[i] == DEFECT && element[j] == O_EL)
             {
 
-                double E = 2 * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]));
+                double E = 2 * ((potential_charge[i]) - (potential_charge[j]));
                 double zero_field_energy = E_gen_const[layer[j]]; 
                 event_type_ = VACANCY_GENERATION;
                 double Ekin = 0; // kB * (temperature[j] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
@@ -74,7 +76,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 double self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
 
                 int charge_state = charge[i] - charge[j];
-                double E = charge_state * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]) + (charge_state / 2) * self_int_V);
+                double E = charge_state * ((potential_charge[i]) - (potential_charge[j]) + (charge_state / 2) * self_int_V);
                 double zero_field_energy = E_rec_const[layer[j]];
 
                 event_type_ = VACANCY_RECOMBINATION;
@@ -94,7 +96,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                 }
 
                 event_type_ = VACANCY_DIFFUSION;
-                double E = (charge[i] - charge[j]) * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]) + self_int_V);
+                double E = (charge[i] - charge[j]) * ((potential_charge[i]) - (potential_charge[j]) + self_int_V);
                 double zero_field_energy = E_Vdiff_const[layer[j]];  
                 double Ekin = 0;//kB * (temperature[i] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
@@ -111,7 +113,7 @@ __global__ void build_event_list(const int N, const int nn, const int *neigh_idx
                     self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
                 }
 
-                double E = (charge[i] - charge[j]) * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]) - self_int_V);
+                double E = (charge[i] - charge[j]) * ((potential_charge[i]) - (potential_charge[j]) - self_int_V);
                 double zero_field_energy = E_Odiff_const[layer[j]];
 
                 event_type_ = ION_DIFFUSION;
@@ -132,7 +134,7 @@ __global__ void build_event_list_split(const int N, const int size_i, const int 
                                  const int *layer, const double *lattice, const int pbc, 
                                  const double *T_bg, const double *freq, const double *sigma, const double *k, 
                                  const double *posx, const double *posy, const double *posz,
-                                 const double *potential_boundary, const double *potential_charge, const double *temperature,
+                                 const double *potential_charge, const double *temperature,
                                  const ELEMENT *element, const int *charge, EVENTTYPE *event_type, double *event_prob)
 {
     int total_tid = blockIdx.x * blockDim.x + threadIdx.x + start_i;
@@ -156,7 +158,7 @@ __global__ void build_event_list_split(const int N, const int size_i, const int 
             if (element[i] == DEFECT && element[j] == O_EL)
             {
 
-                double E = 2 * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]));
+                double E = 2 * ((potential_charge[i]) - (potential_charge[j]));
                 double zero_field_energy = E_gen_const[layer[j]]; 
                 event_type_ = VACANCY_GENERATION;
                 double Ekin = 0; // kB * (temperature[j] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
@@ -171,7 +173,7 @@ __global__ void build_event_list_split(const int N, const int size_i, const int 
                 double self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
 
                 int charge_state = charge[i] - charge[j];
-                double E = charge_state * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]) + (charge_state / 2) * self_int_V);
+                double E = charge_state * ((potential_charge[i]) - (potential_charge[j]) + (charge_state / 2) * self_int_V);
                 double zero_field_energy = E_rec_const[layer[j]];
 
                 event_type_ = VACANCY_RECOMBINATION;
@@ -191,7 +193,7 @@ __global__ void build_event_list_split(const int N, const int size_i, const int 
                 }
 
                 event_type_ = VACANCY_DIFFUSION;
-                double E = (charge[i] - charge[j]) * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]) + self_int_V);
+                double E = (charge[i] - charge[j]) * ((potential_charge[i]) - (potential_charge[j]) + self_int_V);
                 double zero_field_energy = E_Vdiff_const[layer[j]];  
                 double Ekin = 0;//kB * (temperature[i] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
@@ -208,7 +210,7 @@ __global__ void build_event_list_split(const int N, const int size_i, const int 
                     self_int_V = v_solve_gpu(dist, charge_abs, sigma, k);
                 }
 
-                double E = (charge[i] - charge[j]) * ((potential_boundary[i] + potential_charge[i]) - (potential_boundary[j] + potential_charge[j]) - self_int_V);
+                double E = (charge[i] - charge[j]) * ((potential_charge[i]) - (potential_charge[j]) - self_int_V);
                 double zero_field_energy = E_Odiff_const[layer[j]];
 
                 event_type_ = ION_DIFFUSION;
@@ -262,7 +264,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
                             const double *lattice, const int pbc, const double *T_bg, 
                             const double *freq, const double *sigma, const double *k,
                             const double *posx, const double *posy, const double *posz, 
-                            const double *site_potential_boundary, const double *site_potential_charge, const double *site_temperature,
+                            const double *site_potential_charge, const double *site_temperature,
                             ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host){
 
     // **************************
@@ -286,7 +288,7 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
                                                   site_layer, lattice, pbc,
                                                   T_bg, freq, sigma, k,
                                                   posx, posy, posz, 
-                                                  site_potential_boundary, site_potential_charge, site_temperature, 
+                                                  site_potential_charge, site_temperature, 
                                                   site_element, site_charge, event_type, event_prob);
 
     gpuErrchk( cudaDeviceSynchronize() );
@@ -466,7 +468,7 @@ double execute_kmc_step_mpi(
         const double *lattice, const int pbc, const double *T_bg, 
         const double *freq, const double *sigma, const double *k,
         const double *posx, const double *posy, const double *posz, 
-        const double *site_potential_boundary, const double *site_potential_charge, const double *site_temperature,
+        const double *site_potential_charge, const double *site_temperature,
         ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host)
 {
 
@@ -504,7 +506,7 @@ double execute_kmc_step_mpi(
                                                 site_layer, lattice, pbc,
                                                 T_bg, freq, sigma, k,
                                                 posx, posy, posz, 
-                                                site_potential_boundary, site_potential_charge, site_temperature, 
+                                                site_potential_charge, site_temperature, 
                                                 site_element, site_charge,
                                                 event_type_local_d, event_prob_local_d);
 

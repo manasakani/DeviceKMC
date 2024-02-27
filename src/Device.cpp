@@ -247,6 +247,8 @@ void Device::writeSnapshot(std::string filename, std::string foldername)
 
     for (int i = 0; i < N; i++)
     {
-        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential_boundary[i] + site_potential_charge[i] << "   " << site_power[i] << "\n";
+        //fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential_boundary[i] + site_potential_charge[i] << "   " << site_power[i] << "\n";
+        fout << return_element(site_element[i]) << "   " << site_x[i] << "   " << site_y[i] << "   " << site_z[i] << "   " << site_potential_charge[i] << "   " << site_power[i] << "\n";
+
     }
 }

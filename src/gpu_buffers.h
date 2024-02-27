@@ -1,6 +1,7 @@
 #pragma once
 #include "utils.h"
 #include <mpi.h>
+#include "../dist_iterative/dist_objects.h"
 
 #ifdef USE_CUDA
 #include "gpu_solvers.h"
@@ -46,6 +47,8 @@ public:
     int *contact_right_col_indices = nullptr;       
     int Device_nnz, contact_left_nnz, contact_right_nnz;
 
+
+
     // NOT gpu pointers, passed by value
     int num_metal_types_ = 0;
     int N_ = 0;                                     // number of sites in the device
@@ -68,11 +71,19 @@ public:
     void copy_Tbg_toGPU(double new_T_bg);
 
     // MPI data split
+    MPI_Comm comm;
     int rank, size;
+    int *count_K_device = nullptr;
+    int *displ_K_device = nullptr;
     int *count_sites = nullptr;
     int *displ_sites = nullptr;
-
-
+    Distributed_matrix *K_distributed = nullptr;
+    Distributed_vector *K_p_distributed = nullptr; // vector for SPMV of K*p
+    int *left_row_ptr_d = nullptr;            // CSR representation of the matrix which represents connectivity of the left contact
+    int *left_col_indices_d = nullptr;
+    int *right_row_ptr_d = nullptr;           // CSR representation of the matrix which represents connectivity of the right contact
+    int *right_col_indices_d = nullptr; 
+    int left_nnz, right_nnz;
 
     // constructor allocates nothing (used for CPU-only code):
     GPUBuffers(){};
@@ -81,8 +92,8 @@ public:
     GPUBuffers(std::vector<Layer> layers, std::vector<int> site_layer_in, double freq_in, int N, int N_atom,
                std::vector<double> site_x_in,  std::vector<double> site_y_in,  std::vector<double> site_z_in,
                int nn, double sigma_in, double k_in, std::vector<double> lattice_in, std::vector<int> neigh_idx_in, std::vector<ELEMENT> metals,
-               int num_metals_types, MPI_Comm comm) {
-                
+               int num_metals_types, MPI_Comm comm, int N_contact) {
+            
         this->N_ = N;
         this->N_atom_ = N_atom;
         this->nn_ = nn;
@@ -100,22 +111,36 @@ public:
         // allocate MPI data split for sites
         MPI_Comm_rank(comm, &rank);
         MPI_Comm_size(comm, &size);
-        count_sites = new int[size];
-        displ_sites = new int[size];
-        int rows_per_rank = N / size;
+        this->comm = comm;
+
+        count_K_device = new int[size];
+        displ_K_device = new int[size];
+        int rows_per_rank_K_device = (N - 2*N_contact) / size;
         for (int i = 0; i < size; ++i) {
-            if(i < N % size){
-                count_sites[i] = rows_per_rank+1;
+            if(i < (N - 2*N_contact) % size){
+                count_K_device[i] = rows_per_rank_K_device+1;
             }
             else{
-                count_sites[i] = rows_per_rank;
+                count_K_device[i] = rows_per_rank_K_device;
             }
         }
+        displ_K_device[0] = 0;
+        for (int i = 1; i < size; ++i) {
+            displ_K_device[i] = displ_K_device[i-1] + count_K_device[i-1];
+        }
+
+        // TODO better split
+        count_sites = new int[size];
+        displ_sites = new int[size];
+        for(int i = 0; i < size; ++i){
+            count_sites[i] = count_K_device[i];
+        }
+        count_sites[0] += N_contact;
+        count_sites[size-1] += N_contact;
         displ_sites[0] = 0;
         for (int i = 1; i < size; ++i) {
             displ_sites[i] = displ_sites[i-1] + count_sites[i-1];
         }
-
         // initialize CUDA library handles:
         // cusparseCreate(&cusparse_handle);
         // cusparseSetPointerMode(cusparse_handle, CUSPARSE_POINTER_MODE_DEVICE);

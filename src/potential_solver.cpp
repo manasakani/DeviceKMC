@@ -255,11 +255,32 @@ std::map<std::string, double> Device::updatePotential(cublasHandle_t handle_cubl
     auto t1 = std::chrono::steady_clock::now();
     std::chrono::duration<double> dt1 = t1 - t0;
 
+    // Update site_potential_boundary with the sum from the charges
     poisson_gridless_gpu(p.num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                          gpubuf.site_charge, gpubuf.site_potential_charge,
                          gpubuf.rank, gpubuf.size, gpubuf.count_sites, gpubuf.displ_sites); 
 
+    // Allgather the potential vector into site_potential_charge
+
+    sum_and_gather_potential(gpubuf);
+     
+    // //int disp_this_rank = A_distributed->displacements[A_distributed->rank];
+    // double *potential_local_h = (double *)calloc(gpubuf.count_sites[gpubuf.rank], sizeof(double));
+    // double *potential_h = (double *)calloc(N, sizeof(double));
+
+    // gpuErrchk( cudaMemcpy(potential_local_h, gpubuf.site_potential_boundary + gpubuf.displ_sites[gpubuf.rank], 
+    //             gpubuf.count_sites[gpubuf.rank] * sizeof(double), cudaMemcpyDeviceToHost) );
+
+    // MPI_Allgatherv(potential_local_h, gpubuf.count_sites[gpubuf.rank],
+    //     MPI_DOUBLE, potential_h,
+    //     gpubuf.count_sites, gpubuf.displ_sites, MPI_DOUBLE, MPI_COMM_WORLD);
+    
+    // gpuErrchk( cudaMemcpy(gpubuf.site_potential_boundary, potential_h,
+    //     N * sizeof(double), cudaMemcpyHostToDevice) );
+
+    // DO NOW: remove the site_potential_charge
+    
     // gpubuf.sync_GPUToHost(*this); // comment out to avoid memory copy in GPU-only implementation
 
     auto t2 = std::chrono::steady_clock::now();

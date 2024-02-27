@@ -126,7 +126,8 @@ int main(int argc, char **argv)
     GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,                         
                       device.N, device.N_atom, device.site_x, device.site_y, device.site_z,
                       device.max_num_neighbors, device.sigma, device.k, 
-                      device.lattice, device.neigh_idx, p.metals, p.metals.size(), MPI_COMM_WORLD);
+                      device.lattice, device.neigh_idx, p.metals, p.metals.size(),
+                      MPI_COMM_WORLD, p.num_atoms_first_layer);
     gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
     initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer);
 #else
@@ -206,17 +207,18 @@ int main(int argc, char **argv)
                 // 0.0041937411587294
                 // 1360.0000000000000000
 
-                double tol = 1e-8;
+                double tol = 1e-14;
+                
                 double cond1 = std::abs(std::inner_product(device.site_potential_boundary.begin(), device.site_potential_boundary.end(), device.site_potential_boundary.begin(), 0.0)
-                    - 154063.2381959107588045)/std::abs(154063.2381959107588045);
+                    - 154205.4863536667253356)/std::abs(154205.4863536667253356);
                 double cond2 = std::abs(std::inner_product(device.site_potential_charge.begin(), device.site_potential_charge.end(), device.site_potential_charge.begin(), 0.0)
-                    - 1175.6852129080082250)/std::abs(1175.6852129080082250);
+                    - 1175.5857035358233134)/std::abs(1175.5857035358233134);
                 double cond3 = std::abs(1e30*std::inner_product(device.site_power.begin(), device.site_power.end(), device.site_power.begin(), 0.0)
-                    - 0.1275703891182530)/std::abs(0.1275703891182530);
+                    - 0.1275306576365134)/std::abs(0.1275306576365134);
                 double cond4 = std::abs(std::inner_product(device.site_temperature.begin(), device.site_temperature.end(), device.site_temperature.begin(), 0.0)
                     - 3388500000.0000000000000000)/std::abs(3388500000.0000000000000000);
                 double cond5 = std::abs(1e30*std::inner_product(device.site_CB_edge.begin(), device.site_CB_edge.end(), device.site_CB_edge.begin(), 0.0)
-                    - 0.0041937411587294)/std::abs(0.0041937411587294);
+                    - 0.0041937542959175)/std::abs(0.0041937542959175);
                 double cond6 = std::abs(std::inner_product(device.site_charge.begin(), device.site_charge.end(), device.site_charge.begin(), 0.0)
                     - 1360.0000000000000000)/std::abs(1360.0000000000000000);
 
@@ -230,6 +232,12 @@ int main(int argc, char **argv)
                     std::cout << "cond5 site_CB_edge: " << cond5 << std::endl;
                     std::cout << "cond6 site_charge: " << cond6 << std::endl;
                 }
+                else{
+                    std::cout << "Device attributes are correct" << std::endl;
+                }
+
+                MPI_Barrier(MPI_COMM_WORLD);
+                sleep(1);
 
                 exit(1);
             }
@@ -250,14 +258,14 @@ int main(int argc, char **argv)
                 
                  // update site-resolved potential
                 std::map<std::string, double> potentialMap = device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);   
-                double *partial_site_potential_charge_h = new double[gpubuf.count_sites[gpubuf.rank]];
-                cudaMemcpy(partial_site_potential_charge_h,
-                    gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank] , gpubuf.count_sites[gpubuf.rank] * sizeof(double), cudaMemcpyDeviceToHost);
-                MPI_Allgatherv(partial_site_potential_charge_h, gpubuf.count_sites[gpubuf.rank], MPI_DOUBLE,
-                    device.site_potential_charge.data(), gpubuf.count_sites, gpubuf.displ_sites, MPI_DOUBLE, MPI_COMM_WORLD);
-                cudaMemcpy(gpubuf.site_potential_charge, device.site_potential_charge.data(), gpubuf.N_ * sizeof(double), cudaMemcpyHostToDevice);
+                // double *partial_site_potential_charge_h = new double[gpubuf.count_sites[gpubuf.rank]];
+                // cudaMemcpy(partial_site_potential_charge_h,
+                //     gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank] , gpubuf.count_sites[gpubuf.rank] * sizeof(double), cudaMemcpyDeviceToHost);
+                // MPI_Allgatherv(partial_site_potential_charge_h, gpubuf.count_sites[gpubuf.rank], MPI_DOUBLE,
+                //     device.site_potential_charge.data(), gpubuf.count_sites, gpubuf.displ_sites, MPI_DOUBLE, MPI_COMM_WORLD);
+                // cudaMemcpy(gpubuf.site_potential_charge, device.site_potential_charge.data(), gpubuf.N_ * sizeof(double), cudaMemcpyHostToDevice);
 
-                delete[] partial_site_potential_charge_h;
+                //delete[] partial_site_potential_charge_h;
                 resultMap.insert(potentialMap.begin(), potentialMap.end());                                   
             }
 

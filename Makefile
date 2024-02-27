@@ -19,10 +19,10 @@
   MKLROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/mkl
   OMPROOT = /usr/pack/intel_compiler-2020-af/x64/compilers_and_libraries_2019.0.117/linux/compiler/lib/intel64_lin
   CUDA_ROOT = /usr/local/cuda
-  CXXFLAGS = -std=c++17 -O3 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
+  CXXFLAGS = -std=c++17 -O2 -m64 -DMKL_ILP64 -I${CUDA_ROOT}/include -I"${MKLROOT}/include" -fopenmp -lpthread -lm -ldl
   CXXFLAGS += -I"${MPICH_DIR}/include"
   NVCC = nvcc
-  NVCCFLAGS = -O3 -std=c++17 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" --extended-lambda #-G -lineinfo # Last two are for the visual profiler # To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 
+  NVCCFLAGS = -O2 -std=c++17 -arch=sm_60 -ccbin "/usr/sepp/bin/g++" --extended-lambda #-G -lineinfo # Last two are for the visual profiler # To use visual profiler: nvprof --export-profile profile.nvvp ./bin/runKMC parameters.txt 
   NVCCFLAGS += -I"${MPICH_DIR}/include" 
   LDFLAGS = -L"${CUDA_ROOT}/lib64" -L"${MPICH_DIR}/lib" -lcuda -lcudart -lcublas -lcusolver -lcusparse -lmpi
   CXXFLAGS += -DUSE_CUDA 
@@ -112,20 +112,9 @@ $(info MAKE INFO: Compiling with CUDA)
 ifeq ($(COMPILE_WITH_TESTS), )
 
 $(info MAKE INFO: Compile target - KMC Simulation ./bin/runKMC)
-$(info $(CUFILES_CG))
-$(info $(CPPFILES_CG))
-$(info $(SRCDIR)/%.cpp)
-$(info CU_OBJ_FILES: $(CU_OBJ_FILES))
-$(info CPP_OBJ_FILES: $(CPP_OBJ_FILES))
-
-$(info LDFLAGS: $(LDFLAGS))
-$(info TARGET: $(TARGET))
-
 
 $(TARGET): $(CU_OBJ_FILES) $(CPP_OBJ_FILES) $(CU_OBJ_FILES_CG) $(CPP_OBJ_FILES_CG)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
-
-
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.cpp $(DEPS) #$(SRCDIR)/gpu_solvers.h
 	@mkdir -p $(@D)
