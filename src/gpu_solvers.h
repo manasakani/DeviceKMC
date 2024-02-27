@@ -30,6 +30,9 @@
 #include <thrust/transform.h>
 #include <cusparse_v2.h>
 
+#include "../dist_iterative/dist_conjugate_gradient.h"
+#include "../dist_iterative/dist_spmv.h"
+
 // forward declaration of gpubuf class          
 class GPUBuffers;
 
@@ -195,12 +198,25 @@ void update_temperatureglobal_gpu(const double *site_power,
 //************************************
 
 // Selects and executes events, and updates the relevant site attribute (_element, _charge, etc) using the residence time algorithm
-double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
-                          const double *lattice, const int pbc, const double *T_bg, 
-                          const double *freq, const double *sigma, const double *k,
-                          const double *posx, const double *posy, const double *posz, 
-                          const double *site_potential_boundary, const double *site_potential_charge, const double *site_temperature,
-                          ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
+// double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, const int *site_layer,
+//                           const double *lattice, const int pbc, const double *T_bg, 
+//                           const double *freq, const double *sigma, const double *k,
+//                           const double *posx, const double *posy, const double *posz, 
+//                           const double *site_potential_boundary, const double *site_potential_charge, const double *site_temperature,
+//                           ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
+
+double execute_kmc_step_mpi(
+        MPI_Comm comm,
+        const int N,
+        const int *count,
+        const int *displs,
+        const int nn, const int *neigh_idx, const int *site_layer,
+        const double *lattice, const int pbc, const double *T_bg, 
+        const double *freq, const double *sigma, const double *k,
+        const double *posx, const double *posy, const double *posz, 
+        const double *site_potential_boundary, const double *site_potential_charge, const double *site_temperature,
+        ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
+
 
 // excluded for testing
 #ifndef COMPILE_WITH_TESTS

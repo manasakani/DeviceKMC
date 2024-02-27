@@ -266,12 +266,27 @@ std::map<std::string, double> KMCProcess::executeKMCStep(GPUBuffers gpubuf, Devi
 
     // gpubuf.sync_HostToGPU(device); // remove once full while loop is completed
 
-    double event_time = execute_kmc_step_gpu(device.N, device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
-                                             gpubuf.lattice, device.pbc, gpubuf.T_bg, 
-                                             gpubuf.freq, gpubuf.sigma, gpubuf.k,
-                                             gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
-                                             gpubuf.site_potential_boundary, gpubuf.site_potential_charge, gpubuf.site_temperature,
-                                             gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
+    // double event_time = execute_kmc_step_gpu(device.N, device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
+    //                                          gpubuf.lattice, device.pbc, gpubuf.T_bg, 
+    //                                          gpubuf.freq, gpubuf.sigma, gpubuf.k,
+    //                                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+    //                                          gpubuf.site_potential_boundary, gpubuf.site_potential_charge, gpubuf.site_temperature,
+    //                                          gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
+
+
+    double event_time = execute_kmc_step_mpi(
+                                            gpubuf.comm,
+                                            device.N,
+                                            gpubuf.count_sites,
+                                            gpubuf.displ_sites,
+                                            device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
+                                            gpubuf.lattice, device.pbc, gpubuf.T_bg, 
+                                            gpubuf.freq, gpubuf.sigma, gpubuf.k,
+                                            gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+                                            gpubuf.site_potential_boundary, gpubuf.site_potential_charge, gpubuf.site_temperature,
+                                            gpubuf.site_element, gpubuf.site_charge, random_generator, device.neigh_idx.data());
+
+
 
     // gpubuf.sync_GPUToHost(device); // remove once full while loop is completed
 
