@@ -770,14 +770,17 @@ __global__ void insert_into_diag(
 
 
 __global__ void inverse_diag(
-    double *A,
-    int N
+    double *inv_diag,
+    double *diag1,
+    double *diag2,
+    double *diag3,
+    int matrix_size
 )
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    for(int i = idx; i < N; i += blockDim.x * gridDim.x){
-        A[i] = 1.0 / A[i];
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){
+        inv_diag[i] = 1.0 / (diag1[i] + diag2[i] + diag3[i]);
     }
 }
 
@@ -919,13 +922,24 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     // 2. Solve system of linear equations 
 
     // the initial guess for the solution is the current site-resolved potential inside the device
-    double *v_soln = gpubuf.site_potential_boundary + N_left_tot +  disp_this_rank;
+    double *v_soln = gpubuf.site_potential_boundary + N_left_tot + disp_this_rank;
 
     cusparseHandle_t cusparseHandle;
     cusparseCreate(&cusparseHandle);
     cusparseSetPointerMode(cusparseHandle, CUSPARSE_POINTER_MODE_DEVICE);
 
-    inverse_diag<<<blocks, threads>>>(diagonal_local_d, A_distributed->rows_this_rank);
+
+
+    double *inv_diagonal_d;
+    gpuErrchk( cudaMalloc((void **)&inv_diagonal_d, A_distributed->rows_this_rank * sizeof(double)) );
+
+    inverse_diag<<<blocks, threads>>>(
+        inv_diagonal_d,
+        diagonal_local_d,
+        left_boundary_d,
+        right_boundary_d,
+        A_distributed->rows_this_rank);
+
 
     double *rhs_local_d;
     gpuErrchk( cudaMalloc((void **)&rhs_local_d, A_distributed->rows_this_rank * sizeof(double)) );
@@ -943,7 +957,7 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
         *gpubuf.K_p_distributed,
         rhs_local_d,
         v_soln,
-        diagonal_local_d,
+        inv_diagonal_d,
         relative_tolerance,
         max_iterations,
         A_distributed->comm);
@@ -968,9 +982,13 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
     // cusparseDestroy(cusparseHandle);
     cudaFree(VL);
     cudaFree(VR);
-    cudaFree(rhs_local_d);
+    gpuErrchk( cudaFree(rhs_local_d) );
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaFree(diagonal_local_d) );
+    gpuErrchk( cudaFree(left_boundary_d) );
+    gpuErrchk( cudaFree(right_boundary_d) );
+    gpuErrchk( cudaFree(inv_diagonal_d) );
+
 }
 
 void sum_and_gather_potential(GPUBuffers &gpubuf)

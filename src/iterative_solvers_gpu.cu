@@ -92,7 +92,7 @@ __global__ void row_reduce(double *A, double *diag, int N)
     }
 }
 
-__global__ void calc_nnz_per_row_gpu_off_diagonal_block(
+__global__ void calc_nnz_per_row(
     const double *posx_d, const double *posy_d, const double *posz_d,
     const double *lattice_d, const bool pbc,
     const double cutoff_radius,
@@ -178,7 +178,7 @@ void indices_creation_gpu_off_diagonal_block(
     gpuErrchk(cudaMemset((*row_ptr_d), 0, (block_size_i + 1) * sizeof(int)) );
 
     // calculate the nnz per row
-    calc_nnz_per_row_gpu_off_diagonal_block<<<blocks, threads>>>(posx_d, posy_d, posz_d, lattice_d, pbc, cutoff_radius,
+    calc_nnz_per_row<<<blocks, threads>>>(posx_d, posy_d, posz_d, lattice_d, pbc, cutoff_radius,
         block_size_i, block_size_j, block_start_i, block_start_j, nnz_per_row_d);
 
     void     *temp_storage_d = NULL;
@@ -222,15 +222,15 @@ __global__ void determine_neighbor_nnz(
     const double *posx_j_d, const double *posy_j_d, const double *posz_j_d,
     const double *lattice_d, const bool pbc,
     const double cutoff_radius,
-    int size_i,
-    int size_j,
+    long int size_i,
+    long int size_j,
     int *dist_nnz_d,
     int *dist_nnz_per_row_d
 ){
     // this rank has i sites
     // other rank has j sites
-    long int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    for(long int id = idx; id < size_i * size_j; id += blockDim.x * gridDim.x){
+    long long int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for(long long int id = idx; id < size_i * size_j; id += blockDim.x * gridDim.x){
         int i = id / size_j;
         int j = id % size_j;
         if(i < size_i && j < size_j){
@@ -288,21 +288,37 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
 
         int threads = 1024;
         //start with self
-        int blocks = (rows_this_rank * rows_other - 1) / threads + 1;
-        determine_neighbor_nnz<<<blocks, threads>>>(
-            gpubuf.site_x + N_left_tot + disp_this_rank,
-            gpubuf.site_y + N_left_tot + disp_this_rank,
-            gpubuf.site_z + N_left_tot + disp_this_rank,
-            gpubuf.site_x + N_left_tot + displ_other,
-            gpubuf.site_y + N_left_tot + displ_other,
-            gpubuf.site_z + N_left_tot + displ_other,
+        int blocks = (rows_this_rank - 1) / threads + 1;
+        calc_nnz_per_row<<<blocks, threads>>>(
+            gpubuf.site_x + N_left_tot,
+            gpubuf.site_y + N_left_tot,
+            gpubuf.site_z + N_left_tot,
             gpubuf.lattice, pbc, nn_dist,
-            rows_this_rank,rows_other,
-            dist_nnz_d+i,
+            rows_this_rank,
+            rows_other,
+            disp_this_rank,
+            displ_other,
             dist_nnz_per_row_d + i * rows_this_rank
         );
+
+        // reduce nnz per row
+        void     *temp_storage_d = NULL;
+        size_t   temp_storage_bytes = 0;
+        cub::DeviceReduce::Sum(
+        temp_storage_d, temp_storage_bytes, 
+            dist_nnz_per_row_d + i * rows_this_rank,
+            dist_nnz_d + i, rows_this_rank);
+
+        // Allocate temporary storage
+        cudaMalloc(&temp_storage_d, temp_storage_bytes);
+
+        // Run sum-reduction
+        cub::DeviceReduce::Sum(temp_storage_d, temp_storage_bytes,
+            dist_nnz_per_row_d + i * rows_this_rank,
+            dist_nnz_d + i, rows_this_rank);
     }
-    
+
+
     gpuErrchk( cudaMemcpy(dist_nnz_h, dist_nnz_d, size * sizeof(int), cudaMemcpyDeviceToHost) );
     // counting neighbours
     int neighbor_count = 0;
@@ -375,7 +391,7 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
         int disp_neighbour = gpubuf.displ_K_device[neighbour];
 
         int threads = 1024;
-        int blocks = (rows_this_rank * rows_neighbour - 1) / threads + 1;
+        int blocks = (rows_this_rank + threads - 1) / threads;
        
         assemble_K_indices_gpu_off_diagonal_block<<<blocks, threads>>>(
             gpubuf.site_x,
