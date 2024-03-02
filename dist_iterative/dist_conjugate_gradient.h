@@ -37,8 +37,9 @@ void conjugate_gradient_jacobi(
 
 template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
 void conjugate_gradient_split(
-    int *dense_subblock_indices_d,
-    double *dense_subblock_data_d,
+    int *subblock_indices_local_d,
+    double *A_subblock_local_d,
+    int subblock_size,
     int *count_subblock_h,
     int *displ_subblock_h,
     Distributed_matrix &A_distributed,
@@ -51,9 +52,9 @@ void conjugate_gradient_split(
 
 template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
 void conjugate_gradient_jacobi_split(
-    int *dense_subblock_indices_d,
-    double *dense_subblock_data_d,
-    int dense_subblock_size,
+    int *subblock_indices_d,
+    double *A_subblock_local_d,
+    int subblock_size,
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
     double *r_local_d,
