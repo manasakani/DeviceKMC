@@ -10,8 +10,20 @@
 #include <cublas_v2.h>
 #include "../dist_iterative/dist_conjugate_gradient.h"
 #include "../dist_iterative/dist_spmv.h"
+#include <pthread.h>
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
+template <void (*distributed_spmv_split)
+    (Distributed_subblock &,
+    Distributed_matrix &,    
+    double *,
+    double *,
+    Distributed_vector &,
+    double *,
+    cusparseDnVecDescr_t &,
+    double *,
+    cudaStream_t &,
+    cusparseHandle_t &,
+    cublasHandle_t &)>
 void test_preconditioned_split(
     double *data_h,
     int *col_indices_h,
@@ -168,12 +180,29 @@ void test_preconditioned_split(
     }
     cudaMemcpy(diag_inv_local_d, diag_local_h, rows_per_rank * sizeof(double), cudaMemcpyHostToDevice);    
 
-    iterative_solver::conjugate_gradient_split<dspmv::gpu_packing>(
-        subblock_indices_local_d,
-        A_subblock_local_d,
-        subblock_size,
-        count_subblock,
-        displ_subblock,
+
+
+
+
+    Distributed_subblock A_subblock;
+    A_subblock.subblock_indices_local_d = subblock_indices_local_d;
+    A_subblock.A_subblock_local_d = A_subblock_local_d;
+    A_subblock.subblock_size = subblock_size;
+    A_subblock.count_subblock_h = count_subblock;
+    A_subblock.displ_subblock_h = displ_subblock;
+    A_subblock.send_subblock_requests = new MPI_Request[size-1];
+    A_subblock.recv_subblock_requests = new MPI_Request[size-1];
+    A_subblock.streams_recv_subblock = new cudaStream_t[size-1];
+    for(int i = 0; i < size-1; i++){
+        cudaStreamCreate(&A_subblock.streams_recv_subblock[i]);
+    }
+    A_subblock.events_recv_subblock = new cudaEvent_t[size];
+    for(int i = 0; i < size; i++){
+        cudaEventCreateWithFlags(&A_subblock.events_recv_subblock[i], cudaEventDisableTiming);
+    }
+
+    iterative_solver::conjugate_gradient_split<distributed_spmv_split>(
+        A_subblock,
         A_distributed,
         p_distributed,
         r_local_d,
@@ -183,11 +212,25 @@ void test_preconditioned_split(
         comm);
 
 
+    for(int i = 0; i < size-1; i++){
+        cudaStreamDestroy(A_subblock.streams_recv_subblock[i]);
+    }
+    delete[] A_subblock.streams_recv_subblock;
+
+
+    delete[] A_subblock.send_subblock_requests;
+    delete[] A_subblock.recv_subblock_requests;
+
     // //copy solution to host
     double *solution = new double[rows_per_rank];
     cudaErrchk(cudaMemcpy(solution,
         x_local_d, rows_per_rank * sizeof(double), cudaMemcpyDeviceToHost));
     MPI_Allgatherv(solution, rows_per_rank, MPI_DOUBLE, reference_solution, counts, displacements, MPI_DOUBLE, comm);
+
+    for(int i = 0; i < size; i++){
+        cudaEventDestroy(A_subblock.events_recv_subblock[i]);
+    }
+    delete[] A_subblock.events_recv_subblock;
 
     delete[] solution;
     delete[] count_subblock;
@@ -208,7 +251,67 @@ void test_preconditioned_split(
     MPI_Barrier(comm);
 }
 template 
-void test_preconditioned_split<dspmv::gpu_packing>(
+void test_preconditioned_split<dspmv_split::spmm_split1>(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    int *subblock_indices_h,
+    double *A_subblock_h,
+    int subblock_size,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void test_preconditioned_split<dspmv_split::spmm_split2>(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    int *subblock_indices_h,
+    double *A_subblock_h,
+    int subblock_size,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void test_preconditioned_split<dspmv_split::spmm_split3>(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    int *subblock_indices_h,
+    double *A_subblock_h,
+    int subblock_size,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void test_preconditioned_split<dspmv_split::spmm_split4>(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    int *subblock_indices_h,
+    double *A_subblock_h,
+    int subblock_size,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void test_preconditioned_split<dspmv_split::spmm_split5>(
     double *data_h,
     int *col_indices_h,
     int *row_indptr_h,
@@ -226,7 +329,16 @@ void test_preconditioned_split<dspmv::gpu_packing>(
 
 int main(int argc, char **argv) {
 
-    MPI_Init(&argc, &argv);
+    // MPI_Init(&argc, &argv);
+
+    // Init thread multiple
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+    if (provided != MPI_THREAD_MULTIPLE) {
+        std::cout << "MPI_THREAD_MULTIPLE not supported by MPI, aborting" << std::endl;
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
+
     int rank, size;
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -333,8 +445,22 @@ int main(int argc, char **argv) {
         }
     }
 
+    double sum_matrix = 0.0;
+    double diff_matrix = 0.0;
+    for (int i = 0; i < matrix_size; ++i) {
+        for (int j = 0; j < matrix_size; ++j) {
+            sum_matrix += std::abs(dense_tot[i * matrix_size + j]) * std::abs(dense_tot[i * matrix_size + j]);
+            diff_matrix += std::abs(dense_tot[i * matrix_size + j] - dense_split[i * matrix_size + j]) *
+                std::abs(dense_tot[i * matrix_size + j] - dense_split[i * matrix_size + j]);
+        }
+    }
+    std::cout << "rank " << rank << " relative between matrices " << std::sqrt(diff_matrix / sum_matrix) << std::endl;
+
+    int number_of_measurements = 5;
+
+    for(int measurement = 0; measurement < number_of_measurements; measurement++){
     double *test_solution_split = new double[matrix_size];
-    test_preconditioned_split<dspmv::gpu_packing>(
+    test_preconditioned_split<dspmv_split::spmm_split5>(
             data_sparse,
             col_indices_sparse,
             row_ptr_sparse,
@@ -350,16 +476,6 @@ int main(int argc, char **argv) {
             MPI_COMM_WORLD
     );
 
-    double sum_matrix = 0.0;
-    double diff_matrix = 0.0;
-    for (int i = 0; i < matrix_size; ++i) {
-        for (int j = 0; j < matrix_size; ++j) {
-            sum_matrix += std::abs(dense_tot[i * matrix_size + j]) * std::abs(dense_tot[i * matrix_size + j]);
-            diff_matrix += std::abs(dense_tot[i * matrix_size + j] - dense_split[i * matrix_size + j]) *
-                std::abs(dense_tot[i * matrix_size + j] - dense_split[i * matrix_size + j]);
-        }
-    }
-    std::cout << "rank " << rank << " relative between matrices " << std::sqrt(diff_matrix / sum_matrix) << std::endl;
 
     double sum = 0.0;
     double diff_split = 0.0;
@@ -367,12 +483,12 @@ int main(int argc, char **argv) {
         sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
         diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
     }
-    std::cout << "rank " << rank << " relative error split " << std::sqrt(diff_split / sum) << std::endl;
+    if(rank == 0){
+        std::cout << " relative error split " << std::sqrt(diff_split / sum) << std::endl; 
+    }
+        MPI_Barrier(MPI_COMM_WORLD);
+    }
 
-    std::cout << "Solved" << std::endl;
-
-    cudaDeviceSynchronize();
-    MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
     return 0;
 }

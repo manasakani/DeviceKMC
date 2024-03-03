@@ -184,6 +184,37 @@ void conjugate_gradient_split<dspmv_split::spmm_split2>(
     double relative_tolerance,
     int max_iterations,
     MPI_Comm comm);
+template 
+void conjugate_gradient_split<dspmv_split::spmm_split3>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_split<dspmv_split::spmm_split4>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_split<dspmv_split::spmm_split5>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+
 
 template <void (*distributed_spmv_split)
     (Distributed_subblock &,
@@ -397,4 +428,39 @@ void conjugate_gradient_jacobi_split<dspmv_split::spmm_split2>(
     double relative_tolerance,
     int max_iterations,
     MPI_Comm comm);
+template 
+void conjugate_gradient_jacobi_split<dspmv_split::spmm_split3>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_jacobi_split<dspmv_split::spmm_split4>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_jacobi_split<dspmv_split::spmm_split5>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+
+
 } // namespace iterative_solver

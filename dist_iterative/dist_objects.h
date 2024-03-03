@@ -40,6 +40,10 @@ struct Distributed_subblock{
     int subblock_size;
     int *count_subblock_h;
     int *displ_subblock_h;
+    cudaStream_t *streams_recv_subblock;
+    cudaEvent_t *events_recv_subblock;
+    MPI_Request *send_subblock_requests;
+    MPI_Request *recv_subblock_requests;
 };
 
 
