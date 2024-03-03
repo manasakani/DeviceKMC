@@ -35,7 +35,16 @@ void conjugate_gradient_jacobi(
     int max_iterations,
     MPI_Comm comm);
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
+template <void (*distributed_spmv_split)
+    (int *, double *, int, int *, int *,
+    double *, double *, double *,
+    Distributed_matrix &,
+    Distributed_vector &,
+    cusparseDnVecDescr_t &,
+    double *,
+    cudaStream_t &,
+    cusparseHandle_t &,
+    cublasHandle_t &)>
 void conjugate_gradient_split(
     int *subblock_indices_local_d,
     double *A_subblock_local_d,
@@ -50,7 +59,16 @@ void conjugate_gradient_split(
     int max_iterations,
     MPI_Comm comm);
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
+template <void (*distributed_spmv_split)
+    (int *, double *, int, int *, int *,
+    double *, double *, double *,
+    Distributed_matrix &,
+    Distributed_vector &,
+    cusparseDnVecDescr_t &,
+    double *,
+    cudaStream_t &,
+    cusparseHandle_t &,
+    cublasHandle_t &)>
 void conjugate_gradient_jacobi_split(
     int *subblock_indices_d,
     double *A_subblock_local_d,

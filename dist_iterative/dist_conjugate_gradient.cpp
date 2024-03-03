@@ -325,113 +325,16 @@ void conjugate_gradient_jacobi<dspmv::gpu_packing_cam>(
     int max_iterations,
     MPI_Comm comm);
 
-
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
-void spmm_split(
-    int *subblock_indices_local_d,
-    double *A_subblock_local_d,
-    int subblock_size,
-    int *count_subblock_h,
-    int *displ_subblock_h,
-    double *p_subblock_d,
-    double *p_subblock_h,
-    double *Ap_subblock_d,
-    Distributed_matrix &A_distributed,
-    Distributed_vector &p_distributed,
-    cusparseDnVecDescr_t &vecAp_local,
-    double *Ap_local_d,
-    cudaStream_t &default_stream,
-    cusparseHandle_t &default_cusparseHandle,
-    cublasHandle_t &default_cublasHandle)
-{
-    int rank = A_distributed.rank;
-    int size = A_distributed.size;
-
-    MPI_Request send_subblock_requests[size-1];
-    MPI_Request recv_subblock_requests[size-1];
-    double alpha = 1.0;
-    double beta = 0.0;
-
-    // pack dense sublblock p
-    pack_gpu(p_subblock_d + displ_subblock_h[rank],
-        p_distributed.vec_d[0],
-        subblock_indices_local_d,
-        count_subblock_h[rank],
-        default_stream);
-
-    if(size > 1){
-        cudaErrchk(cudaMemcpy(p_subblock_h + displ_subblock_h[rank],
-            p_subblock_d + displ_subblock_h[rank],
-            count_subblock_h[rank] * sizeof(double), cudaMemcpyDeviceToHost));
-        for(int i = 0; i < size-1; i++){
-            int dest = (rank + 1 + i) % size;
-            MPI_Isend(p_subblock_h + displ_subblock_h[rank], count_subblock_h[rank],
-                MPI_DOUBLE, dest, dest, A_distributed.comm, &send_subblock_requests[i]);
-        }
-        for(int i = 0; i < size-1; i++){
-            int source = (rank + 1 + i) % size;
-            MPI_Irecv(p_subblock_h + displ_subblock_h[source], count_subblock_h[source],
-                MPI_DOUBLE, source, rank, A_distributed.comm, &recv_subblock_requests[i]);
-        }
-    }
-
-    // ak = rk^T * rk / pk^T * A * pk
-    // has to be done for k=0 if x0 != 0
-    distributed_spmv(
-        A_distributed,
-        p_distributed,
-        vecAp_local,
-        default_stream,
-        default_cusparseHandle
-    );
-    if(size > 1){
-        MPI_Waitall(size-1, recv_subblock_requests, MPI_STATUSES_IGNORE);
-        MPI_Waitall(size-1, send_subblock_requests, MPI_STATUSES_IGNORE);
-        // recv whole vector
-        cudaErrchk(cudaMemcpyAsync(p_subblock_d,
-            p_subblock_h, subblock_size * sizeof(double),
-            cudaMemcpyHostToDevice, default_stream));
-    }
-
-    cublasErrchk(cublasDgemv(
-        default_cublasHandle,
-        CUBLAS_OP_N,
-        count_subblock_h[rank], subblock_size,
-        &alpha,
-        A_subblock_local_d, count_subblock_h[rank],
-        p_subblock_d, 1,
-        &beta,
-        Ap_subblock_d, 1
-    ));
-    // unpack and add it to Ap
-    unpack_add(
-        Ap_local_d,
-        Ap_subblock_d,
-        subblock_indices_local_d,
-        count_subblock_h[rank],
-        default_stream
-    );
-}
-template 
-void spmm_split<dspmv::gpu_packing>(
-    int *subblock_indices_local_d,
-    double *A_subblock_local_d,
-    int subblock_size,
-    int *count_subblock_h,
-    int *displ_subblock_h,
-    double *p_subblock_d,
-    double *p_subblock_h,
-    double *Ap_subblock_d,
-    Distributed_matrix &A_distributed,
-    Distributed_vector &p_distributed,
-    cusparseDnVecDescr_t &vecAp_local,
-    double *Ap_local_d,
-    cudaStream_t &default_stream,
-    cusparseHandle_t &default_cusparseHandle,
-    cublasHandle_t &default_cublasHandle);
-   
-
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
+template <void (*distributed_spmv_split)
+    (int *, double *, int, int *, int *,
+    double *, double *, double *,
+    Distributed_matrix &,
+    Distributed_vector &,
+    cusparseDnVecDescr_t &,
+    double *,
+    cudaStream_t &,
+    cusparseHandle_t &,
+    cublasHandle_t &)>
 void conjugate_gradient_split(
     int *subblock_indices_local_d,
     double *A_subblock_local_d,
@@ -488,7 +391,6 @@ void conjugate_gradient_split(
     cudaErrchk(cudaMalloc((void **)&Ap_subblock_d,
         count_subblock_h[A_distributed.rank] * sizeof(double)));
     double *p_subblock_h = new double[subblock_size];
-    
 
 
     //begin CG
@@ -499,7 +401,7 @@ void conjugate_gradient_split(
     MPI_Allreduce(MPI_IN_PLACE, &norm2_rhs, 1, MPI_DOUBLE, MPI_SUM, comm);
 
 
-    spmm_split<dspmv::gpu_packing>(
+    distributed_spmv_split(
         subblock_indices_local_d,
         A_subblock_local_d,
         subblock_size,
@@ -538,7 +440,7 @@ void conjugate_gradient_split(
         }
 
 
-        spmm_split<dspmv::gpu_packing>(
+        distributed_spmv_split(
             subblock_indices_local_d,
             A_subblock_local_d,
             subblock_size,
@@ -597,7 +499,7 @@ void conjugate_gradient_split(
     MPI_Barrier(comm);
 }
 template 
-void conjugate_gradient_split<dspmv::gpu_packing>(
+void conjugate_gradient_split<dspmv_split::spmm_split1>(
     int *subblock_indices_local_d,
     double *A_subblock_local_d,
     int subblock_size,
@@ -611,11 +513,22 @@ void conjugate_gradient_split<dspmv::gpu_packing>(
     int max_iterations,
     MPI_Comm comm);
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
+template <void (*distributed_spmv_split)
+    (int *, double *, int, int *, int *,
+    double *, double *, double *,
+    Distributed_matrix &,
+    Distributed_vector &,
+    cusparseDnVecDescr_t &,
+    double *,
+    cudaStream_t &,
+    cusparseHandle_t &,
+    cublasHandle_t &)>
 void conjugate_gradient_jacobi_split(
-    int *subblock_indices_d,
+    int *subblock_indices_local_d,
     double *A_subblock_local_d,
     int subblock_size,
+    int *count_subblock_h,
+    int *displ_subblock_h,
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
     double *r_local_d,
@@ -639,14 +552,13 @@ void conjugate_gradient_jacobi_split(
     cublasErrchk(cublasSetStream(default_cublasHandle, default_stream));
 
     double a, b, na;
-    double alpha, beta, alpham1, r0;
+    double alpha, alpham1, r0;
     double *r_norm2_h;
     double *dot_h;    
     cudaErrchk(cudaMallocHost((void**)&r_norm2_h, sizeof(double)));
     cudaErrchk(cudaMallocHost((void**)&dot_h, sizeof(double)));
 
     alpha = 1.0;
-    beta = 0.0;
     alpham1 = -1.0;
     r0 = 0.0;
 
@@ -667,8 +579,11 @@ void conjugate_gradient_jacobi_split(
     // dense subblock product y=Ax
     double *p_subblock_d = NULL;
     double *Ap_subblock_d = NULL;
-    cudaErrchk(cudaMalloc((void **)&p_subblock_d, subblock_size * sizeof(double)));
-    cudaErrchk(cudaMalloc((void **)&Ap_subblock_d, subblock_size * sizeof(double)));
+    cudaErrchk(cudaMalloc((void **)&p_subblock_d,
+        subblock_size * sizeof(double)));
+    cudaErrchk(cudaMalloc((void **)&Ap_subblock_d,
+        count_subblock_h[A_distributed.rank] * sizeof(double)));
+    double *p_subblock_h = new double[subblock_size];
 
     //begin CG
 
@@ -678,48 +593,22 @@ void conjugate_gradient_jacobi_split(
     MPI_Allreduce(MPI_IN_PLACE, &norm2_rhs, 1, MPI_DOUBLE, MPI_SUM, comm);
 
     // A*x0
-    distributed_spmv(
-        A_distributed,
-        p_distributed,
-        vecAp_local,
-        default_stream,
-        default_cusparseHandle
-    );
-
-    // ak = rk^T * rk / pk^T * A * pk
-    // has to be done for k=0 if x0 != 0
-    distributed_spmv(
-        A_distributed,
-        p_distributed,
-        vecAp_local,
-        default_stream,
-        default_cusparseHandle
-    );
-
-    // pack dense sublblock p
-    pack_gpu(p_subblock_d,
-        p_distributed.vec_d[0],
-        subblock_indices_d,
+    distributed_spmv_split(
+        subblock_indices_local_d,
+        A_subblock_local_d,
         subblock_size,
-        default_stream);
-    //A*p dense subblock
-    cublasErrchk(cublasDgemv(
-        default_cublasHandle,
-        CUBLAS_OP_N,
-        subblock_size, subblock_size,
-        &alpha,
-        A_subblock_local_d, subblock_size,
-        p_subblock_d, 1,
-        &beta,
-        Ap_subblock_d, 1
-    ));
-    // unpack and add it to Ap
-    unpack_add(
-        Ap_local_d,
+        count_subblock_h,
+        displ_subblock_h,
+        p_subblock_d,
+        p_subblock_h,
         Ap_subblock_d,
-        subblock_indices_d,
-        subblock_size,
-        default_stream
+        A_distributed,
+        p_distributed,
+        vecAp_local,
+        Ap_local_d,
+        default_stream,
+        default_cusparseHandle,
+        default_cublasHandle
     );
 
 
@@ -756,49 +645,22 @@ void conjugate_gradient_jacobi_split(
 
         // ak = rk^T * rk / pk^T * A * pk
         // has to be done for k=0 if x0 != 0
-        distributed_spmv(
-            A_distributed,
-            p_distributed,
-            vecAp_local,
-            default_stream,
-            default_cusparseHandle
-        );
-
-
-        // ak = rk^T * rk / pk^T * A * pk
-        // has to be done for k=0 if x0 != 0
-        distributed_spmv(
-            A_distributed,
-            p_distributed,
-            vecAp_local,
-            default_stream,
-            default_cusparseHandle
-        );
-
-        // pack dense sublblock p
-        pack_gpu(p_subblock_d,
-            p_distributed.vec_d[0],
-            subblock_indices_d,
+        distributed_spmv_split(
+            subblock_indices_local_d,
+            A_subblock_local_d,
             subblock_size,
-            default_stream);
-        //A*p dense subblock
-        cublasErrchk(cublasDgemv(
-            default_cublasHandle,
-            CUBLAS_OP_N,
-            subblock_size, subblock_size,
-            &alpha,
-            A_subblock_local_d, subblock_size,
-            p_subblock_d, 1,
-            &beta,
-            Ap_subblock_d, 1
-        ));
-        // unpack and add it to Ap
-        unpack_add(
-            Ap_local_d,
+            count_subblock_h,
+            displ_subblock_h,
+            p_subblock_d,
+            p_subblock_h,
             Ap_subblock_d,
-            subblock_indices_d,
-            subblock_size,
-            default_stream
+            A_distributed,
+            p_distributed,
+            vecAp_local,
+            Ap_local_d,
+            default_stream,
+            default_cusparseHandle,
+            default_cublasHandle
         );
 
         cublasErrchk(cublasDdot(default_cublasHandle, A_distributed.rows_this_rank, p_distributed.vec_d[0], 1, Ap_local_d, 1, dot_h));
@@ -847,14 +709,17 @@ void conjugate_gradient_jacobi_split(
     cudaErrchk(cudaFreeHost(dot_h));
     cudaErrchk(cudaFree(p_subblock_d));
     cudaErrchk(cudaFree(Ap_subblock_d));
+    delete[] p_subblock_h;
 
     MPI_Barrier(comm);
 }
 template 
-void conjugate_gradient_jacobi_split<dspmv::gpu_packing>(
-    int *subblock_indices_d,
+void conjugate_gradient_jacobi_split<dspmv_split::spmm_split1>(
+    int *subblock_indices_local_d,
     double *A_subblock_local_d,
     int subblock_size,
+    int *count_subblock_h,
+    int *displ_subblock_h,
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
     double *r_local_d,
