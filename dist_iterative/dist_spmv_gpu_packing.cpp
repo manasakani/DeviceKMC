@@ -18,14 +18,11 @@ void gpu_packing(
     // pinned memory
     // streams_recv
     // stream_send
-    cudaEvent_t event_default_finished;
-    cudaErrchk(cudaEventCreateWithFlags(&event_default_finished, cudaEventDisableTiming));
-    cudaErrchk(cudaEventRecord(event_default_finished, default_stream));
-
+    cudaErrchk(cudaEventRecord(A_distributed.event_default_finished, default_stream));
 
     // post all send requests
     for(int i = 1; i < A_distributed.number_of_neighbours; i++){
-        cudaErrchk(cudaStreamWaitEvent(A_distributed.streams_send[i], event_default_finished, 0));
+        cudaErrchk(cudaStreamWaitEvent(A_distributed.streams_send[i], A_distributed.event_default_finished, 0));
         pack_gpu(A_distributed.send_buffer_d[i], p_distributed.vec_d[0],
             A_distributed.rows_per_neighbour_d[i], A_distributed.nnz_rows_per_neighbour[i], A_distributed.streams_send[i]);
 
@@ -86,7 +83,6 @@ void gpu_packing(
     }
     MPI_Waitall(A_distributed.number_of_neighbours-1, &A_distributed.send_requests[1], MPI_STATUSES_IGNORE);
 
-    cudaErrchk(cudaEventDestroy(event_default_finished));
 }
 
 
@@ -105,14 +101,11 @@ void gpu_packing_cam(
     // streams_recv
     // stream_send
     // cuda aware mpi
-    cudaEvent_t event_default_finished;
-    cudaErrchk(cudaEventCreateWithFlags(&event_default_finished, cudaEventDisableTiming));
-    cudaErrchk(cudaEventRecord(event_default_finished, default_stream));
-
+    cudaErrchk(cudaEventRecord(A_distributed.event_default_finished, default_stream));
 
     // post all send requests
     for(int i = 1; i < A_distributed.number_of_neighbours; i++){
-        cudaErrchk(cudaStreamWaitEvent(A_distributed.streams_send[i], event_default_finished, 0));
+        cudaErrchk(cudaStreamWaitEvent(A_distributed.streams_send[i], A_distributed.event_default_finished, 0));
         pack_gpu(A_distributed.send_buffer_d[i], p_distributed.vec_d[0],
             A_distributed.rows_per_neighbour_d[i], A_distributed.nnz_rows_per_neighbour[i], A_distributed.streams_send[i]);
 
@@ -168,7 +161,6 @@ void gpu_packing_cam(
     }
     MPI_Waitall(A_distributed.number_of_neighbours-1, &A_distributed.send_requests[1], MPI_STATUSES_IGNORE);
 
-    cudaErrchk(cudaEventDestroy(event_default_finished));
 }
 
 } // namespace dspmv

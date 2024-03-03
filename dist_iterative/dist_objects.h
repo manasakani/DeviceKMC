@@ -113,6 +113,8 @@ class Distributed_matrix{
         cudaEvent_t *events_recv;
         cudaEvent_t *events_send;
 
+        cudaEvent_t event_default_finished;
+
     // construct the distributed matrix
     // input is the whol count[rank] * matrix size
     // csr part of the matrix

@@ -108,6 +108,7 @@ void spmm_split2(
     double alpha = 1.0;
     double beta = 0.0;
 
+    cudaErrchk(cudaEventRecord(A_distributed.event_default_finished, default_stream));
 
     // pack dense sublblock p
     pack_gpu(p_subblock_d + A_subblock.displ_subblock_h[rank],
@@ -135,6 +136,7 @@ void spmm_split2(
 
     // post all send requests
     for(int i = 1; i < A_distributed.number_of_neighbours; i++){
+        cudaErrchk(cudaStreamWaitEvent(A_distributed.streams_send[i], A_distributed.event_default_finished, 0));
         pack_gpu(A_distributed.send_buffer_d[i], p_distributed.vec_d[0],
             A_distributed.rows_per_neighbour_d[i], A_distributed.nnz_rows_per_neighbour[i], A_distributed.streams_send[i]);
 
