@@ -29,16 +29,25 @@ void gpu_packing_cam(
 namespace dspmv_split{
 
 void spmm_split1(
-    int *subblock_indices_local_d,
-    double *A_subblock_local_d,
-    int subblock_size,
-    int *count_subblock_h,
-    int *displ_subblock_h,
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    double *Ap_subblock_d,
-    Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
+    double *Ap_subblock_d,
+    cusparseDnVecDescr_t &vecAp_local,
+    double *Ap_local_d,
+    cudaStream_t &default_stream,
+    cusparseHandle_t &default_cusparseHandle,
+    cublasHandle_t &default_cublasHandle);
+
+void spmm_split2(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,    
+    double *p_subblock_d,
+    double *p_subblock_h,
+    Distributed_vector &p_distributed,
+    double *Ap_subblock_d,
     cusparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     cudaStream_t &default_stream,

@@ -34,6 +34,14 @@ class Distributed_vector{
 
 };
 
+struct Distributed_subblock{
+    int *subblock_indices_local_d;
+    double *A_subblock_local_d;
+    int subblock_size;
+    int *count_subblock_h;
+    int *displ_subblock_h;
+};
+
 
 // assumes that the matrix is symmetric
 // does a 1D decomposition over the rows
