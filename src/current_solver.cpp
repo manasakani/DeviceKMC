@@ -40,7 +40,7 @@ std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolve
     }
 
     // gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
-
+    
     auto t1 = std::chrono::steady_clock::now();
     std::chrono::duration<double> dt = t1 - t0;
 

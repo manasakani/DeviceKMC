@@ -1166,7 +1166,7 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
     double dist;
     int i, j;
 
-    for (int ridx = row; ridx < row_end; ridx += gridDim.x) {
+    for (int ridx = row; ridx < row_end; ridx += gridDim.x/blocks_per_row) {
 
         buf[tid] = 0.0;
         if (tid + scol < lcol) {
@@ -1178,10 +1178,9 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
                                              posx[j], posy[j], posz[j], 
                                              lattice[0], lattice[1], lattice[2], pbc);
                 // implement cutoff radius
-                if (dist > 1e-9) {
-                    break;
-                } 
-                buf[tid] = v_solve_gpu(dist, charge[j], sigma, k);
+                if (dist < 1e-9) {
+                    buf[tid] = v_solve_gpu(dist, charge[j], sigma, k);
+                }
             }
         }
 
@@ -1210,7 +1209,10 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
 
     int num_threads = NUM_THREADS;
     int blocks_per_row = (N + NUM_THREADS - 1) / NUM_THREADS; 
-    int num_blocks = blocks_per_row * count[rank];
+    //TODO: change to variable number of blocks and not fixed
+    // overflow problem, but for small devices sm bigger than 10 would be good
+    int num_blocks = blocks_per_row * 10;
+    //int num_blocks = blocks_per_row * 1;
 
     // set the inhomogenous poisson solution to zero before populating it
     gpuErrchk( cudaMemset(site_potential_charge, 0, N * sizeof(double)) ); 

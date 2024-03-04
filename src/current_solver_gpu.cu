@@ -434,11 +434,12 @@ __global__ void calc_diagonal_T_gpu( int *col_indices, int *row_ptr, double *dat
                 tmp += data[j];
             }
         }
-        diagonal[i] = -tmp;
+        // diagonal[i] = -tmp;
         //write the sum of the off-diagonals onto the existing diagonal element
         for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
             if(i == col_indices[j]){
                 data[j] += -tmp;
+                diagonal[i] = data[j];
             }
         }
     }
@@ -483,7 +484,7 @@ __global__ void extract_diag_tunnel(
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     for (int i = idx; i < num_tunnel_points; i += blockDim.x * gridDim.x)
     {
-        // +2 since first two indices are the ground and injection nodes
+        // +2 since first two indices are the extraction and injection nodes
         diagonal[tunnel_indices[i] + 2] += tunnel_matrix[i * num_tunnel_points + i];
     }
 }
@@ -537,6 +538,18 @@ __global__ void get_imacro_sparse(const double *x_values, const int *x_row_ptr, 
     if (tid == 0)
     {
         atomicAdd(imacro, buf[0]);
+    }
+}
+
+
+// used to be called 'set_diag'
+__global__ void write_to_diag_T(double *A, double *diag, int N)
+{
+    int didx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (didx < N)
+    {
+        double tmp = A[didx * N + didx];
+        A[didx * N + didx] = tmp - diag[didx];
     }
 }
 
@@ -616,6 +629,7 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     // 3. Assemble the sparsity pattern of the sparse neighbor matrix
     int Nfull = N_atom + 2;
     int matrix_size = Nfull; 
+    int submatrix_size = Nfull - 1;
 
     // get the number of nonzeros per row
     int *neighbor_nnz_per_row_d;
@@ -675,11 +689,6 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
                                                           num_metals, Nfull, neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_data_d);
     gpuErrchk( cudaPeekAtLastError() );
 
-    // output sparsity of neighbor connections
-    int submatrix_size = Nfull - 1;
-    dump_csr_matrix_txt(submatrix_size, neighbor_nnz, neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_data_d, 0);
-    std::cout << "dumped sparse neighbor matrix\n";
-
     // the Nsub matrix of just the sparse neighbor connections is contained in [neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_data_d]
 
     // *************************************************************************************************************************************
@@ -700,9 +709,11 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
 
     // **************************************************************************
     // 6. Reduce the diagonals
+    // the size of the sparse neighbor matrix is Nfull - 1
+    // TODO: use better naming of the matrix sizes!!
     double *diagonal_d;
-    gpuErrchk( cudaMalloc((void **)&diagonal_d, Nfull * sizeof(double)) );
-    gpuErrchk( cudaMemset(diagonal_d, 0, Nfull * sizeof(double) ) );
+    gpuErrchk( cudaMalloc((void **)&diagonal_d, submatrix_size * sizeof(double)) );
+    gpuErrchk( cudaMemset(diagonal_d, 0, submatrix_size * sizeof(double) ) );
 
 
     // reduce the diagonal for the sparse banded matrix
@@ -723,7 +734,7 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     row_reduce<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(tunnel_matrix_d, tunnel_diag_d, num_tunnel_points);
     gpuErrchk( cudaPeekAtLastError() );
 
-    write_to_diag<<<blocks_per_row, num_threads>>>(tunnel_matrix_d, tunnel_diag_d, num_tunnel_points);
+    write_to_diag_T<<<blocks_per_row, num_threads>>>(tunnel_matrix_d, tunnel_diag_d, num_tunnel_points);
     gpuErrchk( cudaPeekAtLastError() );
     cudaDeviceSynchronize();
 
@@ -733,10 +744,13 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
         tunnel_indices, 
         num_tunnel_points,
         diagonal_d);
-    inverse_vector<<<blocks_per_row, num_threads>>>(diagonal_d, Nfull);
+        
+    num_threads = 512;
+    num_blocks = (submatrix_size + num_threads - 1) / num_threads;
+    inverse_vector<<<blocks_per_row, num_threads>>>(diagonal_d, submatrix_size);
 
     double *diagonal_inv_d = diagonal_d;
-
+    
 
     // double *diagonal_inv_h = (double *)calloc(Nfull, sizeof(double));
     // gpuErrchk( cudaMemcpy(diagonal_inv_h, diagonal_inv_d, Nfull * sizeof(double), cudaMemcpyDeviceToHost) );
@@ -751,7 +765,11 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     // the dense matrix of the non-neighbor connectivity is contained in [tunnel_matrix_d] with size num_tunnel_points
     // To build the full matrix, row i and column i of tunnel_matrix_d should be added to row tunnel_indices[i] and col tunnel_indices[i] of the neighbor matrix
 
-    //debug
+    // // output sparsity of neighbor connections
+    // dump_csr_matrix_txt(submatrix_size, neighbor_nnz, neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_data_d, 0);
+    // std::cout << "dumped sparse neighbor matrix\n";
+
+    // debug
     // double *cpu_T = new double[num_tunnel_points * num_tunnel_points];
     // cudaMemcpy(cpu_T, tunnel_matrix_d, sizeof(double) * num_tunnel_points * num_tunnel_points, cudaMemcpyDeviceToHost);
     // std::cout << "printing tunnel matrix\n";
@@ -764,7 +782,7 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     // fout2 << '\n';
     // }
     // fout2.close(); 
-    //debug end
+    // debug end
 
     //debug
     // int *check_tunnel_inds = new int[num_tunnel_points];
