@@ -168,7 +168,7 @@ void test_preconditioned_split(
     }
     // only diagonal block matters for the preconditioner
     for(int i = 0; i < count_subblock[rank]; i++){
-        for(int j = 0; j < count_subblock[rank]; j++){
+        for(int j = 0; j < subblock_size; j++){
             if(subblock_indices_local_h[i] == subblock_indices_local_h[j]){
                 diag_local_h[subblock_indices_local_h[i]] += A_subblock_local_h[i + j * count_subblock[rank]];
             }
@@ -201,12 +201,13 @@ void test_preconditioned_split(
         cudaEventCreateWithFlags(&A_subblock.events_recv_subblock[i], cudaEventDisableTiming);
     }
 
-    iterative_solver::conjugate_gradient_split<distributed_spmv_split>(
+    iterative_solver::conjugate_gradient_jacobi_split<distributed_spmv_split>(
         A_subblock,
         A_distributed,
         p_distributed,
         r_local_d,
         x_local_d,
+        diag_inv_local_d,
         relative_tolerance,
         max_iterations,
         comm);
@@ -312,6 +313,21 @@ void test_preconditioned_split<dspmv_split::spmm_split4>(
     MPI_Comm comm);
 template 
 void test_preconditioned_split<dspmv_split::spmm_split5>(
+    double *data_h,
+    int *col_indices_h,
+    int *row_indptr_h,
+    int *subblock_indices_h,
+    double *A_subblock_h,
+    int subblock_size,
+    double *r_h,
+    double *reference_solution,
+    double *starting_guess_h,
+    int matrix_size,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void test_preconditioned_split<dspmv_split::spmm_split6>(
     double *data_h,
     int *col_indices_h,
     int *row_indptr_h,
@@ -460,7 +476,7 @@ int main(int argc, char **argv) {
 
     for(int measurement = 0; measurement < number_of_measurements; measurement++){
     double *test_solution_split = new double[matrix_size];
-    test_preconditioned_split<dspmv_split::spmm_split5>(
+    test_preconditioned_split<dspmv_split::spmm_split6>(
             data_sparse,
             col_indices_sparse,
             row_ptr_sparse,

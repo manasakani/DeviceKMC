@@ -574,4 +574,115 @@ void spmm_split5(
     );
 }
 
+struct thread_input{
+    double *p_subblock_d;
+    double *p_subblock_h;
+    Distributed_subblock *A_subblock;
+    MPI_Comm *comm;
+    cudaStream_t *default_stream;
+    int rank;
+    int size;
+};
+
+void *thread_fnc(void *arg){
+    thread_input *input = (thread_input *)arg;
+    cudaErrchk(cudaMemcpy(input->p_subblock_h + input->A_subblock->displ_subblock_h[input->rank],
+        input->p_subblock_d + input->A_subblock->displ_subblock_h[input->rank],
+        input->A_subblock->count_subblock_h[input->rank] * sizeof(double), cudaMemcpyDeviceToHost));
+
+    MPI_Allgatherv(MPI_IN_PLACE, input->A_subblock->count_subblock_h[input->rank],
+        MPI_DOUBLE,
+        input->p_subblock_h,
+        input->A_subblock->count_subblock_h,
+        input->A_subblock->displ_subblock_h,
+        MPI_DOUBLE, *input->comm);
+    
+    cudaErrchk(cudaMemcpyAsync(input->p_subblock_d,
+        input->p_subblock_h, input->A_subblock->subblock_size * sizeof(double),
+        cudaMemcpyHostToDevice, *input->default_stream));
+
+    pthread_exit(NULL);
+}
+
+void spmm_split6(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,    
+    double *p_subblock_d,
+    double *p_subblock_h,
+    Distributed_vector &p_distributed,
+    double *Ap_subblock_d,
+    cusparseDnVecDescr_t &vecAp_local,
+    double *Ap_local_d,
+    cudaStream_t &default_stream,
+    cusparseHandle_t &default_cusparseHandle,
+    cublasHandle_t &default_cublasHandle)
+{
+    // Isend Irecv subblock
+    // sparse part
+    //gemv
+
+    int rank = A_distributed.rank;
+    int size = A_distributed.size;
+
+    double alpha = 1.0;
+    double beta = 0.0;
+    pthread_t allgatherv_thread;
+
+    // pack dense sublblock p
+    pack_gpu(p_subblock_d + A_subblock.displ_subblock_h[rank],
+        p_distributed.vec_d[0],
+        A_subblock.subblock_indices_local_d,
+        A_subblock.count_subblock_h[rank],
+        default_stream);
+
+
+
+    if(size > 1){
+        thread_input input;
+        input.p_subblock_d = p_subblock_d;
+        input.p_subblock_h = p_subblock_h;
+        input.A_subblock = &A_subblock;
+        input.comm = &A_distributed.comm;
+        input.default_stream = &default_stream;
+        input.rank = rank;
+        input.size = size;
+
+        pthread_create(&allgatherv_thread, NULL, thread_fnc, &input);
+    }
+
+
+    dspmv::gpu_packing(
+        A_distributed,
+        p_distributed,
+        vecAp_local,
+        default_stream,
+        default_cusparseHandle
+    ); 
+
+    if(size > 1){
+        pthread_join(allgatherv_thread, NULL);
+    }
+
+    cublasErrchk(cublasDgemv(
+        default_cublasHandle,
+        CUBLAS_OP_N,
+        A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
+        &alpha,
+        A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
+        p_subblock_d, 1,
+        &beta,
+        Ap_subblock_d, 1
+    ));
+
+            
+    // unpack and add it to Ap
+    unpack_add(
+        Ap_local_d,
+        Ap_subblock_d,
+        A_subblock.subblock_indices_local_d,
+        A_subblock.count_subblock_h[rank],
+        default_stream
+    );
+}
+
 } // namespace dspmv_split
