@@ -28,6 +28,19 @@ void unpack_gpu(
     int number_of_elements,
     cudaStream_t stream);
 
+void unpack_add(
+    double *unpacked_buffer,
+    double *packed_buffer,
+    int *indices,
+    int number_of_elements);
+
+void unpack_add(
+    double *unpacked_buffer,
+    double *packed_buffer,
+    int *indices,
+    int number_of_elements,
+    cudaStream_t stream);
+
 void cg_addvec(
     double *x,
     double beta,

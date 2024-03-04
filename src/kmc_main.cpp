@@ -190,64 +190,8 @@ int main(int argc, char **argv)
 #ifdef USE_CUDA
         gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
 #endif
-        // int counter = 0;
         while (kmc_time < t)
         {
-            // counter += 1;
-            // if (counter > 10)
-            // {
-            //     #ifdef USE_CUDA
-            //             gpubuf.sync_GPUToHost(device);                                                                  // initialize the device attributes in gpu memory
-            //     #endif
-            //     std::cout << std::inner_product(device.site_potential_boundary.begin(), device.site_potential_boundary.end(), device.site_potential_boundary.begin(), 0.0) << std::endl;
-            //     std::cout << std::inner_product(device.site_potential_charge.begin(), device.site_potential_charge.end(), device.site_potential_charge.begin(), 0.0) << std::endl;
-            //     std::cout << 1e30*std::inner_product(device.site_power.begin(), device.site_power.end(), device.site_power.begin(), 0.0) << std::endl;
-            //     std::cout << std::inner_product(device.site_temperature.begin(), device.site_temperature.end(), device.site_temperature.begin(), 0.0) << std::endl;
-            //     std::cout << 1e30*std::inner_product(device.site_CB_edge.begin(), device.site_CB_edge.end(), device.site_CB_edge.begin(), 0.0) << std::endl;
-            //     std::cout << std::inner_product(device.site_charge.begin(), device.site_charge.end(), device.site_charge.begin(), 0.0) << std::endl;
-
-            //     // reference numbers
-            //     // 154063.2381959107588045
-            //     // 1175.6852129080082250
-            //     // 0.1275703891182530
-            //     // 3388500000.0000000000000000
-            //     // 0.0041937411587294
-            //     // 1360.0000000000000000
-
-            //     double tol = 1e-14;
-                
-            //     double cond1 = std::abs(std::inner_product(device.site_potential_boundary.begin(), device.site_potential_boundary.end(), device.site_potential_boundary.begin(), 0.0)
-            //         - 154205.4863536667253356)/std::abs(154205.4863536667253356);
-            //     double cond2 = std::abs(std::inner_product(device.site_potential_charge.begin(), device.site_potential_charge.end(), device.site_potential_charge.begin(), 0.0)
-            //         - 1175.5857035358233134)/std::abs(1175.5857035358233134);
-            //     double cond3 = std::abs(1e30*std::inner_product(device.site_power.begin(), device.site_power.end(), device.site_power.begin(), 0.0)
-            //         - 0.1275306576365134)/std::abs(0.1275306576365134);
-            //     double cond4 = std::abs(std::inner_product(device.site_temperature.begin(), device.site_temperature.end(), device.site_temperature.begin(), 0.0)
-            //         - 3388500000.0000000000000000)/std::abs(3388500000.0000000000000000);
-            //     double cond5 = std::abs(1e30*std::inner_product(device.site_CB_edge.begin(), device.site_CB_edge.end(), device.site_CB_edge.begin(), 0.0)
-            //         - 0.0041937542959175)/std::abs(0.0041937542959175);
-            //     double cond6 = std::abs(std::inner_product(device.site_charge.begin(), device.site_charge.end(), device.site_charge.begin(), 0.0)
-            //         - 1360.0000000000000000)/std::abs(1360.0000000000000000);
-
-            //     if (cond1 > tol || cond2 > tol || cond3 > tol || cond4 > tol || cond5 > tol || cond6 > tol)
-            //     {
-            //         std::cout << "Error in the device attributes" << std::endl;
-            //         std::cout << "cond1 site_potential_boundary: " << cond1 << std::endl;
-            //         std::cout << "cond2 site_potential_charge: " << cond2 << std::endl;
-            //         std::cout << "cond3 site_power: " << cond3 << std::endl;
-            //         std::cout << "cond4 site_temperature: " << cond4 << std::endl;
-            //         std::cout << "cond5 site_CB_edge: " << cond5 << std::endl;
-            //         std::cout << "cond6 site_charge: " << cond6 << std::endl;
-            //     }
-            //     else{
-            //         std::cout << "Device attributes are correct" << std::endl;
-            //     }
-
-            //     MPI_Barrier(MPI_COMM_WORLD);
-            //     sleep(1);
-
-            //     exit(1);
-            // }
             outputBuffer << "--------------\n";
             outputBuffer << "KMC step count: " << kmc_step_count << "\n";
             auto t0 = std::chrono::steady_clock::now();
@@ -290,7 +234,7 @@ int main(int argc, char **argv)
                     kmc_time = t;
                 }
             }
-
+           
             // Update current and joule heating
             if (p.solve_current)
             {
@@ -315,7 +259,7 @@ int main(int argc, char **argv)
             // ********************************************************
 
             outputBuffer << "KMC time is: " << kmc_time << "\n";
-
+            
             // load step results into print buffer
             for (const auto &pair : resultMap)
             {

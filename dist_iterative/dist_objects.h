@@ -34,6 +34,18 @@ class Distributed_vector{
 
 };
 
+struct Distributed_subblock{
+    int *subblock_indices_local_d;
+    double *A_subblock_local_d;
+    int subblock_size;
+    int *count_subblock_h;
+    int *displ_subblock_h;
+    cudaStream_t *streams_recv_subblock;
+    cudaEvent_t *events_recv_subblock;
+    MPI_Request *send_subblock_requests;
+    MPI_Request *recv_subblock_requests;
+};
+
 
 // assumes that the matrix is symmetric
 // does a 1D decomposition over the rows
@@ -104,6 +116,8 @@ class Distributed_matrix{
         cudaStream_t *streams_send;
         cudaEvent_t *events_recv;
         cudaEvent_t *events_send;
+
+        cudaEvent_t event_default_finished;
 
     // construct the distributed matrix
     // input is the whol count[rank] * matrix size

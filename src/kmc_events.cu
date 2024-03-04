@@ -564,6 +564,10 @@ double execute_kmc_step_mpi(
     double event_time = 0.0;
     int event_counter = 0;
 
+    double *Psum_host;
+    gpuErrchk(cudaMallocHost((void**)&Psum_host, 1 * sizeof(double)));
+
+
     double freq_h;
     gpuErrchk( cudaMemcpy(&freq_h, freq, 1 * sizeof(double), cudaMemcpyDeviceToHost) );
     while (event_time < 1 / freq_h) {
@@ -574,10 +578,10 @@ double execute_kmc_step_mpi(
 
         
         // select an event
-        double Psum_host;
-        gpuErrchk( cudaMemcpy(&Psum_host, event_prob_cum_local_d + count[rank] * nn - 1, sizeof(double), cudaMemcpyDeviceToHost) );
+
+        gpuErrchk( cudaMemcpy(Psum_host, event_prob_cum_local_d + count[rank] * nn - 1, sizeof(double), cudaMemcpyDeviceToHost) );
         
-        MPI_Allgather(&Psum_host, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
+        MPI_Allgather(Psum_host, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
 
         for (int i = 1; i < size; i++){
             event_prob_cum_global_h[i] += event_prob_cum_global_h[i-1];

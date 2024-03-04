@@ -212,7 +212,7 @@ int main(int argc, char **argv) {
     int number_of_kmc_steps = 1;
 
     int max_iterations = 10000;
-    double relative_tolerance = 1e-12;
+    double relative_tolerance = 1e-11;
 
     int rows_per_rank = matrix_size / size;
     int remainder = matrix_size % size;

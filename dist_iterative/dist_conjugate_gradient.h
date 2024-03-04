@@ -35,5 +35,50 @@ void conjugate_gradient_jacobi(
     int max_iterations,
     MPI_Comm comm);
 
+template <void (*distributed_spmv_split)
+    (Distributed_subblock &,
+    Distributed_matrix &,    
+    double *,
+    double *,
+    Distributed_vector &,
+    double *,
+    cusparseDnVecDescr_t &,
+    double *,
+    cudaStream_t &,
+    cusparseHandle_t &,
+    cublasHandle_t &)>
+void conjugate_gradient_split(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+
+template <void (*distributed_spmv_split)
+    (Distributed_subblock &,
+    Distributed_matrix &,    
+    double *,
+    double *,
+    Distributed_vector &,
+    double *,
+    cusparseDnVecDescr_t &,
+    double *,
+    cudaStream_t &,
+    cusparseHandle_t &,
+    cublasHandle_t &)>
+void conjugate_gradient_jacobi_split(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+
 } // namespace iterative_solver
 

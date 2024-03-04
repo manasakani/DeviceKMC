@@ -214,6 +214,7 @@ Distributed_matrix::~Distributed_matrix(){
     delete[] streams_send;
     delete[] events_recv;
     delete[] events_send;
+    cudaErrchk(cudaEventDestroy(event_default_finished));
 }
 
 void Distributed_matrix::find_neighbours(
@@ -529,6 +530,7 @@ void Distributed_matrix::create_events_streams(){
         cudaErrchk(cudaEventCreateWithFlags(&events_recv[i], cudaEventDisableTiming));
         cudaErrchk(cudaEventCreateWithFlags(&events_send[i], cudaEventDisableTiming));
     }
+    cudaErrchk(cudaEventCreateWithFlags(&event_default_finished, cudaEventDisableTiming));
 }
 
 void Distributed_matrix::create_host_memory(){

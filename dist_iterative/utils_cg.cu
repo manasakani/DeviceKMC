@@ -96,6 +96,55 @@ void unpack_gpu(
     );
 }
 
+__global__ void _unpack_add(
+    double *unpacked_buffer,
+    double *packed_buffer,
+    int *indices,
+    int number_of_elements
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for(int i = idx; i < number_of_elements; i += blockDim.x * gridDim.x){
+        unpacked_buffer[indices[i]] += packed_buffer[i];
+    }
+}
+
+void unpack_add(
+    double *unpacked_buffer,
+    double *packed_buffer,
+    int *indices,
+    int number_of_elements
+)
+{
+    int block_size = 32;
+    int num_blocks = (number_of_elements + block_size - 1) / block_size;
+    _unpack_add<<<num_blocks, block_size>>>(
+        unpacked_buffer,
+        packed_buffer,
+        indices,
+        number_of_elements
+    );
+}
+
+
+void unpack_add(
+    double *unpacked_buffer,
+    double *packed_buffer,
+    int *indices,
+    int number_of_elements,
+    cudaStream_t stream
+)
+{
+    int block_size = 32;
+    int num_blocks = (number_of_elements + block_size - 1) / block_size;
+    _unpack_add<<<num_blocks, block_size, 0, stream>>>(
+        unpacked_buffer,
+        packed_buffer,
+        indices,
+        number_of_elements
+    );
+}
+
 
 __global__ void _cg_addvec(
     double * __restrict__ x,

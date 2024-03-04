@@ -2,8 +2,20 @@
 #include "dist_spmv.h"
 namespace iterative_solver{
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
-void conjugate_gradient(
+template <void (*distributed_spmv_split)
+    (Distributed_subblock &,
+    Distributed_matrix &,    
+    double *,
+    double *,
+    Distributed_vector &,
+    double *,
+    cusparseDnVecDescr_t &,
+    double *,
+    cudaStream_t &,
+    cusparseHandle_t &,
+    cublasHandle_t &)>
+void conjugate_gradient_split(
+    Distributed_subblock &A_subblock,
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
     double *r_local_d,
@@ -46,6 +58,16 @@ void conjugate_gradient(
     cudaErrchk(cudaMemset(Ap_local_d, 0, A_distributed.rows_this_rank * sizeof(double)));
     cusparseErrchk(cusparseCreateDnVec(&vecAp_local, A_distributed.rows_this_rank, Ap_local_d, CUDA_R_64F));
 
+    // dense subblock product y=Ax
+    double *p_subblock_d = NULL;
+    double *Ap_subblock_d = NULL;
+    cudaErrchk(cudaMalloc((void **)&p_subblock_d,
+        A_subblock.subblock_size * sizeof(double)));
+    cudaErrchk(cudaMalloc((void **)&Ap_subblock_d,
+        A_subblock.count_subblock_h[A_distributed.rank] * sizeof(double)));
+    double *p_subblock_h = new double[A_subblock.subblock_size];
+
+
     //begin CG
 
     // norm of rhs for convergence check
@@ -53,13 +75,19 @@ void conjugate_gradient(
     cublasErrchk(cublasDdot(default_cublasHandle, A_distributed.rows_this_rank, r_local_d, 1, r_local_d, 1, &norm2_rhs));
     MPI_Allreduce(MPI_IN_PLACE, &norm2_rhs, 1, MPI_DOUBLE, MPI_SUM, comm);
 
-    // A*x0
-    distributed_spmv(
+
+    distributed_spmv_split(
+        A_subblock,
         A_distributed,
+        p_subblock_d,
+        p_subblock_h,
         p_distributed,
+        Ap_subblock_d,
         vecAp_local,
+        Ap_local_d,
         default_stream,
-        default_cusparseHandle
+        default_cusparseHandle,
+        default_cublasHandle
     );
 
     // cal residual r0 = b - A*x0
@@ -83,14 +111,18 @@ void conjugate_gradient(
         }
 
 
-        // ak = rk^T * rk / pk^T * A * pk
-        // has to be done for k=0 if x0 != 0
-        distributed_spmv(
+        distributed_spmv_split(
+            A_subblock,
             A_distributed,
+            p_subblock_d,
+            p_subblock_h,
             p_distributed,
+            Ap_subblock_d,
             vecAp_local,
+            Ap_local_d,
             default_stream,
-            default_cusparseHandle
+            default_cusparseHandle,
+            default_cublasHandle
         );
 
         cublasErrchk(cublasDdot(default_cublasHandle, A_distributed.rows_this_rank, p_distributed.vec_d[0], 1, Ap_local_d, 1, dot_h));
@@ -123,15 +155,18 @@ void conjugate_gradient(
     cudaErrchk(cudaStreamDestroy(default_stream));
     cusparseErrchk(cusparseDestroyDnVec(vecAp_local));
     cudaErrchk(cudaFree(Ap_local_d));
-    
-
     cudaErrchk(cudaFreeHost(r_norm2_h));
     cudaErrchk(cudaFreeHost(dot_h));
+    cudaErrchk(cudaFree(p_subblock_d));
+    cudaErrchk(cudaFree(Ap_subblock_d));
+
+    delete[] p_subblock_h;
 
     MPI_Barrier(comm);
 }
 template 
-void conjugate_gradient<dspmv::gpu_packing>(
+void conjugate_gradient_split<dspmv_split::spmm_split1>(
+    Distributed_subblock &A_subblock,
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
     double *r_local_d,
@@ -140,7 +175,48 @@ void conjugate_gradient<dspmv::gpu_packing>(
     int max_iterations,
     MPI_Comm comm);
 template 
-void conjugate_gradient<dspmv::gpu_packing_cam>(
+void conjugate_gradient_split<dspmv_split::spmm_split2>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_split<dspmv_split::spmm_split3>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_split<dspmv_split::spmm_split4>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_split<dspmv_split::spmm_split5>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_split<dspmv_split::spmm_split6>(
+    Distributed_subblock &A_subblock,
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
     double *r_local_d,
@@ -151,8 +227,20 @@ void conjugate_gradient<dspmv::gpu_packing_cam>(
 
 
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
-void conjugate_gradient_jacobi(
+template <void (*distributed_spmv_split)
+    (Distributed_subblock &,
+    Distributed_matrix &,    
+    double *,
+    double *,
+    Distributed_vector &,
+    double *,
+    cusparseDnVecDescr_t &,
+    double *,
+    cudaStream_t &,
+    cusparseHandle_t &,
+    cublasHandle_t &)>
+void conjugate_gradient_jacobi_split(
+    Distributed_subblock &A_subblock,
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
     double *r_local_d,
@@ -200,6 +288,15 @@ void conjugate_gradient_jacobi(
     double *z_local_d = NULL;
     cudaErrchk(cudaMalloc((void **)&z_local_d, A_distributed.rows_this_rank * sizeof(double)));
 
+    // dense subblock product y=Ax
+    double *p_subblock_d = NULL;
+    double *Ap_subblock_d = NULL;
+    cudaErrchk(cudaMalloc((void **)&p_subblock_d,
+        A_subblock.subblock_size * sizeof(double)));
+    cudaErrchk(cudaMalloc((void **)&Ap_subblock_d,
+        A_subblock.count_subblock_h[A_distributed.rank] * sizeof(double)));
+    double *p_subblock_h = new double[A_subblock.subblock_size];
+
     //begin CG
 
     // norm of rhs for convergence check
@@ -208,13 +305,20 @@ void conjugate_gradient_jacobi(
     MPI_Allreduce(MPI_IN_PLACE, &norm2_rhs, 1, MPI_DOUBLE, MPI_SUM, comm);
 
     // A*x0
-    distributed_spmv(
+    distributed_spmv_split(
+        A_subblock,
         A_distributed,
+        p_subblock_d,
+        p_subblock_h,
         p_distributed,
+        Ap_subblock_d,
         vecAp_local,
+        Ap_local_d,
         default_stream,
-        default_cusparseHandle
+        default_cusparseHandle,
+        default_cublasHandle
     );
+
 
     // cal residual r0 = b - A*x0
     // r_norm2_h = r0*r0
@@ -249,12 +353,18 @@ void conjugate_gradient_jacobi(
 
         // ak = rk^T * rk / pk^T * A * pk
         // has to be done for k=0 if x0 != 0
-        distributed_spmv(
+        distributed_spmv_split(
+            A_subblock,
             A_distributed,
+            p_subblock_d,
+            p_subblock_h,
             p_distributed,
+            Ap_subblock_d,
             vecAp_local,
+            Ap_local_d,
             default_stream,
-            default_cusparseHandle
+            default_cusparseHandle,
+            default_cublasHandle
         );
 
         cublasErrchk(cublasDdot(default_cublasHandle, A_distributed.rows_this_rank, p_distributed.vec_d[0], 1, Ap_local_d, 1, dot_h));
@@ -301,11 +411,15 @@ void conjugate_gradient_jacobi(
 
     cudaErrchk(cudaFreeHost(r_norm2_h));
     cudaErrchk(cudaFreeHost(dot_h));
+    cudaErrchk(cudaFree(p_subblock_d));
+    cudaErrchk(cudaFree(Ap_subblock_d));
+    delete[] p_subblock_h;
 
     MPI_Barrier(comm);
 }
 template 
-void conjugate_gradient_jacobi<dspmv::gpu_packing>(
+void conjugate_gradient_jacobi_split<dspmv_split::spmm_split1>(
+    Distributed_subblock &A_subblock,
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
     double *r_local_d,
@@ -315,7 +429,8 @@ void conjugate_gradient_jacobi<dspmv::gpu_packing>(
     int max_iterations,
     MPI_Comm comm);
 template 
-void conjugate_gradient_jacobi<dspmv::gpu_packing_cam>(
+void conjugate_gradient_jacobi_split<dspmv_split::spmm_split2>(
+    Distributed_subblock &A_subblock,
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
     double *r_local_d,
@@ -324,5 +439,50 @@ void conjugate_gradient_jacobi<dspmv::gpu_packing_cam>(
     double relative_tolerance,
     int max_iterations,
     MPI_Comm comm);
+template 
+void conjugate_gradient_jacobi_split<dspmv_split::spmm_split3>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_jacobi_split<dspmv_split::spmm_split4>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_jacobi_split<dspmv_split::spmm_split5>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template 
+void conjugate_gradient_jacobi_split<dspmv_split::spmm_split6>(
+    Distributed_subblock &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+
 
 } // namespace iterative_solver
