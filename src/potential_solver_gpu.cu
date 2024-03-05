@@ -4,6 +4,64 @@
 #define NUM_THREADS 512
 const double eV_to_J = 1.60217663e-19;          // [C]
 
+__global__ void populate_neighbor_list(int *neigh_idx, const double *posx, const double *posy, const double *posz,
+                                       const double *lattice, const bool pbc, const double nn_dist, const int N, const int nn)
+{
+    int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
+    int num_threads_total = blockDim.x * gridDim.x;
+
+    // each thread works on a site and writes the indices of its neighbors to its row in neigh_idx
+    for (auto i = tid_total; i < N; i += num_threads_total)
+    {
+        int counter = 0;
+        for (auto j = 0; j < N; j++)
+        {
+            double dist = site_dist_gpu(posx[i], posy[i], posz[i], posx[j], posy[j], posz[j], lattice[0], lattice[1], lattice[2], pbc);
+            bool neighbor = (dist < nn_dist && i != j);
+            if (neighbor && counter < nn)
+            {
+                neigh_idx[i*nn + counter] = j;
+                counter++;
+            }
+        }
+    }
+}
+
+void construct_site_neighbor_list_gpu(int *neigh_idx, const double *posx, const double *posy, const double *posz, 
+                                      const double *lattice, const bool pbc, double nn_dist, int N, int max_num_neighbors)
+{
+
+    double *d_posx, *d_posy, *d_posz, *d_lattice;
+    int *d_neigh_idx;
+    cudaMalloc((void**)&d_posx, N * sizeof(double));
+    cudaMalloc((void**)&d_posy, N * sizeof(double));
+    cudaMalloc((void**)&d_posz, N * sizeof(double));
+    cudaMalloc((void**)&d_lattice, 3 * sizeof(double)); // Assuming lattice is a vector of size 3
+    cudaMalloc((void**)&d_neigh_idx, N * max_num_neighbors * sizeof(int));
+
+    // Copy input arrays from host to device
+    cudaMemcpy(d_neigh_idx, neigh_idx, N * max_num_neighbors * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_posx, posx, N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_posy, posy, N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_posz, posz, N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_lattice, lattice, 3 * sizeof(double), cudaMemcpyHostToDevice); // Assuming lattice is a vector of size 3
+
+    int num_threads = 512;
+    int num_blocks = (N * max_num_neighbors - 1) / num_threads + 1;
+    populate_neighbor_list<<<num_blocks, num_threads>>>(d_neigh_idx, d_posx, d_posy, d_posz, d_lattice, pbc, nn_dist, N, max_num_neighbors);
+    gpuErrchk( cudaPeekAtLastError() );
+    gpuErrchk( cudaDeviceSynchronize() );
+
+    // get the neighbor list back to host
+    cudaMemcpy(neigh_idx, d_neigh_idx, N * max_num_neighbors * sizeof(int), cudaMemcpyDeviceToHost);
+
+    cudaFree(d_posx);
+    cudaFree(d_posy);
+    cudaFree(d_posz);
+    cudaFree(d_lattice);
+    cudaFree(d_neigh_idx);
+}
+
 //******************************************
 // Updating the charge of every charged site
 //******************************************

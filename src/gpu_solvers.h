@@ -38,9 +38,9 @@ class GPUBuffers;
 
 extern "C" {
 
-//***************************************
-// Matrix solver utilities / gpu_utils.cu
-//***************************************
+//***************************************************
+// Matrix solver utilities / iterative_solvers_gpu.cu
+//***************************************************
 
 // Initialize the buffer and the indices of the non-zeros in the matrix which represent neighbor connectivity
 void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact);
@@ -120,6 +120,10 @@ void set_gpu(int dev);
 //*****************************************************
 // Potential Solver functions / potential_solver_gpu.cu
 //*****************************************************
+
+// constructs the neighbor list
+void construct_site_neighbor_list_gpu(int *neigh_idx, const double *posx, const double *posy, const double *posz, 
+                                      const double *lattice, const bool pbc, double nn_dist, int N, int max_num_neighbors);
 
 // Solve the Laplace equation to get the CB edge along the device
 void update_CB_edge_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle, GPUBuffers &gpubuf,
