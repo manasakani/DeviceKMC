@@ -590,8 +590,8 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     // ***************************************************************************************
     // 2. Collect the indices of the contacts and the vacancies    
     int num_threads = 1024;
-    int blocks_per_row = (N_atom - 1) / num_threads + 1;
-    int num_blocks = blocks_per_row * N_atom;
+    int num_blocks = (N_atom - 1) / num_threads + 1;
+    // int num_blocks = blocks_per_row * N_atom;
 
     // indices of the tunneling connections (contacts and vacancies) in the Natom array
     int *is_tunnel; // [0, 1, 0, 0, 1...] where 1 indicates a tunnel connection
@@ -728,7 +728,7 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     gpuErrchk( cudaMemset(tunnel_diag_d, 0, num_tunnel_points * sizeof(double)) );
 
     num_threads = 512;
-    blocks_per_row = (num_tunnel_points - 1) / num_threads + 1;
+    int blocks_per_row = (num_tunnel_points - 1) / num_threads + 1;
     num_blocks = blocks_per_row * (N_atom + 2);
 
     row_reduce<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(tunnel_matrix_d, tunnel_diag_d, num_tunnel_points);
