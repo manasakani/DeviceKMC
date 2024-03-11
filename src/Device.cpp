@@ -55,7 +55,9 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
         }
     }
 
-    // initialize and construct the neighbor lists
+    double cutoff_radius = 20;                               // [A] interaction cutoff radius for charge contribution to potential
+
+    // *** initialize and construct the neighbor lists ***
     auto t0 = std::chrono::steady_clock::now();
     bool build_neighidx_on_gpu = 1;                         // build ONLY (gpu) neigh_idx and NOT (cpu) site_neighbors. 
                                                             // site_neighbors will remain uninitialized and cannot be used
@@ -65,9 +67,12 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
         max_num_neighbors = 52; // this should be known, if building the lists on the gpu!
     
         neigh_idx.resize(N * max_num_neighbors, -1);
-        construct_site_neighbor_list_gpu(neigh_idx.data(), site_x.data(), site_y.data(), site_z.data(),
-                                         lattice.data(), pbc, nn_dist, N, max_num_neighbors);
-
+        cutoff_window.resize(N * 2, 0);
+        construct_site_neighbor_list_gpu(neigh_idx.data(), cutoff_window.data(), cutoff_idx, cutoff_dists,
+                                         site_element.data(), site_x.data(), site_y.data(), site_z.data(),
+                                         lattice.data(), pbc, nn_dist, cutoff_radius, N, max_num_neighbors);
+        this->N_cutoff = cutoff_idx.size()/N;
+ 
     } else {
 
         if (!mpi_rank)  std::cout << "Building the neighbor list...\n";

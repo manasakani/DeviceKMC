@@ -31,7 +31,8 @@ public:
     double *atom_x, *atom_y, *atom_z = nullptr;
     ELEMENT *metal_types;
     double *sigma, *k, *lattice, *freq;
-    int *neigh_idx, *site_layer = nullptr;
+    int *neigh_idx, *cutoff_window, *cutoff_idx, *site_layer = nullptr;
+    double *cutoff_dists = nullptr;
 
     // host vectors used for the collection and sum of the distributed potential
     double *potential_local_h = nullptr; // = (double *)calloc(gpubuf.count_sites[gpubuf.rank], sizeof(double));
@@ -58,6 +59,7 @@ public:
     int N_ = 0;                                     // number of sites in the device
     int nn_ = 0;                                    // maximum number of neighbors in the device
     int N_atom_ = 0;                                // number of atomic sites in the device
+    int N_cutoff_ = 0;
 
     // helper variables stored on host:
     std::vector<double> E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host;
@@ -97,19 +99,21 @@ public:
     // constructor allocates arrays in GPU memory
     GPUBuffers(std::vector<Layer> layers, std::vector<int> site_layer_in, double freq_in, int N, int N_atom,
                std::vector<double> site_x_in,  std::vector<double> site_y_in,  std::vector<double> site_z_in,
-               int nn, double sigma_in, double k_in, std::vector<double> lattice_in, std::vector<int> neigh_idx_in, std::vector<ELEMENT> metals,
-               int num_metals_types, MPI_Comm comm, int N_contact) {
+               int nn, double sigma_in, double k_in, std::vector<double> lattice_in, 
+               std::vector<int> neigh_idx_in, std::vector<int> cutoff_window_in, std::vector<int> cutoff_idx_in, std::vector<double> cutoff_dists_in,
+               std::vector<ELEMENT> metals, int num_metals_types, MPI_Comm comm, int N_contact) {
             
         this->N_ = N;
         this->N_atom_ = N_atom;
         this->nn_ = nn;
         this->num_metal_types_ = num_metals_types;
+        this->N_cutoff_ = cutoff_idx_in.size()/N_;  
 
-        // make layer arrays
+        // make layer arrays 
         for (auto l : layers){
             E_gen_host.push_back(l.E_gen_0);
             E_rec_host.push_back(l.E_rec_1);
-            E_Vdiff_host.push_back(l.E_diff_2);
+            E_Vdiff_host.push_back(l.E_diff_2); 
             E_Odiff_host.push_back(l.E_diff_3);
         }
         int num_layers = layers.size();
@@ -176,6 +180,10 @@ public:
         gpuErrchk( cudaMalloc((void**)&site_temperature, N_ * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&site_charge, N_ * sizeof(int)) );
         gpuErrchk( cudaMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );
+        gpuErrchk( cudaMalloc((void**)&cutoff_window, N_ * 2 * sizeof(int)) );
+        gpuErrchk( cudaMalloc((void**)&cutoff_idx, N_ * N_cutoff_ * sizeof(int)) );
+        // gpuErrchk( cudaMalloc((void**)&cutoff_dists, N_ * N_cutoff_ * sizeof(double)) );
+        gpuErrchk( cudaMalloc((void**)&cutoff_dists, N_ * 1 * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&T_bg, 1 * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&sigma, 1 * sizeof(double)) );
         gpuErrchk( cudaMalloc((void**)&k, 1 * sizeof(double)) );
@@ -212,6 +220,10 @@ public:
         gpuErrchk( cudaMemcpy(freq, &freq_in, 1 * sizeof(double), cudaMemcpyHostToDevice) );
         gpuErrchk( cudaMemcpy(lattice, lattice_in.data(), 3 * sizeof(double), cudaMemcpyHostToDevice) );
         gpuErrchk( cudaMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
+        gpuErrchk( cudaMemcpy(cutoff_window, cutoff_window_in.data(), N_ * 2 * sizeof(int), cudaMemcpyHostToDevice) );
+        gpuErrchk( cudaMemcpy(cutoff_idx, cutoff_idx_in.data(), N_ * N_cutoff_ * sizeof(int), cudaMemcpyHostToDevice) );
+        // gpuErrchk( cudaMemcpy(cutoff_dists, cutoff_dists_in.data(), N_ * N_cutoff_ * sizeof(double), cudaMemcpyHostToDevice) );
+         gpuErrchk( cudaMemcpy(cutoff_dists, cutoff_dists_in.data(), N_ * 1 * sizeof(double), cudaMemcpyHostToDevice) );
     
         cudaDeviceSynchronize();
         

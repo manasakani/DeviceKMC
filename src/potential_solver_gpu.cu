@@ -4,64 +4,6 @@
 #define NUM_THREADS 512
 const double eV_to_J = 1.60217663e-19;          // [C]
 
-__global__ void populate_neighbor_list(int *neigh_idx, const double *posx, const double *posy, const double *posz,
-                                       const double *lattice, const bool pbc, const double nn_dist, const int N, const int nn)
-{
-    int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
-    int num_threads_total = blockDim.x * gridDim.x;
-
-    // each thread works on a site and writes the indices of its neighbors to its row in neigh_idx
-    for (auto i = tid_total; i < N; i += num_threads_total)
-    {
-        int counter = 0;
-        for (auto j = 0; j < N; j++)
-        {
-            double dist = site_dist_gpu(posx[i], posy[i], posz[i], posx[j], posy[j], posz[j], lattice[0], lattice[1], lattice[2], pbc);
-            bool neighbor = (dist < nn_dist && i != j);
-            if (neighbor && counter < nn)
-            {
-                neigh_idx[i*nn + counter] = j;
-                counter++;
-            }
-        }
-    }
-}
-
-void construct_site_neighbor_list_gpu(int *neigh_idx, const double *posx, const double *posy, const double *posz, 
-                                      const double *lattice, const bool pbc, double nn_dist, int N, int max_num_neighbors)
-{
-
-    double *d_posx, *d_posy, *d_posz, *d_lattice;
-    int *d_neigh_idx;
-    cudaMalloc((void**)&d_posx, N * sizeof(double));
-    cudaMalloc((void**)&d_posy, N * sizeof(double));
-    cudaMalloc((void**)&d_posz, N * sizeof(double));
-    cudaMalloc((void**)&d_lattice, 3 * sizeof(double)); // Assuming lattice is a vector of size 3
-    cudaMalloc((void**)&d_neigh_idx, N * max_num_neighbors * sizeof(int));
-
-    // Copy input arrays from host to device
-    cudaMemcpy(d_neigh_idx, neigh_idx, N * max_num_neighbors * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_posx, posx, N * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_posy, posy, N * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_posz, posz, N * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_lattice, lattice, 3 * sizeof(double), cudaMemcpyHostToDevice); // Assuming lattice is a vector of size 3
-
-    int num_threads = 512;
-    int num_blocks = (N * max_num_neighbors - 1) / num_threads + 1;
-    populate_neighbor_list<<<num_blocks, num_threads>>>(d_neigh_idx, d_posx, d_posy, d_posz, d_lattice, pbc, nn_dist, N, max_num_neighbors);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
-
-    // get the neighbor list back to host
-    cudaMemcpy(neigh_idx, d_neigh_idx, N * max_num_neighbors * sizeof(int), cudaMemcpyDeviceToHost);
-
-    cudaFree(d_posx);
-    cudaFree(d_posy);
-    cudaFree(d_posz);
-    cudaFree(d_lattice);
-    cudaFree(d_neigh_idx);
-}
-
 //******************************************
 // Updating the charge of every charged site
 //******************************************
@@ -966,6 +908,14 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
         A_distributed->rows_this_rank
     );
 
+    // // DEBUG
+    // dump A into a text file:
+    // dump_csr_matrix_txt(N_interface, A_distributed->nnz, A_distributed->row_ptr_d[0],  A_distributed->col_indices_d[0], A_distributed->data_d[0], 0);
+    // std::cout << "dumped csr matrix\n";
+    // exit(1);
+    // // DEBUG
+
+
     // Prepare the RHS vector: rhs = -K_left_interface * VL - K_right_interface * VR
     // we take the negative and do rhs = K_left_interface * VL + K_right_interface * VR to account for a sign change in v_soln
     double *VL, *VR;
@@ -1057,8 +1007,8 @@ void sum_and_gather_potential(GPUBuffers &gpubuf)
 
     // compute the off-diagonal elements of K
     sum_AB_into_A<<<blocks, threads>>>(gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank], 
-                                               gpubuf.site_potential_boundary + gpubuf.displ_sites[gpubuf.rank],
-                                               gpubuf.count_sites[gpubuf.rank]);
+                                       gpubuf.site_potential_boundary + gpubuf.displ_sites[gpubuf.rank],
+                                       gpubuf.count_sites[gpubuf.rank]);
     
     // copy potential vectors to host
     //double *potential_local_h = (double *)calloc(gpubuf.count_sites[gpubuf.rank], sizeof(double));
@@ -1236,7 +1186,7 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
                                              posx[j], posy[j], posz[j], 
                                              lattice[0], lattice[1], lattice[2], pbc);
                 // implement cutoff radius
-                if (dist < 1e-9) {
+                if (dist < 2e-9) { // HARDCODED
                     buf[tid] = v_solve_gpu(dist, charge[j], sigma, k);
                 }
             }
@@ -1258,12 +1208,141 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
     }
 }
 
+__global__ void calculate_pairwise_interaction_windowed(const double* posx, const double* posy, const double*posz, 
+                                                        const double *lattice, const int pbc, 
+                                                        const int N, const double *sigma, const double *k, 
+                                                        const int *charge, double* potential,
+                                                        const int row_start, const int row_end, const int *cutoff_window){
+
+    // Version without reduction, where every thread evaluates a row
+    int num_threads = blockDim.x;
+    int blocks_per_row = (N + num_threads - 1) / num_threads;
+    int block_id = blockIdx.x;
+
+    int row = block_id / blocks_per_row + row_start;
+
+    int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
+    int num_threads_total = blockDim.x * gridDim.x;
+
+    // TODO: switch to reduction
+    for (int i = tid_total + row_start; i < row_end; i += num_threads_total)
+    {
+        int col_start = cutoff_window[2*i];
+        int col_end = cutoff_window[2*i + 1];
+
+        for (int j = col_start; j < col_end; j++)
+        {
+            if (i != j && charge[j] != 0){
+                double dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
+                                             posx[j], posy[j], posz[j], 
+                                             lattice[0], lattice[1], lattice[2], pbc);
+                potential[i] += v_solve_gpu(dist, charge[j], sigma, k);
+            }
+        }
+        
+    }
+}
+
+__global__ void calculate_pairwise_interaction_indexed(const double* posx, const double* posy, const double*posz, 
+                                                       const double *lattice, const int pbc, 
+                                                       const int N, const double *sigma, const double *k, 
+                                                       const int *charge, double* potential,
+                                                       const int row_start, const int row_end, const int *cutoff_idx, const double *cutoff_dists, const int N_cutoff){
+
+    // Version without reduction, where every thread evaluates a row
+    int num_threads = blockDim.x;
+    int blocks_per_row = (N + num_threads - 1) / num_threads;
+    int block_id = blockIdx.x;
+
+    int row = block_id / blocks_per_row + row_start;
+
+    int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
+    int num_threads_total = blockDim.x * gridDim.x;
+
+    // TODO: switch to reduction
+    for (int i = tid_total + row_start; i < row_end; i += num_threads_total)
+    {
+        int j;
+
+        for (int j_idx = 0; j_idx < N_cutoff; j_idx++)
+        {
+            j = cutoff_idx[i*N_cutoff + j_idx];
+
+            // if ((i != j) && (charge[j] != 0) && (j != 0)){
+            if ( (charge[j] != 0) ){
+            double dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
+                                         posx[j], posy[j], posz[j], 
+                                         lattice[0], lattice[1], lattice[2], pbc);
+
+            // double dist = (1e-10) * cutoff_dists[i*N_cutoff + j_idx];
+            potential[i] += v_solve_gpu(dist, charge[j], sigma, k);
+
+            }
+        }
+        
+    }
+}
+
+// template <int NTHREADS>
+// __global__ void calculate_pairwise_interaction_indexed(const double* posx, const double* posy, const double* posz,
+//                                                        const double *lattice, const int pbc,
+//                                                        const int N, const double *sigma, const double *k,
+//                                                        const int *charge, double* potential,
+//                                                        const int row_start, const int row_end,
+//                                                        const int *cutoff_idx, const double *cutoff_dists, const int N_cutoff) {
+
+//     // Version with reduction, where every thread evaluates site-site interaction term
+//     int num_threads = blockDim.x;
+//     int blocks_per_row = (N + num_threads - 1) / num_threads;
+//     int block_id = blockIdx.x;
+
+//     int row = block_id / blocks_per_row + row_start;
+//     int scol = (block_id % blocks_per_row) * num_threads;
+//     int lcol = min(N_cutoff, scol + num_threads);
+
+//     int tid = threadIdx.x;
+
+//     __shared__ double buf[NTHREADS];
+//     double dist;
+//     int i, j, j_idx;
+
+//     for (int ridx = row; ridx < row_end; ridx += gridDim.x/blocks_per_row) {
+
+//         buf[tid] = 0.0;
+//         if (tid + scol < lcol) {
+
+//             i = ridx;
+//             j = scol+tid;
+
+//             j_idx = cutoff_idx[i*N_cutoff + j];
+//             dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
+//                                          posx[j_idx], posy[j_idx], posz[j_idx], 
+//                                          lattice[0], lattice[1], lattice[2], pbc);
+//             buf[tid] = v_solve_gpu(dist, charge[j_idx], sigma, k);
+//         }
+
+//         int width = num_threads / 2;
+//         while (width != 0) {
+//             __syncthreads();
+//             if (tid < width) {
+//                 buf[tid] += buf[tid + width];
+//             }
+//             width /= 2;
+//         }
+
+//         if (tid == 0) {
+//             atomicAdd(potential + ridx, buf[0]);
+//         }
+    
+//     }
+// }
+
 void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice, 
                           const double *sigma, const double *k,
                           const double *posx, const double *posy, const double *posz, 
                           const int *site_charge, double *site_potential_charge,
-                          const int rank, const int size, const int *count, const int *displ
-                          ){
+                          const int rank, const int size, const int *count, const int *displ, 
+                          const int *cutoff_window, const int *cutoff_idx, const double *cutoff_dists, const int N_cutoff){
 
     int num_threads = NUM_THREADS;
     int blocks_per_row = (N + NUM_THREADS - 1) / NUM_THREADS; 
@@ -1276,10 +1355,50 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     gpuErrchk( cudaMemset(site_potential_charge, 0, N * sizeof(double)) ); 
     gpuErrchk( cudaDeviceSynchronize() );
 
+    auto t1 = std::chrono::steady_clock::now();
+
     // this num_threads should be equal to NUM_THREADS
-    calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, NUM_THREADS, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice,
-        pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank]);
+
+    // naive implementation, all-to-all
+    // calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, NUM_THREADS, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice,
+    //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank]);
+    // gpuErrchk( cudaPeekAtLastError() );
+    // gpuErrchk( cudaDeviceSynchronize() );
+    // gpuErrchk( cudaPeekAtLastError() );
+
+    // only checks sites within an index window
+    // calculate_pairwise_interaction_windowed<<<num_blocks, num_threads>>>(posx, posy, posz, lattice,
+    //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_window);
+    // gpuErrchk( cudaPeekAtLastError() );
+    // gpuErrchk( cudaDeviceSynchronize() );
+    // gpuErrchk( cudaPeekAtLastError() );
+
+    // row-wise: only checks sites which were precomputed to be within the cutoff radius
+    calculate_pairwise_interaction_indexed<<<num_blocks, num_threads>>>(posx, posy, posz, lattice,
+        pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_idx, cutoff_dists, N_cutoff);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
     gpuErrchk( cudaPeekAtLastError() );
+
+    // // element-wise: only checks sites which were precomputed to be within the cutoff radius
+    // calculate_pairwise_interaction_indexed<NUM_THREADS><<<num_blocks, NUM_THREADS, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice,
+    //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_idx, cutoff_dists, N_cutoff);
+    // gpuErrchk( cudaPeekAtLastError() );
+    // gpuErrchk( cudaDeviceSynchronize() );
+    // gpuErrchk( cudaPeekAtLastError() );
+
+    // auto t2 = std::chrono::steady_clock::now();
+    // std::chrono::duration<double> dt2 = t2 - t1;
+
+    // std::cout << "time for pairwise interaction: " << dt2.count() << "\n";
+    // exit(1);
+
+    // double* host_site_potential_charge = new double[N];
+    // cudaMemcpy(host_site_potential_charge, site_potential_charge, N * sizeof(double), cudaMemcpyDeviceToHost);
+    // double sum = 0.0;
+    // for (int i = 0; i < N; ++i) {
+    //     sum += host_site_potential_charge[i];
+    // }
+    // std::cout << "Sum of site_potential_charge: " << sum << std::endl;
+    // exit(1);
 }

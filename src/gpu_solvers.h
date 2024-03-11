@@ -38,6 +38,16 @@ class GPUBuffers;
 
 extern "C" {
 
+//*****************************************************
+// Neighbor list creation / neighbor_lists_gpu.cu
+//*****************************************************
+
+// constructs the neighbor lists
+void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::vector<int> &cutoff_idx, std::vector<double> &cutoff_dists,
+                                      const ELEMENT *site_element, const double *posx, const double *posy, const double *posz, 
+                                      const double *lattice, const bool pbc, double nn_dist, double cutoff_radius, int N, int max_num_neighbors);
+
+
 //***************************************************
 // Matrix solver utilities / iterative_solvers_gpu.cu
 //***************************************************
@@ -121,10 +131,6 @@ void set_gpu(int dev);
 // Potential Solver functions / potential_solver_gpu.cu
 //*****************************************************
 
-// constructs the neighbor list
-void construct_site_neighbor_list_gpu(int *neigh_idx, const double *posx, const double *posy, const double *posz, 
-                                      const double *lattice, const bool pbc, double nn_dist, int N, int max_num_neighbors);
-
 // Solve the Laplace equation to get the CB edge along the device
 void update_CB_edge_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle, GPUBuffers &gpubuf,
                                const int N, const int N_left_tot, const int N_right_tot,
@@ -149,11 +155,12 @@ void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHan
                               const int num_metals, int kmc_step_count);
 
 // Updates the site-resolved potential (gpubuf.site_potential) using the short-range Poisson solution summed over charged species
-void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice,
+void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int N, const double *lattice, 
                           const double *sigma, const double *k,
-                          const double *posx, const double *posy, const double *posz,
+                          const double *posx, const double *posy, const double *posz, 
                           const int *site_charge, double *site_potential_charge,
-                          const int rank, const int size, const int *count, const int *displ);
+                          const int rank, const int size, const int *count, const int *displ, 
+                          const int *cutoff_window, const int *cutoff_idx, const double *cutoff_dists, const int N_cutoff);
 
 // sums the site_potential_boundary and site_potential_charge into the site_potential_charge
 void sum_and_gather_potential(GPUBuffers &gpubuf);
@@ -294,7 +301,8 @@ __device__ inline double site_dist_gpu(double pos1x, double pos1y, double pos1z,
 __device__ inline double v_solve_gpu(double r_dist, int charge, const double *sigma, const double *k) { 
 
     double q = 1.60217663e-19;              // [C]
-    double vterm = static_cast<double>(charge) * erfc(r_dist / ((*sigma) * sqrt(2.0))) * (*k) * q / r_dist; 
+    // double vterm = static_cast<double>(charge) * erfc(r_dist / ((*sigma) * sqrt(2.0))) * (*k) * q / r_dist; 
+    double vterm = (double)charge * erfc(r_dist / ((*sigma) * sqrt(2.0))) * (*k) * q / r_dist; 
 
     return vterm;
 }
