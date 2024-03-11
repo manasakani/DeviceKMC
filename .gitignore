@@ -3,6 +3,7 @@ obj/
 data/
 postprocessing/__pycache__/
 final_parameters
+structures/
 runs/
 voro/
 Results_*/

@@ -16,6 +16,9 @@ void Graph::printAdjList()
 // Construct the device from the structure (in the xyz files) and simulation parameters
 Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
 {
+    int mpi_size, mpi_rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
     // initialize the random number generator
     random_generator.setSeed(p.rnd_seed);
@@ -52,32 +55,57 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
         }
     }
 
-    // initialize and construct the neighbor lists
-    std::cout << "Building the neighbor list...\n";
-    site_neighbors.initialize(N);
-    constructSiteNeighborList();
+    double cutoff_radius = 20;                               // [A] interaction cutoff radius for charge contribution to potential
 
-    // check neighbors:
-    for (int i = 0; i < N; i++)
+    // *** initialize and construct the neighbor lists ***
+    auto t0 = std::chrono::steady_clock::now();
+    bool build_neighidx_on_gpu = 1;                         // build ONLY (gpu) neigh_idx and NOT (cpu) site_neighbors. 
+                                                            // site_neighbors will remain uninitialized and cannot be used
+    if (build_neighidx_on_gpu)
     {
-        if (site_neighbors.l[i].size() == 0){
-            std::cout << "ERROR: Site with zero neighbors found at index: " << i << " at " << site_x[i] << " " << site_y[i] << " " << site_z[i] << "\n"; 
-        }
-    }
+        if (!mpi_rank)  std::cout << "Re-Building the neighbor list on GPU - max_num_neighbors is known!\n";
+        max_num_neighbors = 52; // this should be known, if building the lists on the gpu!
+    
+        neigh_idx.resize(N * max_num_neighbors, -1);
+        cutoff_window.resize(N * 2, 0);
+        construct_site_neighbor_list_gpu(neigh_idx.data(), cutoff_window.data(), cutoff_idx, cutoff_dists,
+                                         site_element.data(), site_x.data(), site_y.data(), site_z.data(),
+                                         lattice.data(), pbc, nn_dist, cutoff_radius, N, max_num_neighbors);
+        this->N_cutoff = cutoff_idx.size()/N;
+ 
+    } else {
 
-    // neighbor index used in the gpu code
-    neigh_idx.resize(N * max_num_neighbors);
-    #pragma omp parallel for
-    for (auto i = 0; i < N; ++i) {
-        int nb = 0;
-        for (auto j: site_neighbors.l[i]) {
-            neigh_idx[i * max_num_neighbors + nb] = j;
-            nb++;
+        if (!mpi_rank)  std::cout << "Building the neighbor list...\n";
+        site_neighbors.initialize(N);
+        constructSiteNeighborList();
+        if (!mpi_rank)  std::cout << "Maximum number of neighbors in device is: " << this->max_num_neighbors << "\n";
+
+        // check neighbors:
+        for (int i = 0; i < N; i++)
+        {
+            if (site_neighbors.l[i].size() == 0){
+                std::cout << "ERROR: Site with zero neighbors found at index: " << i << " at " << site_x[i] << " " << site_y[i] << " " << site_z[i] << "\n"; 
+            }
         }
-        for (auto j = nb; j < max_num_neighbors; ++j) {
-            neigh_idx[i * max_num_neighbors + j] = -1;
+
+        // neighbor index used in the gpu code
+        neigh_idx.resize(N * max_num_neighbors);
+
+        #pragma omp parallel for
+        for (auto i = 0; i < N; ++i) {
+            int nb = 0;
+            for (auto j: site_neighbors.l[i]) {
+                neigh_idx[i * max_num_neighbors + nb] = j;
+                nb++;
+            }
+            for (auto j = nb; j < max_num_neighbors; ++j) {
+                neigh_idx[i * max_num_neighbors + j] = -1;
+            }
         }
-    }
+    }    
+    auto t1 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt = t1 - t0;
+    std::cout << "Time to build neighbor list: " << dt.count() << "\n";
 
     // initialize the size of the field vectors
     site_charge.resize(N, 0);

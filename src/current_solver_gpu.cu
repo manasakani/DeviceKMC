@@ -548,8 +548,7 @@ __global__ void write_to_diag_T(double *A, double *diag, int N)
     int didx = blockIdx.x * blockDim.x + threadIdx.x;
     if (didx < N)
     {
-        double tmp = A[didx * N + didx];
-        A[didx * N + didx] = tmp - diag[didx];
+        A[didx * N + didx] -= diag[didx];
     }
 }
 
@@ -583,15 +582,15 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     thrust::copy_if(thrust::device, gpubuf.site_CB_edge, gpubuf.site_CB_edge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_CB_edge, is_defect());
     thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
 
-    // auto t1 = std::chrono::steady_clock::now();
-    // std::chrono::duration<double> dt = t1 - t0;
-    // std::cout << "time to update atom arrays: " << dt.count() << "\n";
+    auto t1 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt = t1 - t0;
+    std::cout << "time to update atom arrays: " << dt.count() << "\n";
 
     // ***************************************************************************************
     // 2. Collect the indices of the contacts and the vacancies    
     int num_threads = 1024;
-    int blocks_per_row = (N_atom - 1) / num_threads + 1;
-    int num_blocks = blocks_per_row * N_atom;
+    int num_blocks = (N_atom - 1) / num_threads + 1;
+    // int num_blocks = blocks_per_row * N_atom;
 
     // indices of the tunneling connections (contacts and vacancies) in the Natom array
     int *is_tunnel; // [0, 1, 0, 0, 1...] where 1 indicates a tunnel connection
@@ -600,11 +599,8 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     gpuErrchk( cudaMalloc((void **)&is_tunnel_indices, N_atom * sizeof(int)) );                                         
     get_is_tunnel<<<num_blocks, num_threads>>>(is_tunnel, is_tunnel_indices, gpubuf.atom_element, N_atom, num_layers_contact, num_source_inj, num_ground_ext);
     gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
     // check if global counter could be faster
-
-    // auto tx1 = std::chrono::steady_clock::now();
-    // std::chrono::duration<double> dtx1 = tx1 - t1;
-    // std::cout << "getting the bool array: " << dtx1.count() << "\n";
 
     // boolean array of whether this location in Natoms is a tunnel connection or not
     int num_tunnel_points = thrust::reduce(thrust::device, is_tunnel, is_tunnel + N_atom, 0); // sum([0, 1, 0, 0, 1...])
@@ -614,6 +610,10 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     int *tunnel_indices; // [1, 4...]
     gpuErrchk( cudaMalloc((void **)&tunnel_indices, num_tunnel_points * sizeof(int)) ); 
     thrust::copy_if(thrust::device, is_tunnel_indices, is_tunnel_indices + gpubuf.N_, tunnel_indices, is_not_zero());
+
+    auto tx1 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dtx1 = tx1 - t1;
+    std::cout << "time to create tunneling indices (included): " << dtx1.count() << "\n";
     
     // // debug
     // int *check_tunnel_inds = new int[num_tunnel_points];
@@ -644,6 +644,7 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
                                                              num_source_inj, num_ground_ext, num_layers_contact,
                                                              num_metals, matrix_size, neighbor_nnz_per_row_d);
     gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
 
     // compute the row pointers with an inclusive sum:
     int *neighbor_row_ptr_d;
@@ -671,8 +672,13 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
                                                          num_metals, matrix_size, neighbor_nnz_per_row_d,
                                                          neighbor_row_ptr_d, neighbor_col_indices_d);
     gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
 
-     // **************************************************************************
+    auto tx2 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dtx2 = tx2 - tx1;
+    std::cout << "time to assemble the sparse matrix (not included): " << dtx2.count() << "\n";
+
+    // **************************************************************************
     // 4. Populate the entries of the sparse Natom matrix
 
     double *neighbor_data_d;
@@ -688,6 +694,12 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
                                                           num_source_inj, num_ground_ext, num_layers_contact,
                                                           num_metals, Nfull, neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_data_d);
     gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
+
+    auto txx1 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dtxx1 = txx1 - tx2;
+    std::cout << "--> time to populate the sparse matrix (included): " << dtxx1.count() << "\n";
+    
 
     // the Nsub matrix of just the sparse neighbor connections is contained in [neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_data_d]
 
@@ -706,6 +718,12 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
                                                         num_source_inj, num_ground_ext, num_layers_contact, N_atom, num_tunnel_points, tunnel_indices,
                                                         num_metals, Vd, tol);
     gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
+
+    auto txx2 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dtxx2 = txx2 - txx1;
+    std::cout << "--> time to populate the tunnel matrix (included): " << dtxx2.count() << "\n";
+    
 
     // **************************************************************************
     // 6. Reduce the diagonals
@@ -715,12 +733,16 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     gpuErrchk( cudaMalloc((void **)&diagonal_d, submatrix_size * sizeof(double)) );
     gpuErrchk( cudaMemset(diagonal_d, 0, submatrix_size * sizeof(double) ) );
 
-
     // reduce the diagonal for the sparse banded matrix
     num_threads = 512;
     num_blocks = (Nfull + num_threads - 1) / num_threads;
     calc_diagonal_T_gpu<<<num_blocks, num_threads>>>(neighbor_col_indices_d, neighbor_row_ptr_d, neighbor_data_d, Nfull, diagonal_d);
     gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
+
+    auto txx3 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dtxx3 = txx3 - txx2;
+    std::cout << "--> time to reduce the diagonal of the sparse matrix (included): " << dtxx3.count() << "\n";
 
     // reduce the diagonal for the dense tunnel matrix
     double *tunnel_diag_d;
@@ -728,15 +750,29 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     gpuErrchk( cudaMemset(tunnel_diag_d, 0, num_tunnel_points * sizeof(double)) );
 
     num_threads = 512;
-    blocks_per_row = (num_tunnel_points - 1) / num_threads + 1;
+    int blocks_per_row = (num_tunnel_points - 1) / num_threads + 1;
     num_blocks = blocks_per_row * (N_atom + 2);
 
     row_reduce<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(tunnel_matrix_d, tunnel_diag_d, num_tunnel_points);
     gpuErrchk( cudaPeekAtLastError() );
+    cudaDeviceSynchronize();
+
+    auto txx4x = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dtxx4x = txx4x - txx3;
+    std::cout << "--> --> time to reduce the diagonal of the dense submatrix (included): " << dtxx4x.count() << "\n";
 
     write_to_diag_T<<<blocks_per_row, num_threads>>>(tunnel_matrix_d, tunnel_diag_d, num_tunnel_points);
     gpuErrchk( cudaPeekAtLastError() );
     cudaDeviceSynchronize();
+
+    auto txx5x = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dtxx5x = txx5x - txx4x;
+    std::cout << "--> --> time for write_to_diag_T (included): " << dtxx5x.count() << "\n";
+
+    auto txx4 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dtxx4 = txx4 - txx3;
+    std::cout << "--> time to reduce the diagonal of the dense submatrix (included): " << dtxx4.count() << "\n";
+
 
     //diagonal_d contains already the diagonal of the neighbor matrix
     extract_diag_tunnel<<<blocks_per_row, num_threads>>>(
@@ -749,8 +785,15 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     num_blocks = (submatrix_size + num_threads - 1) / num_threads;
     inverse_vector<<<blocks_per_row, num_threads>>>(diagonal_d, submatrix_size);
 
+    auto txx5 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dtxx5 = txx5 - txx4;
+    std::cout << "--> time to extract the diagonal for the preconditioner (included): " << dtxx5.count() << "\n";
+
     double *diagonal_inv_d = diagonal_d;
-    
+
+    auto tx4 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dtx4 = tx4 - tx2;
+    std::cout << "total time to build the dense submatrix and populate both matrices (included): " << dtx4.count() << "\n";
 
     // double *diagonal_inv_h = (double *)calloc(Nfull, sizeof(double));
     // gpuErrchk( cudaMemcpy(diagonal_inv_h, diagonal_inv_d, Nfull * sizeof(double), cudaMemcpyDeviceToHost) );
@@ -759,7 +802,6 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     // }   
     // std::cout << "\n";
     // exit(1);
-
 
     // the sparse matrix of the neighbor connectivity is contained in [neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_data_d]
     // the dense matrix of the non-neighbor connectivity is contained in [tunnel_matrix_d] with size num_tunnel_points
@@ -799,6 +841,7 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     // results of debug: checked against the full sparse assembly by reassembling the matrix in a python script 
 
     std::cout << "matrix population is done\n";
+    // exit(1);
 
     // **************************************************************************
     // 7. Prepare the RHS vector
@@ -854,7 +897,6 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
     gpuErrchk( cudaMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       // [A] The macroscopic device current
     cudaDeviceSynchronize();
 
-
     // // scale the virtual potentials by G0 (conductance quantum) instead of multiplying inside the X matrix
     thrust::device_ptr<double> gpu_virtual_potentials_ptr = thrust::device_pointer_cast(gpu_virtual_potentials);
     thrust::transform(gpu_virtual_potentials_ptr, gpu_virtual_potentials_ptr + N_atom + 2, gpu_virtual_potentials_ptr, thrust::placeholders::_1 * G0);
@@ -873,16 +915,10 @@ void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cus
 
     gpuErrchk( cudaMemcpy(imacro, gpu_imacro, sizeof(double), cudaMemcpyDeviceToHost) );
 
-    std::cout << solve_heating_local  << "\n";
-    std::cout << solve_heating_global << "\n";
-
-    //TODO does not work now
     // implement the heating calculation (possible from the splitting)
     // ineg would be possible the following way: -aij*xij so -aij xsparseij - aij xdenseij
 
-    exit(1);
-
-    // std::cout << "I_macro: " << *imacro * (1e6) << "\n";
+    std::cout << "I_macro: " << *imacro * (1e6) << "\n";
     // std::cout << "exiting after I_macro\n"; exit(1);
 
     // cudaFree(X_data);
@@ -977,6 +1013,7 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
                         gpubuf.lattice, pbc, nn_dist, tol, 
                         num_source_inj, num_ground_ext, num_layers_contact,
                         num_metals, &X_row_ptr, &X_col_indices, &X_nnz);
+    cudaDeviceSynchronize();
 
     // get the row indices for COO
     int *X_row_indices_h = new int[X_nnz];
@@ -1012,6 +1049,7 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
                 gpubuf.lattice, pbc, nn_dist, tol, Vd, m_e, V0, high_G, low_G, loop_G,
                 num_source_inj, num_ground_ext, num_layers_contact,
                 num_metals, &X_data, &X_row_indices, &X_row_ptr, &X_col_indices, &X_nnz);
+    cudaDeviceSynchronize();
 
     // dump_csr_matrix_txt(Nsub, X_nnz, X_row_ptr, X_col_indices, X_data, 0); // figure out why the vector lengths are wrong according to the python script
     // std::cout << "dumped sparse matrix\n";
@@ -1051,16 +1089,22 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
     thrust::fill(m_ptr + 1, m_ptr + 2, loop_G * Vd);                                                         // max Current injection (source)
     cudaDeviceSynchronize();
 
+    // std::cout << "norm of the rhs:\n";
+    // double t;
+    // CheckCublasError( cublasDdot (handle, Nsub, gpu_m, 1, gpu_m, 1, &t) );
+    // std::cout << t << "\n";
+    // exit(1);
+
     // ************************************************************
     // 2. Solve system of linear equations 
     
     // the initial guess for the solution is the current site-resolved potential inside the device
-    double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials;                                               // [V] Virtual potential vector  
+    double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials;                                         // [V] Virtual potential vector  
     
     // making a copy so the original version won't be preconditioned inside the iterative solver
     double *X_data_copy;
     gpuErrchk( cudaMalloc((void **)&X_data_copy, X_nnz * sizeof(double)) );
-    gpuErrchk( cudaMemcpyAsync(X_data_copy, X_data, X_nnz * sizeof(double), cudaMemcpyDeviceToDevice) );
+    gpuErrchk( cudaMemcpyAsync(X_data_copy, X_data, X_nnz * sizeof(double), cudaMemcpyDeviceToDevice) ); 
     gpuErrchk( cudaDeviceSynchronize() );
 
     cusparseHandle_t cusparseHandle;
@@ -1068,12 +1112,9 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
     cusparseSetPointerMode(cusparseHandle, CUSPARSE_POINTER_MODE_DEVICE);
 
     // sparse solver with Jacobi preconditioning:
-    // std::cout << "\n\n";
     solve_sparse_CG_Jacobi(handle, cusparseHandle, X_data_copy, X_row_ptr, X_col_indices, X_nnz, Nsub, gpu_m, gpu_virtual_potentials);
     gpuErrchk( cudaPeekAtLastError() );
     gpuErrchk( cudaDeviceSynchronize() );
-    // std::cout << "exiting after system solve\n";
-    // exit(1);
 
     double check_element;
     gpuErrchk( cudaMemcpy(&check_element, gpu_virtual_potentials + num_source_inj, sizeof(double), cudaMemcpyDeviceToHost) );
@@ -1086,7 +1127,6 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
     auto t4 = std::chrono::steady_clock::now();
     std::chrono::duration<double> dt3 = t4 - t3;
     std::cout << "time to solve linear system: " << dt3.count() << "\n";
-
 
     // ****************************************************
     // 3. Calculate the net current flowing into the device
@@ -1112,8 +1152,8 @@ void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cu
     std::chrono::duration<double> dt4 = t5 - t4;
     std::cout << "time to compute current: " << dt4.count() << "\n";
 
-    // std::cout << "I_macro: " << *imacro * (1e6) << "\n";
-    // std::cout << "exiting after I_macro\n"; exit(1);
+    std::cout << "I_macro: " << *imacro * (1e6) << "\n";
+    std::cout << "exiting after I_macro\n"; exit(1);
 
     // **********************************************
     // 4. Calculate the dissipated power at each atom

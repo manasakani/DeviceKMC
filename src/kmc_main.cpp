@@ -124,7 +124,7 @@ int main(int argc, char **argv)
     //******************************
 
     KMCProcess sim(device, p.freq);                                                // stores the division of the device into KMC 'layers' with different EA
-                                                                                   
+                                                  
     //*****************************
     // Setup GPU memory management
     //*****************************
@@ -133,7 +133,7 @@ int main(int argc, char **argv)
     GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,                         
                       device.N, device.N_atom, device.site_x, device.site_y, device.site_z,
                       device.max_num_neighbors, device.sigma, device.k, 
-                      device.lattice, device.neigh_idx, p.metals, p.metals.size(),
+                      device.lattice, device.neigh_idx, device.cutoff_window, device.cutoff_idx, device.cutoff_dists, p.metals, p.metals.size(),
                       MPI_COMM_WORLD, p.num_atoms_first_layer);
     gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
     initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer);

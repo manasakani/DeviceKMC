@@ -15,7 +15,7 @@ void GPUBuffers::sync_HostToGPU(Device &device){
     size_t dataSize = N_ * sizeof(ELEMENT);
     if (dataSize != device.site_element.size() * sizeof(ELEMENT)) {
         std::cout << "N_: " << N_ << "\n";
-        std::cout << device.site_element.size() * sizeof(ELEMENT) << "\n";
+        std::cout << device.site_element.size() << "\n";
         fprintf(stderr, "ERROR: Size mismatch in GPU memory copy.\n");
         exit(EXIT_FAILURE);
     }

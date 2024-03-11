@@ -63,12 +63,12 @@ class Device
 
 public:
 
+    // constants:
     int N = 0;                                          // number of sites in this device
     int N_atom = 0;                                     // number of atoms in this device
     int N_metals = 0;                                   // number of atoms identified as metals
     int max_num_neighbors = 0;                          // maximum number of neighbors per site
-    Graph site_neighbors;                               // list of neighbors of each site (including defects)
-    std::vector<int> neigh_idx;                         // neighbors for the event list setup
+    int N_cutoff = 0;                                   // number of other potentially-charged sites within the cutoff radius
     double nn_dist;                                     // neighbor distance
     double sigma;                                       // gaussian width for potential solver
     double k;                                           //
@@ -76,6 +76,13 @@ public:
     bool pbc;                                           // is device periodic in the lateral directions?
     std::vector<double> lattice;                        // size of device box
     double imacro = 0.0;                                // macroscopic current
+
+    // Neighbor lists:
+    Graph site_neighbors;                               // list of neighbors of each site (including defects)
+    std::vector<int> neigh_idx;                         // neighbors for the event list setup
+    std::vector<int> cutoff_window;                     // Nx2 array of start and end indices for other sites within the cutoff radius
+    std::vector<int> cutoff_idx;                        // Nxx array of all other potential point defects within the cutoff radius of i
+    std::vector<double> cutoff_dists;                   // Nxx array of distances to all other potential point defects within the cutoff radius of i
 
     // Site attributes:
     std::vector<double> site_x;
@@ -101,6 +108,7 @@ public:
     std::vector<double> site_power;                     // [W] power dissipated at each site
     std::vector<double> site_temperature;               // [K] temperature of each site
 
+    // re-usable matrices
     std::vector<double> laplacian;                      // laplacian matrix
     std::vector<double> laplacian_ss;                   // steady state laplacian
     std::vector<double> index_mapping;                  // index mappped
@@ -151,6 +159,10 @@ private:
     // update the charge of each vacancy and ion
     public: std::map<std::string, double> updateCharge(GPUBuffers gpubuf, std::vector<ELEMENT> metals);
 
+    // update the potential of each site with a cpu/gpu hybrid scheme
+    public: std::map<std::string, double> updatePotential_hybrid(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, 
+                                                                         GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count);
+
     // update the potential of each site
     public: std::map<std::string, double> updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, 
                                                           GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count);
@@ -159,7 +171,10 @@ private:
     private: void background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
                                        double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals, int kmc_step_num);
 
-    // n-body poisson solver for the charged atoms
+    // n-body poisson solver for the charged atoms - distance computations for cutoff_idx
+    private: void poisson_gridless_indexed(int num_atoms_contact, std::vector<double> lattice);
+
+    // n-body poisson solver for the charged atoms - all-to-all distance computation
     private: void poisson_gridless(int num_atoms_contact, std::vector<double> lattice);
 
 
