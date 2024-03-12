@@ -65,7 +65,8 @@ void conjugate_gradient_split(
         A_subblock.subblock_size * sizeof(double)));
     cudaErrchk(cudaMalloc((void **)&Ap_subblock_d,
         A_subblock.count_subblock_h[A_distributed.rank] * sizeof(double)));
-    double *p_subblock_h = new double[A_subblock.subblock_size];
+    double *p_subblock_h;
+    cudaErrchk(cudaMallocHost((void**)&p_subblock_h, A_subblock.subblock_size * sizeof(double)));
 
 
     //begin CG
@@ -159,10 +160,8 @@ void conjugate_gradient_split(
     cudaErrchk(cudaFreeHost(dot_h));
     cudaErrchk(cudaFree(p_subblock_d));
     cudaErrchk(cudaFree(Ap_subblock_d));
+    cudaErrchk(cudaFreeHost(p_subblock_h));
 
-    delete[] p_subblock_h;
-
-    MPI_Barrier(comm);
 }
 template 
 void conjugate_gradient_split<dspmv_split::spmm_split1>(
@@ -295,7 +294,8 @@ void conjugate_gradient_jacobi_split(
         A_subblock.subblock_size * sizeof(double)));
     cudaErrchk(cudaMalloc((void **)&Ap_subblock_d,
         A_subblock.count_subblock_h[A_distributed.rank] * sizeof(double)));
-    double *p_subblock_h = new double[A_subblock.subblock_size];
+    double *p_subblock_h;
+    cudaErrchk(cudaMallocHost((void**)&p_subblock_h, A_subblock.subblock_size * sizeof(double)));
 
     //begin CG
 
@@ -413,9 +413,8 @@ void conjugate_gradient_jacobi_split(
     cudaErrchk(cudaFreeHost(dot_h));
     cudaErrchk(cudaFree(p_subblock_d));
     cudaErrchk(cudaFree(Ap_subblock_d));
-    delete[] p_subblock_h;
+    cudaErrchk(cudaFreeHost(p_subblock_h));
 
-    MPI_Barrier(comm);
 }
 template 
 void conjugate_gradient_jacobi_split<dspmv_split::spmm_split1>(

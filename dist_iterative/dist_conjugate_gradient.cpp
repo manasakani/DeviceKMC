@@ -128,7 +128,6 @@ void conjugate_gradient(
     cudaErrchk(cudaFreeHost(r_norm2_h));
     cudaErrchk(cudaFreeHost(dot_h));
 
-    MPI_Barrier(comm);
 }
 template 
 void conjugate_gradient<dspmv::gpu_packing>(
@@ -302,7 +301,6 @@ void conjugate_gradient_jacobi(
     cudaErrchk(cudaFreeHost(r_norm2_h));
     cudaErrchk(cudaFreeHost(dot_h));
 
-    MPI_Barrier(comm);
 }
 template 
 void conjugate_gradient_jacobi<dspmv::gpu_packing>(

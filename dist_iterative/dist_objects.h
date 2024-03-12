@@ -47,6 +47,19 @@ struct Distributed_subblock{
 };
 
 
+struct Distributed_subblock_sparse{
+    int *subblock_indices_local_d;
+    cusparseSpMatDescr_t *descriptor;
+    double *buffer_d;
+    int subblock_size;
+    int *count_subblock_h;
+    int *displ_subblock_h;
+    cudaStream_t *streams_recv_subblock;
+    cudaEvent_t *events_recv_subblock;
+    MPI_Request *send_subblock_requests;
+    MPI_Request *recv_subblock_requests;
+};
+
 // assumes that the matrix is symmetric
 // does a 1D decomposition over the rows
 class Distributed_matrix{

@@ -108,3 +108,22 @@ void spmm_split6(
     cublasHandle_t &default_cublasHandle);
 
 } // namespace dspmv_split
+
+
+namespace dspmv_split_sparse{
+
+void spmm_split_sparse1(
+    Distributed_subblock_sparse &A_subblock,
+    Distributed_matrix &A_distributed,    
+    double *p_subblock_d,
+    double *p_subblock_h,
+    cusparseDnVecDescr_t &vecp_subblock,
+    Distributed_vector &p_distributed,
+    double *Ap_subblock_d,
+    cusparseDnVecDescr_t &vecAp_subblock,
+    cusparseDnVecDescr_t &vecAp_local,
+    double *Ap_local_d,
+    cudaStream_t &default_stream,
+    cusparseHandle_t &default_cusparseHandle);
+
+} // namespace dspmv_split_sparse
