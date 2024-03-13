@@ -51,7 +51,7 @@ Distributed_matrix::Distributed_matrix(
     construct_cols_per_neighbour();
     construct_rows_per_neighbour();
 
-    check_sorted();
+    // check_sorted();
     construct_mpi_data_types();
     create_events_streams();
     create_device_memory(cusparseHandle);
@@ -130,7 +130,7 @@ Distributed_matrix::Distributed_matrix(
     construct_nnz_rows_per_neighbour();
     construct_cols_per_neighbour();
     construct_rows_per_neighbour();
-    check_sorted();
+    // check_sorted();
     construct_mpi_data_types();
     create_events_streams();
     cusparseErrchk(cusparseDestroy(cusparseHandle));
@@ -223,21 +223,19 @@ void Distributed_matrix::find_neighbours(
 ){
 
     for(int k = 0; k < size; k++){
-        neighbours_flag[k] = false;
-    }
-
-    int tmp_number_of_neighbours = 0;
-
-    for(int i = 0; i < rows_this_rank; i++){
-        for(int j = row_ptr_in[i]; j < row_ptr_in[i+1]; j++){
-            int col_idx = col_indices_in[j];
-            for(int k = 0; k < size; k++){
+        bool tmp = false;
+        #pragma omp parallel for reduction(||:tmp)
+        for(int i = 0; i < rows_this_rank; i++){
+            for(int j = row_ptr_in[i]; j < row_ptr_in[i+1]; j++){
+                int col_idx = col_indices_in[j];
                 if(col_idx >= displacements[k] && col_idx < displacements[k] + counts[k]){
-                    neighbours_flag[k] = true;
+                    tmp = true;
                 }
             }
         }
+        neighbours_flag[k] = tmp;
     }
+    int tmp_number_of_neighbours = 0;
     for(int k = 0; k < size; k++){
         if(neighbours_flag[k]){
             tmp_number_of_neighbours++;
@@ -269,16 +267,19 @@ void Distributed_matrix::construct_nnz_per_neighbour(
         nnz_per_neighbour[k] = 0;
     }
 
-    for(int i = 0; i < rows_this_rank; i++){
-        for(int j = row_ptr_in[i]; j < row_ptr_in[i+1]; j++){
-            int col_idx = col_indices_in[j];
-            for(int k = 0; k < number_of_neighbours; k++){
-                int neighbour_idx = neighbours[k];
+    for(int k = 0; k < number_of_neighbours; k++){
+        int neighbour_idx = neighbours[k];
+        int tmp = 0;
+        #pragma omp parallel for reduction(+:tmp)
+        for(int i = 0; i < rows_this_rank; i++){
+            for(int j = row_ptr_in[i]; j < row_ptr_in[i+1]; j++){
+                int col_idx = col_indices_in[j];
                 if(col_idx >= displacements[neighbour_idx] && col_idx < displacements[neighbour_idx] + counts[neighbour_idx]){
-                    nnz_per_neighbour[k]++;
+                    tmp++;
                 }
             }
         }
+        nnz_per_neighbour[k] = tmp;
     }
 
 }
@@ -294,23 +295,24 @@ void Distributed_matrix::split_csr(
     for(int k = 0; k < number_of_neighbours; k++){
         tmp_nnz_per_neighbour[k] = 0;
     }
+    #pragma omp parallel for
+    for(int k = 0; k < number_of_neighbours; k++){
+        int tmp = 0;
+        for(int i = 0; i < rows_this_rank; i++){
+            row_ptr_h[k][i] = tmp;
+        
 
-    for(int i = 0; i < rows_this_rank; i++){
-        for(int k = 0; k < number_of_neighbours; k++){
-            row_ptr_h[k][i] = tmp_nnz_per_neighbour[k];
-        }
-
-        for(int j = row_ptr_in[i]; j < row_ptr_in[i+1]; j++){
-            for(int k = 0; k < number_of_neighbours; k++){
+            for(int j = row_ptr_in[i]; j < row_ptr_in[i+1]; j++){
                 int neighbour_idx = neighbours[k];
                 int col_idx = col_indices_in[j];
                 if(col_idx >= displacements[neighbour_idx] && col_idx < displacements[neighbour_idx] + counts[neighbour_idx]){
-                    data_h[k][tmp_nnz_per_neighbour[k]] = data_in[j];
-                    col_indices_h[k][tmp_nnz_per_neighbour[k]] = col_idx - displacements[neighbour_idx];
-                    tmp_nnz_per_neighbour[k]++;
+                    data_h[k][tmp] = data_in[j];
+                    col_indices_h[k][tmp] = col_idx - displacements[neighbour_idx];
+                    tmp++;
                 }
             }
         }
+        tmp_nnz_per_neighbour[k] = tmp;
     }
 
     for(int k = 0; k < number_of_neighbours; k++){
@@ -334,8 +336,10 @@ void Distributed_matrix::construct_nnz_cols_per_neighbour(
 
     nnz_cols_per_neighbour = new int[number_of_neighbours];
 
+    #pragma omp parallel for
     for(int k = 0; k < number_of_neighbours; k++){
         nnz_cols_per_neighbour[k] = 0;
+        int tmp = 0;
         int neighbour_idx = neighbours[k];
         bool *cols_per_neighbour_flags = new bool[counts[neighbour_idx]];
         for(int i = 0; i < counts[neighbour_idx]; i++){
@@ -349,9 +353,10 @@ void Distributed_matrix::construct_nnz_cols_per_neighbour(
         }
         for(int i = 0; i < counts[neighbour_idx]; i++){
             if(cols_per_neighbour_flags[i]){
-                nnz_cols_per_neighbour[k]++;
+                tmp++;
             }
         }
+        nnz_cols_per_neighbour[k] = tmp;
         delete[] cols_per_neighbour_flags;
     }
 
@@ -373,12 +378,15 @@ void Distributed_matrix::construct_nnz_rows_per_neighbour()
     for(int i = 0; i < number_of_neighbours; i++){
         nnz_rows_per_neighbour[i] = 0;
     }
-    for(int i = 0; i < rows_this_rank; i++){
-        for(int k = 0; k < number_of_neighbours; k++){
+    for(int k = 0; k < number_of_neighbours; k++){
+        int tmp = 0;
+        #pragma omp parallel for reduction(+:tmp)
+        for(int i = 0; i < rows_this_rank; i++){
             if(row_ptr_h[k][i+1] - row_ptr_h[k][i] > 0){
-                nnz_rows_per_neighbour[k]++;
+                tmp++;
             }
         }
+        nnz_rows_per_neighbour[k] = tmp;
     }
 
     send_buffer_h = new double*[number_of_neighbours];
@@ -403,8 +411,9 @@ void Distributed_matrix::construct_rows_per_neighbour()
     for(int i = 0; i < number_of_neighbours; i++){
         tmp_nnz_rows_per_neighbour[i] = 0;
     }
-    for(int i = 0; i < rows_this_rank; i++){
-        for(int k = 0; k < number_of_neighbours; k++){
+    #pragma omp parallel for
+    for(int k = 0; k < number_of_neighbours; k++){
+        for(int i = 0; i < rows_this_rank; i++){
             if(row_ptr_h[k][i+1] - row_ptr_h[k][i] > 0){
                 rows_per_neighbour_h[k][tmp_nnz_rows_per_neighbour[k]] = i;
                 tmp_nnz_rows_per_neighbour[k]++;
@@ -428,6 +437,7 @@ void Distributed_matrix::construct_cols_per_neighbour()
     for(int k = 0; k < number_of_neighbours; k++){
         cols_per_neighbour_h[k] = new int[nnz_cols_per_neighbour[k]];
     }
+    #pragma omp parallel for
     for(int k = 0; k < number_of_neighbours; k++){
         int neighbour_idx = neighbours[k];
         bool *cols_per_neighbour_flags = new bool[counts[neighbour_idx]];
