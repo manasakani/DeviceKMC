@@ -27,16 +27,16 @@ Distributed_vector::Distributed_vector(
     }
     vec_h = new double*[number_of_neighbours];
     vec_d = new double*[number_of_neighbours];
-    descriptors = new cusparseDnVecDescr_t[number_of_neighbours];
+    descriptors = new hipsparseDnVecDescr_t[number_of_neighbours];
     for(int k = 0; k < number_of_neighbours; k++){
         int neighbour_idx = neighbours[k];
-        cudaErrchk(cudaMallocHost(&vec_h[k], counts[neighbour_idx]*sizeof(double)));
+        cudaErrchk(hipHostMalloc(&vec_h[k], counts[neighbour_idx]*sizeof(double)));
         for(int i = 0; i < counts[neighbour_idx]; i++){
             vec_h[k][i] = 0.0;
         }
-        cudaErrchk(cudaMalloc(&vec_d[k], counts[neighbour_idx]*sizeof(double)));
-        cudaErrchk(cudaMemset(vec_d[k], 0, counts[neighbour_idx]*sizeof(double)));
-        cusparseErrchk(cusparseCreateDnVec(&descriptors[k], counts[neighbour_idx], vec_d[k], CUDA_R_64F));
+        cudaErrchk(hipMalloc(&vec_d[k], counts[neighbour_idx]*sizeof(double)));
+        cudaErrchk(hipMemset(vec_d[k], 0, counts[neighbour_idx]*sizeof(double)));
+        cusparseErrchk(hipsparseCreateDnVec(&descriptors[k], counts[neighbour_idx], vec_d[k], HIP_R_64F));
 
     }
     std::cout << "Done constructing distributed vector" << std::endl;
@@ -47,9 +47,9 @@ Distributed_vector::~Distributed_vector(){
     delete[] displacements;
     delete[] neighbours;
     for(int k = 0; k < number_of_neighbours; k++){
-        cudaErrchk(cudaFreeHost(vec_h[k]));
-        cudaErrchk(cudaFree(vec_d[k]));
-        cusparseErrchk(cusparseDestroyDnVec(descriptors[k]));
+        cudaErrchk(hipHostFree(vec_h[k]));
+        cudaErrchk(hipFree(vec_d[k]));
+        cusparseErrchk(hipsparseDestroyDnVec(descriptors[k]));
     }
     delete[] vec_h;
     delete[] vec_d;

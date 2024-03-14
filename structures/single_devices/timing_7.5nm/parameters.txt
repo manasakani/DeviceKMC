@@ -19,9 +19,9 @@ shifts = 0.0 0.5 0.5
 
 nn_dist = 3.5 													// [Angstrom] neighbor distance
 
-perturb_structure = 1											// KMC event step ( turn off to only calculate fields )
+perturb_structure = 0											// KMC event step ( turn off to only calculate fields )
 solve_potential = 1												// field solvers
-solve_current = 1
+solve_current = 0
 solve_heating_global = 0
 solve_heating_local = 0
 																// for potential solver:

@@ -7,14 +7,14 @@ template <void (*distributed_spmv_split_sparse)
     Distributed_matrix &,    
     double *,
     double *,
-    cusparseDnVecDescr_t &,
+    hipsparseDnVecDescr_t &,
     Distributed_vector &,
     double *,
-    cusparseDnVecDescr_t &,
-    cusparseDnVecDescr_t &,
+    hipsparseDnVecDescr_t &,
+    hipsparseDnVecDescr_t &,
     double *,
-    cudaStream_t &,
-    cusparseHandle_t &)>
+    hipStream_t &,
+    hipsparseHandle_t &)>
 void conjugate_gradient_jacobi_split_sparse(
     Distributed_subblock_sparse &A_subblock,
     Distributed_matrix &A_distributed,
@@ -28,23 +28,23 @@ void conjugate_gradient_jacobi_split_sparse(
 {
 
     // initialize cuda
-    cudaStream_t default_stream = NULL;
-    cublasHandle_t default_cublasHandle = 0;
-    cublasErrchk(cublasCreate(&default_cublasHandle));
+    hipStream_t default_stream = NULL;
+    hipblasHandle_t default_cublasHandle = 0;
+    cublasErrchk(hipblasCreate(&default_cublasHandle));
     
-    cusparseHandle_t default_cusparseHandle = 0;
-    cusparseErrchk(cusparseCreate(&default_cusparseHandle));    
+    hipsparseHandle_t default_cusparseHandle = 0;
+    cusparseErrchk(hipsparseCreate(&default_cusparseHandle));    
 
-    cudaErrchk(cudaStreamCreate(&default_stream));
-    cusparseErrchk(cusparseSetStream(default_cusparseHandle, default_stream));
-    cublasErrchk(cublasSetStream(default_cublasHandle, default_stream));
+    cudaErrchk(hipStreamCreate(&default_stream));
+    cusparseErrchk(hipsparseSetStream(default_cusparseHandle, default_stream));
+    cublasErrchk(hipblasSetStream(default_cublasHandle, default_stream));
 
     double a, b, na;
     double alpha, alpham1, r0;
     double *r_norm2_h;
     double *dot_h;    
-    cudaErrchk(cudaMallocHost((void**)&r_norm2_h, sizeof(double)));
-    cudaErrchk(cudaMallocHost((void**)&dot_h, sizeof(double)));
+    cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
+    cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
 
     alpha = 1.0;
     alpham1 = -1.0;
@@ -52,37 +52,37 @@ void conjugate_gradient_jacobi_split_sparse(
 
     //copy data to device
     // starting guess for p
-    cudaErrchk(cudaMemcpy(p_distributed.vec_d[0], x_local_d,
-        p_distributed.counts[A_distributed.rank] * sizeof(double), cudaMemcpyDeviceToDevice));
+    cudaErrchk(hipMemcpy(p_distributed.vec_d[0], x_local_d,
+        p_distributed.counts[A_distributed.rank] * sizeof(double), hipMemcpyDeviceToDevice));
 
     double *Ap_local_d = NULL;
-    cusparseDnVecDescr_t vecAp_local = NULL;
-    cudaErrchk(cudaMalloc((void **)&Ap_local_d, A_distributed.rows_this_rank * sizeof(double)));
-    cudaErrchk(cudaMemset(Ap_local_d, 0, A_distributed.rows_this_rank * sizeof(double)));
-    cusparseErrchk(cusparseCreateDnVec(&vecAp_local, A_distributed.rows_this_rank, Ap_local_d, CUDA_R_64F));
+    hipsparseDnVecDescr_t vecAp_local = NULL;
+    cudaErrchk(hipMalloc((void **)&Ap_local_d, A_distributed.rows_this_rank * sizeof(double)));
+    cudaErrchk(hipMemset(Ap_local_d, 0, A_distributed.rows_this_rank * sizeof(double)));
+    cusparseErrchk(hipsparseCreateDnVec(&vecAp_local, A_distributed.rows_this_rank, Ap_local_d, HIP_R_64F));
     
     double *z_local_d = NULL;
-    cudaErrchk(cudaMalloc((void **)&z_local_d, A_distributed.rows_this_rank * sizeof(double)));
+    cudaErrchk(hipMalloc((void **)&z_local_d, A_distributed.rows_this_rank * sizeof(double)));
 
     // dense subblock product y=Ax
     double *p_subblock_d = NULL;
     double *Ap_subblock_d = NULL;
-    cudaErrchk(cudaMalloc((void **)&p_subblock_d,
+    cudaErrchk(hipMalloc((void **)&p_subblock_d,
         A_subblock.subblock_size * sizeof(double)));
-    cudaErrchk(cudaMalloc((void **)&Ap_subblock_d,
+    cudaErrchk(hipMalloc((void **)&Ap_subblock_d,
         A_subblock.count_subblock_h[A_distributed.rank] * sizeof(double)));
     double *p_subblock_h;
-    cudaErrchk(cudaMallocHost((void**)&p_subblock_h, A_subblock.subblock_size * sizeof(double)));
-    cusparseDnVecDescr_t vecp_subblock = NULL;
-    cusparseErrchk(cusparseCreateDnVec(&vecp_subblock, A_subblock.subblock_size, p_subblock_d, CUDA_R_64F));
-    cusparseDnVecDescr_t vecAp_subblock = NULL;
-    cusparseErrchk(cusparseCreateDnVec(&vecAp_subblock, A_subblock.count_subblock_h[A_distributed.rank], Ap_subblock_d, CUDA_R_64F));
+    cudaErrchk(hipHostMalloc((void**)&p_subblock_h, A_subblock.subblock_size * sizeof(double)));
+    hipsparseDnVecDescr_t vecp_subblock = NULL;
+    cusparseErrchk(hipsparseCreateDnVec(&vecp_subblock, A_subblock.subblock_size, p_subblock_d, HIP_R_64F));
+    hipsparseDnVecDescr_t vecAp_subblock = NULL;
+    cusparseErrchk(hipsparseCreateDnVec(&vecAp_subblock, A_subblock.count_subblock_h[A_distributed.rank], Ap_subblock_d, HIP_R_64F));
 
     //begin CG
 
     // norm of rhs for convergence check
     double norm2_rhs = 0;
-    cublasErrchk(cublasDdot(default_cublasHandle, A_distributed.rows_this_rank, r_local_d, 1, r_local_d, 1, &norm2_rhs));
+    cublasErrchk(hipblasDdot(default_cublasHandle, A_distributed.rows_this_rank, r_local_d, 1, r_local_d, 1, &norm2_rhs));
     MPI_Allreduce(MPI_IN_PLACE, &norm2_rhs, 1, MPI_DOUBLE, MPI_SUM, comm);
 
     // A*x0
@@ -104,7 +104,7 @@ void conjugate_gradient_jacobi_split_sparse(
 
     // cal residual r0 = b - A*x0
     // r_norm2_h = r0*r0
-    cublasErrchk(cublasDaxpy(default_cublasHandle, A_distributed.rows_this_rank, &alpham1, Ap_local_d, 1, r_local_d, 1));
+    cublasErrchk(hipblasDaxpy(default_cublasHandle, A_distributed.rows_this_rank, &alpham1, Ap_local_d, 1, r_local_d, 1));
     
     // Mz = r
     elementwise_vector_vector(
@@ -115,7 +115,7 @@ void conjugate_gradient_jacobi_split_sparse(
         default_stream
     ); 
     
-    cublasErrchk(cublasDdot(default_cublasHandle, A_distributed.rows_this_rank, r_local_d, 1, z_local_d, 1, r_norm2_h));
+    cublasErrchk(hipblasDdot(default_cublasHandle, A_distributed.rows_this_rank, r_local_d, 1, z_local_d, 1, r_norm2_h));
     MPI_Allreduce(MPI_IN_PLACE, r_norm2_h, 1, MPI_DOUBLE, MPI_SUM, comm);
 
 
@@ -124,12 +124,12 @@ void conjugate_gradient_jacobi_split_sparse(
         if(k > 1){
             // pk+1 = rk+1 + b*pk
             b = r_norm2_h[0] / r0;
-            cublasErrchk(cublasDscal(default_cublasHandle, A_distributed.rows_this_rank, &b, p_distributed.vec_d[0], 1));
-            cublasErrchk(cublasDaxpy(default_cublasHandle, A_distributed.rows_this_rank, &alpha, z_local_d, 1, p_distributed.vec_d[0], 1)); 
+            cublasErrchk(hipblasDscal(default_cublasHandle, A_distributed.rows_this_rank, &b, p_distributed.vec_d[0], 1));
+            cublasErrchk(hipblasDaxpy(default_cublasHandle, A_distributed.rows_this_rank, &alpha, z_local_d, 1, p_distributed.vec_d[0], 1)); 
         }
         else {
             // p0 = r0
-            cublasErrchk(cublasDcopy(default_cublasHandle, A_distributed.rows_this_rank, z_local_d, 1, p_distributed.vec_d[0], 1));
+            cublasErrchk(hipblasDcopy(default_cublasHandle, A_distributed.rows_this_rank, z_local_d, 1, p_distributed.vec_d[0], 1));
         }
 
 
@@ -150,17 +150,17 @@ void conjugate_gradient_jacobi_split_sparse(
             default_cusparseHandle
         );
 
-        cublasErrchk(cublasDdot(default_cublasHandle, A_distributed.rows_this_rank, p_distributed.vec_d[0], 1, Ap_local_d, 1, dot_h));
+        cublasErrchk(hipblasDdot(default_cublasHandle, A_distributed.rows_this_rank, p_distributed.vec_d[0], 1, Ap_local_d, 1, dot_h));
         MPI_Allreduce(MPI_IN_PLACE, dot_h, 1, MPI_DOUBLE, MPI_SUM, comm);
 
         a = r_norm2_h[0] / dot_h[0];
 
         // xk+1 = xk + ak * pk
-        cublasErrchk(cublasDaxpy(default_cublasHandle, A_distributed.rows_this_rank, &a, p_distributed.vec_d[0], 1, x_local_d, 1));
+        cublasErrchk(hipblasDaxpy(default_cublasHandle, A_distributed.rows_this_rank, &a, p_distributed.vec_d[0], 1, x_local_d, 1));
 
         // rk+1 = rk - ak * A * pk
         na = -a;
-        cublasErrchk(cublasDaxpy(default_cublasHandle, A_distributed.rows_this_rank, &na, Ap_local_d, 1, r_local_d, 1));
+        cublasErrchk(hipblasDaxpy(default_cublasHandle, A_distributed.rows_this_rank, &na, Ap_local_d, 1, r_local_d, 1));
         r0 = r_norm2_h[0];
 
         // Mz = r
@@ -174,31 +174,31 @@ void conjugate_gradient_jacobi_split_sparse(
         
 
         // r_norm2_h = r0*r0
-        cublasErrchk(cublasDdot(default_cublasHandle, A_distributed.rows_this_rank, r_local_d, 1, z_local_d, 1, r_norm2_h));
+        cublasErrchk(hipblasDdot(default_cublasHandle, A_distributed.rows_this_rank, r_local_d, 1, z_local_d, 1, r_norm2_h));
         MPI_Allreduce(MPI_IN_PLACE, r_norm2_h, 1, MPI_DOUBLE, MPI_SUM, comm);
         k++;
     }
 
     //end CG
-    cudaErrchk(cudaDeviceSynchronize());
+    cudaErrchk(hipDeviceSynchronize());
     if(A_distributed.rank == 0){
         std::cout << "iteration = " << k << ", relative residual = " << sqrt(r_norm2_h[0]/norm2_rhs) << std::endl;
     }
 
-    cusparseErrchk(cusparseDestroy(default_cusparseHandle));
-    cublasErrchk(cublasDestroy(default_cublasHandle));
-    cudaErrchk(cudaStreamDestroy(default_stream));
-    cusparseErrchk(cusparseDestroyDnVec(vecAp_local));
-    cudaErrchk(cudaFree(Ap_local_d));
-    cudaErrchk(cudaFree(z_local_d));
+    cusparseErrchk(hipsparseDestroy(default_cusparseHandle));
+    cublasErrchk(hipblasDestroy(default_cublasHandle));
+    cudaErrchk(hipStreamDestroy(default_stream));
+    cusparseErrchk(hipsparseDestroyDnVec(vecAp_local));
+    cudaErrchk(hipFree(Ap_local_d));
+    cudaErrchk(hipFree(z_local_d));
 
-    cudaErrchk(cudaFreeHost(r_norm2_h));
-    cudaErrchk(cudaFreeHost(dot_h));
-    cudaErrchk(cudaFree(p_subblock_d));
-    cusparseErrchk(cusparseDestroyDnVec(vecp_subblock));
-    cudaErrchk(cudaFree(Ap_subblock_d));
-    cusparseErrchk(cusparseDestroyDnVec(vecAp_subblock));
-    cudaErrchk(cudaFreeHost(p_subblock_h));
+    cudaErrchk(hipHostFree(r_norm2_h));
+    cudaErrchk(hipHostFree(dot_h));
+    cudaErrchk(hipFree(p_subblock_d));
+    cusparseErrchk(hipsparseDestroyDnVec(vecp_subblock));
+    cudaErrchk(hipFree(Ap_subblock_d));
+    cusparseErrchk(hipsparseDestroyDnVec(vecAp_subblock));
+    cudaErrchk(hipHostFree(p_subblock_h));
 
 }
 template 

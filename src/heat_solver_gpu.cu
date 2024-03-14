@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 #include "gpu_solvers.h"
 #define NUM_THREADS 512
 
@@ -55,15 +56,15 @@ void update_temperatureglobal_gpu(const double *site_power, double *T_bg, const 
     int num_blocks = (N - 1) / num_threads + 1;
 
     double *P_tot;
-    gpuErrchk( cudaMalloc((void**)&P_tot, 1 * sizeof(double)) );
-    gpuErrchk( cudaMemset(P_tot, 0, 1 * sizeof(double)) );
-    gpuErrchk( cudaDeviceSynchronize() );
+    gpuErrchk( hipMalloc((void**)&P_tot, 1 * sizeof(double)) );
+    gpuErrchk( hipMemset(P_tot, 0, 1 * sizeof(double)) );
+    gpuErrchk( hipDeviceSynchronize() );
 
     //collect site_power
     reduce<double, NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS*sizeof(double)>>>(site_power, P_tot, N);
 
     //update the temperature
-    update_temp_global<<<1, 1>>>(P_tot, T_bg, a_coeff, b_coeff, number_steps, C_thermal, small_step);
+    hipLaunchKernelGGL(update_temp_global, 1, 1, 0, 0, P_tot, T_bg, a_coeff, b_coeff, number_steps, C_thermal, small_step);
 
-    cudaFree(P_tot);
+    hipFree(P_tot);
 }

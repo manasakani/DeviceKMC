@@ -1,7 +1,7 @@
 #include "Device.h"
 
 // update the power of each site
-std::map<std::string, double> Device::updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, KMCParameters &p, double Vd)
+std::map<std::string, double> Device::updatePower(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, KMCParameters &p, double Vd)
 {
     std::map<std::string, double> result;
 

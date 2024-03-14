@@ -24,7 +24,6 @@ Copyright 2023 ETH Zurich and the Computational Nanoelectronics Group. All right
 #include "gpu_solvers.h"
 #endif
 
-
 int main(int argc, char **argv)
 {
 
@@ -41,17 +40,16 @@ int main(int argc, char **argv)
     // Setup accelerators (GPU)
     //***********************************
 
-
-#ifdef USE_CUDA
     char gpu_string[1000];
+    // get_gpu_info(gpu_string, mpi_rank);
     get_gpu_info(gpu_string, 0);
-    if (!mpi_rank)
-    printf("Will use this GPU: %s\n", gpu_string);
-    set_gpu(0);
-#else
-    if (!mpi_rank)
-    std::cout << "Simulation will not use any accelerators.\n";
-#endif
+
+    // Manage bindings - TODO
+    MPI_Barrier(MPI_COMM_WORLD);
+    std::cout << "Setting GPUs..." << std::endl;
+    printf("Rank %i will use %s\n", mpi_rank, gpu_string);
+    fflush(stdout);
+    MPI_Barrier(MPI_COMM_WORLD);
 
 #pragma omp parallel
 {
@@ -118,13 +116,13 @@ int main(int argc, char **argv)
 
     if (p.pristine)                                                                // convert an initial percentage of oxygen atoms to vacancies
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
-
+    
     //******************************
     // Initialize the KMC Simulation
     //******************************
 
     KMCProcess sim(device, p.freq);                                                // stores the division of the device into KMC 'layers' with different EA
-                                                  
+
     //*****************************
     // Setup GPU memory management
     //*****************************
@@ -142,8 +140,8 @@ int main(int argc, char **argv)
 #endif
 
     // Create CUDA library handles to pass into the gpu_Device functions
-    cublasHandle_t handle = CreateCublasHandle(0);
-    cusolverDnHandle_t handle_cusolver = CreateCusolverDnHandle(0);                                   
+    hipblasHandle_t handle = CreateCublasHandle(0);
+    hipsolverHandle_t handle_cusolver = CreateCusolverDnHandle(0);                                   
 
     // loop over V_switch and t_switch
     double Vd, t, kmc_time, step_time, I_macro, T_kmc, V_vcm;                                       // KMC loop variables
@@ -196,10 +194,6 @@ int main(int argc, char **argv)
             outputBuffer << "KMC step count: " << kmc_step_count << "\n";
             auto t0 = std::chrono::steady_clock::now();
 
-            // handle any input IR drop:
-            V_vcm = Vd - I_macro * p.Rs;
-            outputBuffer << "V_vcm: " << V_vcm << "\n";
-
             // Update potential
             if (p.solve_potential)
             {
@@ -207,12 +201,15 @@ int main(int argc, char **argv)
                 std::map<std::string, double> chargeMap = device.updateCharge(gpubuf, p.metals);           
                 resultMap.insert(chargeMap.begin(), chargeMap.end());                                  
                 
-                 // update site-resolved potential
+                std::cout << "updating boundary potential" << std::endl;
+                // update site-resolved potential
                 std::map<std::string, double> potentialMap = device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);
-                resultMap.insert(potentialMap.begin(), potentialMap.end());                                   
+                resultMap.insert(potentialMap.begin(), potentialMap.end());      
+                std::cout << "done updating boundary potential" << std::endl;                             
             }
 
             // generate xyz snapshot
+            std::cout << "making snapshot" << std::endl;
             if (!(kmc_step_count % p.log_freq))
             {
 #ifdef USE_CUDA
@@ -223,6 +220,7 @@ int main(int argc, char **argv)
             }
 
             // Execute events and update kmc_time
+            std::cout << "kmc events\n";
             if (p.perturb_structure){                                  
                 std::map<std::string, double> kmcMap = sim.executeKMCStep(gpubuf, device, &step_time);   // execute events on the structure
                 kmc_time += step_time;
@@ -307,7 +305,7 @@ int main(int argc, char **argv)
 
 // #ifdef USE_CUDA
 //     gpubuf.freeGPUmemory();
-//     CheckCublasError(cublasDestroy(handle));
+//     CheckCublasError(hipblasDestroy(handle));
 // #endif
 
     // close logger

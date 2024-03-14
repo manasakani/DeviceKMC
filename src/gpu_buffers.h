@@ -40,9 +40,9 @@ public:
 
 
     // CUDA library handles
-    // cublasHandle_t cublas_handle;
+    // hipblasHandle_t cublas_handle;
     // cusolverDnHandle_t  cusolver_handle;
-    // cusparseHandle_t cusparse_handle;
+    // hipsparseHandle_t cusparse_handle;
 
     // CSR indices pre-computation for K
     int *Device_row_ptr_d = nullptr;                // CSR representation of the matrix which represents connectivity in the device
@@ -152,80 +152,80 @@ public:
             displ_sites[i] = displ_sites[i-1] + count_sites[i-1];
         }
         // initialize CUDA library handles:
-        // cusparseCreate(&cusparse_handle);
-        // cusparseSetPointerMode(cusparse_handle, CUSPARSE_POINTER_MODE_DEVICE);
+        // hipsparseCreate(&cusparse_handle);
+        // hipsparseSetPointerMode(cusparse_handle, HIPSPARSE_POINTER_MODE_DEVICE);
         // CreateCublasHandle(cublas_handle, 0);
-        // cublasSetPointerMode(cublas_handle, CUBLAS_POINTER_MODE_DEVICE);
+        // hipblasSetPointerMode(cublas_handle, HIPBLAS_POINTER_MODE_DEVICE);
         // CreateCusolverDnHandle(cusolver_handle, 0);
 
 #ifdef USE_CUDA
 
         // small lists and variables to store in GPU cache
-        copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host);
-        cudaDeviceSynchronize();
+        // copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host);       //COMMENTED OUT
+        hipDeviceSynchronize();
         
         // member variables of the KMCProcess 
-        gpuErrchk( cudaMalloc((void**)&site_layer, N_ * sizeof(int)) );
+        gpuErrchk( hipMalloc((void**)&site_layer, N_ * sizeof(int)) );
 
         // member variables of the Device
-        gpuErrchk( cudaMalloc((void**)&site_element, N_ * sizeof(ELEMENT)) );
-        gpuErrchk( cudaMalloc((void**)&metal_types, num_metal_types_ * sizeof(ELEMENT)) );
-        gpuErrchk( cudaMalloc((void**)&site_x, N_  * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&site_y, N_  * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&site_z, N_  * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&site_power, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&site_CB_edge, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&site_potential_boundary, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&site_potential_charge, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&site_temperature, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&site_charge, N_ * sizeof(int)) );
-        gpuErrchk( cudaMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );
-        gpuErrchk( cudaMalloc((void**)&cutoff_window, N_ * 2 * sizeof(int)) );
-        gpuErrchk( cudaMalloc((void**)&cutoff_idx, N_ * N_cutoff_ * sizeof(int)) );
-        // gpuErrchk( cudaMalloc((void**)&cutoff_dists, N_ * N_cutoff_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&cutoff_dists, N_ * 1 * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&T_bg, 1 * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&sigma, 1 * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&k, 1 * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&lattice, 3 * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void**)&freq, 1 * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void **)&atom_element, N_ * sizeof(ELEMENT)) );
-        gpuErrchk( cudaMalloc((void **)&atom_x, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void **)&atom_y, N_ * sizeof(double)) );             // these have length N_ since it's a maximum
-        gpuErrchk( cudaMalloc((void **)&atom_z, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void **)&atom_power, N_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void **)&atom_CB_edge, N_atom_ * sizeof(double)) );
-        gpuErrchk( cudaMalloc((void **)&atom_charge, N_ * sizeof(int)) );
+        gpuErrchk( hipMalloc((void**)&site_element, N_ * sizeof(ELEMENT)) );
+        gpuErrchk( hipMalloc((void**)&metal_types, num_metal_types_ * sizeof(ELEMENT)) );
+        gpuErrchk( hipMalloc((void**)&site_x, N_  * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&site_y, N_  * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&site_z, N_  * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&site_power, N_ * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&site_CB_edge, N_ * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&site_potential_boundary, N_ * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&site_potential_charge, N_ * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&site_temperature, N_ * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&site_charge, N_ * sizeof(int)) );
+        gpuErrchk( hipMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );
+        gpuErrchk( hipMalloc((void**)&cutoff_window, N_ * 2 * sizeof(int)) );
+        gpuErrchk( hipMalloc((void**)&cutoff_idx, N_ * N_cutoff_ * sizeof(int)) );
+        gpuErrchk( hipMalloc((void**)&cutoff_dists, N_ * N_cutoff_ * sizeof(double)) );
+        // gpuErrchk( hipMalloc((void**)&cutoff_dists, N_ * 1 * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&T_bg, 1 * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&sigma, 1 * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&k, 1 * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&lattice, 3 * sizeof(double)) );
+        gpuErrchk( hipMalloc((void**)&freq, 1 * sizeof(double)) );
+        gpuErrchk( hipMalloc((void **)&atom_element, N_ * sizeof(ELEMENT)) );
+        gpuErrchk( hipMalloc((void **)&atom_x, N_ * sizeof(double)) );
+        gpuErrchk( hipMalloc((void **)&atom_y, N_ * sizeof(double)) );             // these have length N_ since it's a maximum
+        gpuErrchk( hipMalloc((void **)&atom_z, N_ * sizeof(double)) );
+        gpuErrchk( hipMalloc((void **)&atom_power, N_ * sizeof(double)) );
+        gpuErrchk( hipMalloc((void **)&atom_CB_edge, N_atom_ * sizeof(double)) );
+        gpuErrchk( hipMalloc((void **)&atom_charge, N_ * sizeof(int)) );
 
         // host vectors used for the collection and sum of the distributed potential
-        gpuErrchk( cudaMallocHost((void **)&potential_local_h, count_sites[rank] * sizeof(double)) );
-        gpuErrchk( cudaMallocHost((void **)&potential_h, N_ * sizeof(double)) );
+        gpuErrchk( hipHostMalloc((void **)&potential_local_h, count_sites[rank] * sizeof(double)) );
+        gpuErrchk( hipHostMalloc((void **)&potential_h, N_ * sizeof(double)) );
             
-        cudaDeviceSynchronize();
+        hipDeviceSynchronize();
 
         // virtual potentials initial guess to store (solution vector for dissipated power solver):
-        gpuErrchk( cudaMalloc((void **)&atom_virtual_potentials, (N_atom_ + 2) * sizeof(double)) );
-        gpuErrchk( cudaMemset(atom_virtual_potentials, 0, (N_atom_ + 2) * sizeof(double)) );                          // initialize the solution vector for the dissipated power                                 
+        gpuErrchk( hipMalloc((void **)&atom_virtual_potentials, (N_atom_ + 2) * sizeof(double)) );
+        gpuErrchk( hipMemset(atom_virtual_potentials, 0, (N_atom_ + 2) * sizeof(double)) );                          // initialize the solution vector for the dissipated power                                 
 
-        cudaDeviceSynchronize();
+        hipDeviceSynchronize();
 
         // fixed parameters which can be copied from the beginning:
-        gpuErrchk( cudaMemcpy(site_layer, site_layer_in.data(), N_ * sizeof(int), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(site_x, site_x_in.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(site_y, site_y_in.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(site_z, site_z_in.data(), N_ * sizeof(double), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(metal_types, metals.data(), num_metal_types_ * sizeof(ELEMENT), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(sigma, &sigma_in, 1 * sizeof(double), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(k, &k_in, 1 * sizeof(double), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(freq, &freq_in, 1 * sizeof(double), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(lattice, lattice_in.data(), 3 * sizeof(double), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(cutoff_window, cutoff_window_in.data(), N_ * 2 * sizeof(int), cudaMemcpyHostToDevice) );
-        gpuErrchk( cudaMemcpy(cutoff_idx, cutoff_idx_in.data(), N_ * N_cutoff_ * sizeof(int), cudaMemcpyHostToDevice) );
-        // gpuErrchk( cudaMemcpy(cutoff_dists, cutoff_dists_in.data(), N_ * N_cutoff_ * sizeof(double), cudaMemcpyHostToDevice) );
-         gpuErrchk( cudaMemcpy(cutoff_dists, cutoff_dists_in.data(), N_ * 1 * sizeof(double), cudaMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(site_layer, site_layer_in.data(), N_ * sizeof(int), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(site_x, site_x_in.data(), N_ * sizeof(double), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(site_y, site_y_in.data(), N_ * sizeof(double), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(site_z, site_z_in.data(), N_ * sizeof(double), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(metal_types, metals.data(), num_metal_types_ * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(sigma, &sigma_in, 1 * sizeof(double), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(k, &k_in, 1 * sizeof(double), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(freq, &freq_in, 1 * sizeof(double), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(lattice, lattice_in.data(), 3 * sizeof(double), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(cutoff_window, cutoff_window_in.data(), N_ * 2 * sizeof(int), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(cutoff_idx, cutoff_idx_in.data(), N_ * N_cutoff_ * sizeof(int), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(cutoff_dists, cutoff_dists_in.data(), N_ * N_cutoff_ * sizeof(double), hipMemcpyHostToDevice) );
+        //  gpuErrchk( hipMemcpy(cutoff_dists, cutoff_dists_in.data(), N_ * 1 * sizeof(double), hipMemcpyHostToDevice) );
     
-        cudaDeviceSynchronize();
+        hipDeviceSynchronize();
         
 #endif
 

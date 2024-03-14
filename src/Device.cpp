@@ -72,6 +72,7 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
                                          site_element.data(), site_x.data(), site_y.data(), site_z.data(),
                                          lattice.data(), pbc, nn_dist, cutoff_radius, N, max_num_neighbors);
         this->N_cutoff = cutoff_idx.size()/N;
+        if (!mpi_rank)  std::cout << "Max number of sites within cutoff: " << N_cutoff << "\n";
  
     } else {
 

@@ -1,7 +1,7 @@
 #include "Device.h"
 
 // Solve the Laplace equation to get the CB edge along the device
-void Device::setLaplacePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers gpubuf, 
+void Device::setLaplacePotential(hipblasHandle_t handle_cublas, hipsolverHandle_t handle_cusolver, GPUBuffers gpubuf, 
                                  KMCParameters &p, double Vd)
 {
     size_t N_left_tot = p.num_atoms_first_layer; 
@@ -228,84 +228,84 @@ std::map<std::string, double> Device::updateCharge(GPUBuffers gpubuf, std::vecto
     return result;
 }
 
-// update the potential of each site with a cpu/gpu hybrid scheme
-std::map<std::string, double> Device::updatePotential_hybrid(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, 
-                                                             GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count)
-{
-#ifndef USE_CUDA
-    std::cout << "ERROR: Hybrid potential computation scheme requires CUDA compile flag\n"; 
-#endif
+// // update the potential of each site with a cpu/gpu hybrid scheme
+// std::map<std::string, double> Device::updatePotential_hybrid(hipblasHandle_t handle_cublas, hipsolverHandle_t handle_cusolver, 
+//                                                              GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count)
+// {
+// #ifndef USE_CUDA
+//     std::cout << "ERROR: Hybrid potential computation scheme requires CUDA compile flag\n"; 
+// #endif
 
-    std::map<std::string, double> result;
-    gpuErrchk( cudaMemcpy(site_charge.data(), gpubuf.site_charge, N * sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(site_element.data(), gpubuf.site_element, N * sizeof(ELEMENT), cudaMemcpyDeviceToHost) );
+//     std::map<std::string, double> result;
+//     gpuErrchk( hipMemcpy(site_charge.data(), gpubuf.site_charge, N * sizeof(int), hipMemcpyDeviceToHost) );
+//     gpuErrchk( hipMemcpy(site_element.data(), gpubuf.site_element, N * sizeof(ELEMENT), hipMemcpyDeviceToHost) );
 
-    // bool sparse_iterative_solver = 1;
-    int N_left_tot = p.num_atoms_first_layer; 
-    int N_right_tot = p.num_atoms_first_layer; 
+//     // bool sparse_iterative_solver = 1;
+//     int N_left_tot = p.num_atoms_first_layer; 
+//     int N_right_tot = p.num_atoms_first_layer; 
 
-    auto t0 = std::chrono::steady_clock::now();
-    double total_time_start = omp_get_wtime();
-    double gpu_time_start, gpu_time_end, cpu_time_start, cpu_time_end;// = omp_get_wtime();
+//     auto t0 = std::chrono::steady_clock::now();
+//     double total_time_start = omp_get_wtime();
+//     double gpu_time_start, gpu_time_end, cpu_time_start, cpu_time_end;// = omp_get_wtime();
 
-#pragma omp parallel
-{
-    //***************************
-    // Compute boundary potential
-    //***************************
+// #pragma omp parallel
+// {
+//     //***************************
+//     // Compute boundary potential
+//     //***************************
 
-#pragma omp single nowait
-{
-    gpu_time_start = omp_get_wtime();
-    background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-                                    Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
-    gpu_time_end = omp_get_wtime();
-}
+// #pragma omp single nowait
+// {
+//     gpu_time_start = omp_get_wtime();
+//     background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+//                                     Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
+//     gpu_time_end = omp_get_wtime();
+// }
 
-    //*************************
-    // Compute charge potential
-    //*************************
+//     //*************************
+//     // Compute charge potential
+//     //*************************
 
-    // Update site_potential_boundary with the sum from the charges
-    // MODIFY FOR MULTIPLE NODES LATER
-    cpu_time_start = omp_get_wtime();
-    poisson_gridless_indexed(p.num_atoms_contact, p.lattice);
-    cpu_time_end = omp_get_wtime();
-}
-    double total_time_end = omp_get_wtime();
-    auto t1 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt = t1 - t0;
+//     // Update site_potential_boundary with the sum from the charges
+//     // MODIFY FOR MULTIPLE NODES LATER
+//     cpu_time_start = omp_get_wtime();
+//     poisson_gridless_indexed(p.num_atoms_contact, p.lattice);
+//     cpu_time_end = omp_get_wtime();
+// }
+//     double total_time_end = omp_get_wtime();
+//     auto t1 = std::chrono::steady_clock::now();
+//     std::chrono::duration<double> dt = t1 - t0;
 
-    double dt_boundary = gpu_time_end - gpu_time_start;
-    double dt_charge = cpu_time_end - cpu_time_start;
-    double dt_total = total_time_end - total_time_start;
+//     double dt_boundary = gpu_time_end - gpu_time_start;
+//     double dt_charge = cpu_time_end - cpu_time_start;
+//     double dt_total = total_time_end - total_time_start;
 
-    gpuErrchk( cudaMemcpy(gpubuf.site_potential_charge, site_potential_charge.data(), N * sizeof(double), cudaMemcpyHostToDevice) );
-#pragma omp barrier
+//     gpuErrchk( hipMemcpy(gpubuf.site_potential_charge, site_potential_charge.data(), N * sizeof(double), hipMemcpyHostToDevice) );
+// #pragma omp barrier
 
-    //********************************
-    // Build the full potential vector
-    //********************************
+//     //********************************
+//     // Build the full potential vector
+//     //********************************
 
-    // Allgather the potential vector into site_potential_charge
-    sum_and_gather_potential(gpubuf);
+//     // Allgather the potential vector into site_potential_charge
+//     sum_and_gather_potential(gpubuf);
 
-    std::cout << "calculation time - potential from boundaries [s]: " << dt_boundary << "\n";
-    std::cout << "calculation time - potential from charges [s]: " << dt_charge << "\n";
-    std::cout << "calculation time - total potential [s]: " << dt_total << "\n";
-    std::cout << "total chrono: " << dt.count() << "\n";
+//     std::cout << "calculation time - potential from boundaries [s]: " << dt_boundary << "\n";
+//     std::cout << "calculation time - potential from charges [s]: " << dt_charge << "\n";
+//     std::cout << "calculation time - total potential [s]: " << dt_total << "\n";
+//     std::cout << "total chrono: " << dt.count() << "\n";
 
-    exit(1);
+//     exit(1);
 
-    result["Z - calculation time - potential from boundaries [s]"] = dt_boundary;
-    result["Z - calculation time - potential from charges [s]"] = dt_charge;
+//     result["Z - calculation time - potential from boundaries [s]"] = dt_boundary;
+//     result["Z - calculation time - potential from charges [s]"] = dt_charge;
 
-    return result;
-}
+//     return result;
+// }
 
 
 // update the potential of each site
-std::map<std::string, double> Device::updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, 
+std::map<std::string, double> Device::updatePotential(hipblasHandle_t handle_cublas, hipsolverHandle_t handle_cusolver, 
                                                       GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count)
 {
     std::map<std::string, double> result;
@@ -322,8 +322,11 @@ std::map<std::string, double> Device::updatePotential(cublasHandle_t handle_cubl
     
     if (sparse_iterative_solver) 
     {
+        std::cout << "going to background_potential_gpu_sparse" << std::endl;
         background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
                                         Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
+        // background_potential_gpu_sparse_local(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+        //                                 Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
     } else {
         background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
                                  Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
@@ -332,6 +335,7 @@ std::map<std::string, double> Device::updatePotential(cublasHandle_t handle_cubl
     std::chrono::duration<double> dt1 = t1 - t0;
 
     // Update site_potential_boundary with the sum from the charges
+    std::cout << "going to poisson_gridless_gpu" << std::endl;
     poisson_gridless_gpu(p.num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                          gpubuf.site_charge, gpubuf.site_potential_charge,
@@ -339,7 +343,6 @@ std::map<std::string, double> Device::updatePotential(cublasHandle_t handle_cubl
                          gpubuf.cutoff_window, gpubuf.cutoff_idx, gpubuf.cutoff_dists, gpubuf.N_cutoff_); 
 
     // Allgather the potential vector into site_potential_charge
-
     sum_and_gather_potential(gpubuf);
      
     // gpubuf.sync_GPUToHost(*this); // comment out to avoid memory copy in GPU-only implementation
@@ -376,7 +379,7 @@ std::map<std::string, double> Device::updatePotential(cublasHandle_t handle_cubl
 
 
 // update the potential of each site
-void Device::background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
+void Device::background_potential(hipsolverHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
                                   double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals, int kmc_step_num)
 {
 

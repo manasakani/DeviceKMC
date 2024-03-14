@@ -1,5 +1,6 @@
+#include "hip/hip_runtime.h"
 #include "gpu_solvers.h"
-#include <cub/cub.cuh>
+#include <hipcub/hipcub.hpp>
 
 // Sparse matrix assembly functions and iterative solvers
 
@@ -173,34 +174,34 @@ void indices_creation_gpu_off_diagonal_block(
     int blocks = (block_size_i + threads - 1) / threads;
 
     int *nnz_per_row_d;
-    gpuErrchk( cudaMalloc((void **)row_ptr_d, (block_size_i + 1) * sizeof(int)) );
-    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, block_size_i * sizeof(int)) );
-    gpuErrchk(cudaMemset((*row_ptr_d), 0, (block_size_i + 1) * sizeof(int)) );
+    gpuErrchk( hipMalloc((void **)row_ptr_d, (block_size_i + 1) * sizeof(int)) );
+    gpuErrchk( hipMalloc((void **)&nnz_per_row_d, block_size_i * sizeof(int)) );
+    gpuErrchk(hipMemset((*row_ptr_d), 0, (block_size_i + 1) * sizeof(int)) );
 
     // calculate the nnz per row
-    calc_nnz_per_row<<<blocks, threads>>>(posx_d, posy_d, posz_d, lattice_d, pbc, cutoff_radius,
+    hipLaunchKernelGGL(calc_nnz_per_row, blocks, threads, 0, 0, posx_d, posy_d, posz_d, lattice_d, pbc, cutoff_radius,
         block_size_i, block_size_j, block_start_i, block_start_j, nnz_per_row_d);
 
     void     *temp_storage_d = NULL;
     size_t   temp_storage_bytes = 0;
 
     // determines temporary device storage requirements for inclusive prefix sum
-    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, block_size_i);
+    hipcub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, block_size_i);
 
     // Allocate temporary storage for inclusive prefix sum
-    gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
+    gpuErrchk(hipMalloc(&temp_storage_d, temp_storage_bytes));
 
     // Run inclusive prefix sum
     // inclusive sum starting at second value to get the row ptr
     // which is the same as inclusive sum starting at first value and last value filled with nnz
-    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, block_size_i);
+    hipcub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, block_size_i);
     
     // nnz is the same as (*row_ptr_d)[block_size_i]
-    gpuErrchk( cudaMemcpy(nnz, (*row_ptr_d) + block_size_i, sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
+    gpuErrchk( hipMemcpy(nnz, (*row_ptr_d) + block_size_i, sizeof(int), hipMemcpyDeviceToHost) );
+    gpuErrchk( hipMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
 
     // assemble the indices of K
-    assemble_K_indices_gpu_off_diagonal_block<<<blocks, threads>>>(
+    hipLaunchKernelGGL(assemble_K_indices_gpu_off_diagonal_block, blocks, threads, 0, 0, 
         posx_d, posy_d, posz_d,
         lattice_d, pbc,
         cutoff_radius,
@@ -212,8 +213,8 @@ void indices_creation_gpu_off_diagonal_block(
         (*col_indices_d)
     );
 
-    cudaFree(temp_storage_d);
-    cudaFree(nnz_per_row_d);
+    hipFree(temp_storage_d);
+    hipFree(nnz_per_row_d);
 }
 
 
@@ -274,10 +275,10 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
     int *dist_nnz_d;
     int *dist_nnz_per_row_d;
 
-    gpuErrchk( cudaMalloc((void **)&dist_nnz_d, gpubuf.size * sizeof(int)) );
-    gpuErrchk(cudaMemset(dist_nnz_d, 0, gpubuf.size * sizeof(int)));
-    gpuErrchk( cudaMalloc((void **)&dist_nnz_per_row_d, gpubuf.size * rows_this_rank * sizeof(int)) );
-    gpuErrchk(cudaMemset(dist_nnz_per_row_d, 0, gpubuf.size * rows_this_rank * sizeof(int)));
+    gpuErrchk( hipMalloc((void **)&dist_nnz_d, gpubuf.size * sizeof(int)) );
+    gpuErrchk(hipMemset(dist_nnz_d, 0, gpubuf.size * sizeof(int)));
+    gpuErrchk( hipMalloc((void **)&dist_nnz_per_row_d, gpubuf.size * rows_this_rank * sizeof(int)) );
+    gpuErrchk(hipMemset(dist_nnz_per_row_d, 0, gpubuf.size * rows_this_rank * sizeof(int)));
 
     // Assemble the sparsity pattern
 
@@ -289,7 +290,7 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
         int threads = 1024;
         //start with self
         int blocks = (rows_this_rank - 1) / threads + 1;
-        calc_nnz_per_row<<<blocks, threads>>>(
+        hipLaunchKernelGGL(calc_nnz_per_row, blocks, threads, 0, 0, 
             gpubuf.site_x + N_left_tot,
             gpubuf.site_y + N_left_tot,
             gpubuf.site_z + N_left_tot,
@@ -304,22 +305,22 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
         // reduce nnz per row
         void     *temp_storage_d = NULL;
         size_t   temp_storage_bytes = 0;
-        cub::DeviceReduce::Sum(
+        hipcub::DeviceReduce::Sum(
         temp_storage_d, temp_storage_bytes, 
             dist_nnz_per_row_d + i * rows_this_rank,
             dist_nnz_d + i, rows_this_rank);
 
         // Allocate temporary storage
-        cudaMalloc(&temp_storage_d, temp_storage_bytes);
+        hipMalloc(&temp_storage_d, temp_storage_bytes);
 
         // Run sum-reduction
-        cub::DeviceReduce::Sum(temp_storage_d, temp_storage_bytes,
+        hipcub::DeviceReduce::Sum(temp_storage_d, temp_storage_bytes,
             dist_nnz_per_row_d + i * rows_this_rank,
             dist_nnz_d + i, rows_this_rank);
     }
 
 
-    gpuErrchk( cudaMemcpy(dist_nnz_h, dist_nnz_d, size * sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( hipMemcpy(dist_nnz_h, dist_nnz_d, size * sizeof(int), hipMemcpyDeviceToHost) );
     // counting neighbours
     int neighbor_count = 0;
     for(int i = 0; i < size; i++){
@@ -332,7 +333,7 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
     int *neighbor_idx = new int[neighbor_count];
     int *neighbor_nnz_h = new int[neighbor_count];
     int *neighbor_nnz_per_row_d;
-    gpuErrchk( cudaMalloc((void **)&neighbor_nnz_per_row_d, neighbor_count * rows_this_rank * sizeof(int)) );
+    gpuErrchk( hipMalloc((void **)&neighbor_nnz_per_row_d, neighbor_count * rows_this_rank * sizeof(int)) );
 
     // determine neighbours
     neighbor_count = 0;
@@ -346,9 +347,9 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
     // fill the neighbor nnz
     for(int i = 0; i < neighbor_count; i++){
         neighbor_nnz_h[i] = dist_nnz_h[neighbor_idx[i]];
-        gpuErrchk( cudaMemcpy(neighbor_nnz_per_row_d + i * rows_this_rank,
+        gpuErrchk( hipMemcpy(neighbor_nnz_per_row_d + i * rows_this_rank,
             dist_nnz_per_row_d + neighbor_idx[i] * rows_this_rank,
-            rows_this_rank * sizeof(int), cudaMemcpyHostToDevice) );
+            rows_this_rank * sizeof(int), hipMemcpyHostToDevice) );
     }
 
 
@@ -356,30 +357,30 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
     int **col_indices_d = new int*[neighbor_count];
     int **row_ptr_d = new int*[neighbor_count];
     for(int i = 0; i < neighbor_count; i++){
-        gpuErrchk( cudaMalloc((void **)&col_indices_d[i], neighbor_nnz_h[i] * sizeof(int)) );
-        gpuErrchk( cudaMalloc((void **)&row_ptr_d[i], (rows_this_rank + 1) * sizeof(int)) );
+        gpuErrchk( hipMalloc((void **)&col_indices_d[i], neighbor_nnz_h[i] * sizeof(int)) );
+        gpuErrchk( hipMalloc((void **)&row_ptr_d[i], (rows_this_rank + 1) * sizeof(int)) );
     }
     
     // create row ptr
     for(int i = 0; i < neighbor_count; i++){
 
-        gpuErrchk(cudaMemset(row_ptr_d[i], 0, (rows_this_rank + 1) * sizeof(int)));
+        gpuErrchk(hipMemset(row_ptr_d[i], 0, (rows_this_rank + 1) * sizeof(int)));
         void     *temp_storage_d = NULL;
         size_t   temp_storage_bytes = 0;
         // determines temporary device storage requirements for inclusive prefix sum
-        cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes,
+        hipcub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes,
             neighbor_nnz_per_row_d + i * rows_this_rank, (row_ptr_d[i])+1, rows_this_rank);
 
         // Allocate temporary storage for inclusive prefix sum
-        gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
+        gpuErrchk(hipMalloc(&temp_storage_d, temp_storage_bytes));
         // Run inclusive prefix sum
         // inclusive sum starting at second value to get the row ptr
         // which is the same as inclusive sum starting at first value and last value filled with nnz
-        cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes,
+        hipcub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes,
             neighbor_nnz_per_row_d + i * rows_this_rank, (row_ptr_d[i])+1, rows_this_rank);
 
         // Free temporary storage
-        gpuErrchk(cudaFree(temp_storage_d)); 
+        gpuErrchk(hipFree(temp_storage_d)); 
 
     }
 
@@ -393,7 +394,7 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
         int threads = 1024;
         int blocks = (rows_this_rank + threads - 1) / threads;
        
-        assemble_K_indices_gpu_off_diagonal_block<<<blocks, threads>>>(
+        hipLaunchKernelGGL(assemble_K_indices_gpu_off_diagonal_block, blocks, threads, 0, 0, 
             gpubuf.site_x,
             gpubuf.site_y,
             gpubuf.site_z,
@@ -458,17 +459,17 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
     );
 
     for(int i = 0; i < neighbor_count; i++){
-        gpuErrchk( cudaFree(col_indices_d[i]) );
-        gpuErrchk( cudaFree(row_ptr_d[i]) );
+        gpuErrchk( hipFree(col_indices_d[i]) );
+        gpuErrchk( hipFree(row_ptr_d[i]) );
     }   
     delete[] col_indices_d;
     delete[] row_ptr_d;
     delete[] neighbor_idx;
     delete[] dist_nnz_h;
-    gpuErrchk( cudaFree(dist_nnz_d) );    
-    gpuErrchk( cudaFree(dist_nnz_per_row_d) );
+    gpuErrchk( hipFree(dist_nnz_d) );    
+    gpuErrchk( hipFree(dist_nnz_per_row_d) );
     delete[] neighbor_nnz_h;
-    gpuErrchk( cudaFree(neighbor_nnz_per_row_d) );
+    gpuErrchk( hipFree(neighbor_nnz_per_row_d) );
 
 
     // This populates the site_CB_edge vector, and runs once at the beginning (not distributed)
@@ -491,10 +492,10 @@ void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRo
     int *h_pointers = (int *)calloc((m + 1), sizeof(int));
     int *h_inds = (int *)calloc(nnz, sizeof(int));
 
-    gpuErrchk( cudaMemcpy(h_D, dense_matrix, m*m * sizeof(double), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(h_D_csr, d_csrVal, nnz * sizeof(double), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(h_pointers, d_csrRowPtr, (m + 1) * sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(h_inds, d_csrColInd, nnz * sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( hipMemcpy(h_D, dense_matrix, m*m * sizeof(double), hipMemcpyDeviceToHost) );
+    gpuErrchk( hipMemcpy(h_D_csr, d_csrVal, nnz * sizeof(double), hipMemcpyDeviceToHost) );
+    gpuErrchk( hipMemcpy(h_pointers, d_csrRowPtr, (m + 1) * sizeof(int), hipMemcpyDeviceToHost) );
+    gpuErrchk( hipMemcpy(h_inds, d_csrColInd, nnz * sizeof(int), hipMemcpyDeviceToHost) );
 
     int nnz_count = 0;
     for (int row = 0; row < m; row++) {
@@ -519,9 +520,9 @@ void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices,
     double *h_csrValues = (double *)calloc(nnz, sizeof(double));
     int *h_csrRowPtr = (int *)calloc((m + 1), sizeof(int));
     int *h_csrColIndices = (int *)calloc(nnz, sizeof(int));
-    gpuErrchk( cudaMemcpy(h_csrValues, d_csrValues, nnz * sizeof(double), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(h_csrRowPtr, d_csrRowPtr, (m + 1) * sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(h_csrColIndices, d_csrColIndices, nnz * sizeof(int), cudaMemcpyDeviceToHost) );
+    gpuErrchk( hipMemcpy(h_csrValues, d_csrValues, nnz * sizeof(double), hipMemcpyDeviceToHost) );
+    gpuErrchk( hipMemcpy(h_csrRowPtr, d_csrRowPtr, (m + 1) * sizeof(int), hipMemcpyDeviceToHost) );
+    gpuErrchk( hipMemcpy(h_csrColIndices, d_csrColIndices, nnz * sizeof(int), hipMemcpyDeviceToHost) );
 
     // print to file, tagged with the kmc step number
     std::ofstream fout_val("csrValues_step#" + std::to_string(kmc_step_count) + ".txt");
@@ -542,60 +543,60 @@ void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices,
     free(h_csrColIndices);
 }
 
-// Solution of A*x = y using cusolver in host pointer mode
-void sparse_system_solve(cusolverSpHandle_t handle, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal,
-                         int nnz, int m, double *d_x, double *d_y){
+// // Solution of A*x = y using cusolver in host pointer mode
+// void sparse_system_solve(hipsolverHandle_t handle, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal,
+//                          int nnz, int m, double *d_x, double *d_y){
 
-    // Ref: https://stackoverflow.com/questions/31840341/solving-general-sparse-linear-systems-in-cuda
+//     // Ref: https://stackoverflow.com/questions/31840341/solving-general-sparse-linear-systems-in-cuda
 
-    // cusolverSpDcsrlsvlu only supports the host path
-    int *h_A_RowIndices = (int *)malloc((m + 1) * sizeof(int));
-    int *h_A_ColIndices = (int *)malloc(nnz * sizeof(int));
-    double *h_A_Val = (double *)malloc(nnz * sizeof(double));
-    double *h_x = (double *)malloc(m * sizeof(double));
-    double *h_y = (double *)malloc(m * sizeof(double));
-    gpuErrchk( cudaMemcpy(h_A_RowIndices, d_csrRowPtr, (m + 1) * sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(h_A_ColIndices, d_csrColInd, nnz * sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(h_A_Val, d_csrVal, nnz * sizeof(double), cudaMemcpyDeviceToHost) );   
-    gpuErrchk( cudaMemcpy(h_x, d_x, m * sizeof(double), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMemcpy(h_y, d_y, m * sizeof(double), cudaMemcpyDeviceToHost) );
+//     // cusolverSpDcsrlsvlu only supports the host path
+//     int *h_A_RowIndices = (int *)malloc((m + 1) * sizeof(int));
+//     int *h_A_ColIndices = (int *)malloc(nnz * sizeof(int));
+//     double *h_A_Val = (double *)malloc(nnz * sizeof(double));
+//     double *h_x = (double *)malloc(m * sizeof(double));
+//     double *h_y = (double *)malloc(m * sizeof(double));
+//     gpuErrchk( hipMemcpy(h_A_RowIndices, d_csrRowPtr, (m + 1) * sizeof(int), hipMemcpyDeviceToHost) );
+//     gpuErrchk( hipMemcpy(h_A_ColIndices, d_csrColInd, nnz * sizeof(int), hipMemcpyDeviceToHost) );
+//     gpuErrchk( hipMemcpy(h_A_Val, d_csrVal, nnz * sizeof(double), hipMemcpyDeviceToHost) );   
+//     gpuErrchk( hipMemcpy(h_x, d_x, m * sizeof(double), hipMemcpyDeviceToHost) );
+//     gpuErrchk( hipMemcpy(h_y, d_y, m * sizeof(double), hipMemcpyDeviceToHost) );
 
-    cusparseMatDescr_t matDescrA;
-    cusparseCreateMatDescr(&matDescrA);
-    cusparseSetMatType(matDescrA, CUSPARSE_MATRIX_TYPE_GENERAL);
-    cusparseSetMatIndexBase(matDescrA, CUSPARSE_INDEX_BASE_ZERO);
+//     hipsparseMatDescr_t matDescrA;
+//     hipsparseCreateMatDescr(&matDescrA);
+//     hipsparseSetMatType(matDescrA, HIPSPARSE_MATRIX_TYPE_GENERAL);
+//     hipsparseSetMatIndexBase(matDescrA, HIPSPARSE_INDEX_BASE_ZERO);
 
-    int singularity;
-    double tol = 0.00000001;
+//     int singularity;
+//     double tol = 0.00000001;
 
-    // Solve with LU
-    // CheckCusolverDnError( cusolverSpDcsrlsvluHost(handle, m, nnz, matDescrA, h_A_Val, h_A_RowIndices, 
-    //                       h_A_ColIndices, h_y, tol, 0, h_x, &singularity) );
+//     // Solve with LU
+//     // CheckCusolverDnError( cusolverSpDcsrlsvluHost(handle, m, nnz, matDescrA, h_A_Val, h_A_RowIndices, 
+//     //                       h_A_ColIndices, h_y, tol, 0, h_x, &singularity) );
     
-    // Solve with QR
-    // CheckCusolverDnError( cusolverSpDcsrlsvqrHost(handle, m, nnz, matDescrA, h_A_Val, h_A_RowIndices, 
-    //                       h_A_ColIndices, h_y, tol, 1, h_x, &singularity) );
+//     // Solve with QR
+//     // CheckCusolverDnError( cusolverSpDcsrlsvqrHost(handle, m, nnz, matDescrA, h_A_Val, h_A_RowIndices, 
+//     //                       h_A_ColIndices, h_y, tol, 1, h_x, &singularity) );
 
-    // Solve with Cholesky
-    CheckCusolverDnError( cusolverSpDcsrlsvcholHost(handle, m, nnz, matDescrA, h_A_Val, h_A_RowIndices,
-                          h_A_ColIndices, h_y, tol, 1, h_x, &singularity) );
+//     // Solve with Cholesky
+//     CheckCusolverDnError( cusolverSpDcsrlsvcholHost(handle, m, nnz, matDescrA, h_A_Val, h_A_RowIndices,
+//                           h_A_ColIndices, h_y, tol, 1, h_x, &singularity) );
 
-    gpuErrchk( cudaDeviceSynchronize() );
-    if (singularity != -1){
-        std::cout << "In sparse_system_solve: Matrix has a singularity at : " << singularity << "\n";
-    }
+//     gpuErrchk( hipDeviceSynchronize() );
+//     if (singularity != -1){
+//         std::cout << "In sparse_system_solve: Matrix has a singularity at : " << singularity << "\n";
+//     }
 
-    // copy back the solution vector:
-    gpuErrchk( cudaMemcpy(d_x, h_x, m * sizeof(double), cudaMemcpyHostToDevice) );
+//     // copy back the solution vector:
+//     gpuErrchk( hipMemcpy(d_x, h_x, m * sizeof(double), hipMemcpyHostToDevice) );
 
-    cusolverSpDestroy(handle);
-    cusparseDestroyMatDescr(matDescrA);
-    free(h_A_RowIndices);
-    free(h_A_ColIndices);
-    free(h_A_Val);
-    free(h_x);
-    free(h_y);
-}
+//     cusolverSpDestroy(handle);
+//     hipsparseDestroyMatDescr(matDescrA);
+//     free(h_A_RowIndices);
+//     free(h_A_ColIndices);
+//     free(h_A_Val);
+//     free(h_x);
+//     free(h_y);
+// }
 
 // Extracts the inverse sqrt of the diagonal values into a vector to use for the preconditioning
 __global__ void computeDiagonalInvSqrt(const double* A_data, const int* A_row_ptr,
@@ -680,7 +681,7 @@ __global__ void jacobi_unprecondition_array(
 }
 
 // Iterative sparse linear solver using CG steps
-void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+void solve_sparse_CG_Jacobi(hipblasHandle_t handle_cublas, hipsparseHandle_t handle, 
 							double* A_data, int* A_row_ptr,
                             int* A_col_indices, const int A_nnz, int m, double *d_x, double *d_y){
 
@@ -699,13 +700,13 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     double n_one = -1.0;
     double zero = 0.0;
     double *one_d, *n_one_d, *zero_d;
-    gpuErrchk( cudaMalloc((void**)&one_d, sizeof(double)) );
-    gpuErrchk( cudaMalloc((void**)&n_one_d, sizeof(double)) );
-    gpuErrchk( cudaMalloc((void**)&zero_d, sizeof(double)) );
-    gpuErrchk( cudaMemcpy(one_d, &one, sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(n_one_d, &n_one, sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(zero_d, &zero, sizeof(double), cudaMemcpyHostToDevice) );
-    cusparseStatus_t status;
+    gpuErrchk( hipMalloc((void**)&one_d, sizeof(double)) );
+    gpuErrchk( hipMalloc((void**)&n_one_d, sizeof(double)) );
+    gpuErrchk( hipMalloc((void**)&zero_d, sizeof(double)) );
+    gpuErrchk( hipMemcpy(one_d, &one, sizeof(double), hipMemcpyHostToDevice) );
+    gpuErrchk( hipMemcpy(n_one_d, &n_one, sizeof(double), hipMemcpyHostToDevice) );
+    gpuErrchk( hipMemcpy(zero_d, &zero, sizeof(double), hipMemcpyHostToDevice) );
+    hipsparseStatus_t status;
 
     // ************************************
     // ** Initial Guess **
@@ -713,44 +714,44 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     if (zero_guess)
     {
         // Set the initial guess for the solution vector to zero
-        gpuErrchk( cudaMemset(d_y, 0, m * sizeof(double)) ); 
-        gpuErrchk( cudaDeviceSynchronize() );
+        gpuErrchk( hipMemset(d_y, 0, m * sizeof(double)) ); 
+        gpuErrchk( hipDeviceSynchronize() );
     }
 
     // *******************************
     // ** Preconditioner **
 
     double* diagonal_values_inv_sqrt_d;
-    cudaMalloc((void**)&diagonal_values_inv_sqrt_d, sizeof(double) * m);
+    hipMalloc((void**)&diagonal_values_inv_sqrt_d, sizeof(double) * m);
 
     int block_size = 256;
     int grid_size = (m + block_size - 1) / block_size;
 
-    computeDiagonalInvSqrt<<<grid_size, block_size>>>(A_data, A_row_ptr, A_col_indices,
+    hipLaunchKernelGGL(computeDiagonalInvSqrt, grid_size, block_size, 0, 0, A_data, A_row_ptr, A_col_indices,
                                                       diagonal_values_inv_sqrt_d, m);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
+    gpuErrchk( hipPeekAtLastError() );
+    gpuErrchk( hipDeviceSynchronize() );
 
     // scale rhs
-    jacobi_precondition_array<<<grid_size, block_size>>>(d_x, diagonal_values_inv_sqrt_d, m);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
+    hipLaunchKernelGGL(jacobi_precondition_array, grid_size, block_size, 0, 0, d_x, diagonal_values_inv_sqrt_d, m);
+    gpuErrchk( hipPeekAtLastError() );
+    gpuErrchk( hipDeviceSynchronize() );
     
     // scale matrix
-    jacobi_precondition_matrix<<<grid_size, block_size>>>(A_data, A_col_indices, A_row_ptr, 
+    hipLaunchKernelGGL(jacobi_precondition_matrix, grid_size, block_size, 0, 0, A_data, A_col_indices, A_row_ptr, 
                                                           diagonal_values_inv_sqrt_d, m);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
+    gpuErrchk( hipPeekAtLastError() );
+    gpuErrchk( hipDeviceSynchronize() );
 
     // scale starting guess
-    jacobi_unprecondition_array<<<grid_size, block_size>>>(d_y, diagonal_values_inv_sqrt_d, m);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
+    hipLaunchKernelGGL(jacobi_unprecondition_array, grid_size, block_size, 0, 0, d_y, diagonal_values_inv_sqrt_d, m);
+    gpuErrchk( hipPeekAtLastError() );
+    gpuErrchk( hipDeviceSynchronize() );
 
-    cusparseSpMatDescr_t matA;
-    status = cusparseCreateCsr(&matA, m, m, A_nnz, A_row_ptr, A_col_indices, A_data, 
-                               CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
-    if (status != CUSPARSE_STATUS_SUCCESS)
+    hipsparseSpMatDescr_t matA;
+    status = hipsparseCreateCsr(&matA, m, m, A_nnz, A_row_ptr, A_col_indices, A_data, 
+                               HIPSPARSE_INDEX_32I, HIPSPARSE_INDEX_32I, HIPSPARSE_INDEX_BASE_ZERO, HIP_R_64F);
+    if (status != HIPSPARSE_STATUS_SUCCESS)
     {
         std::cout << "ERROR: creation of sparse matrix descriptor in solve_sparse_CG_Jacobi() failed!\n";
     }
@@ -761,36 +762,36 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     // initialize variables for the residual calculation
     double h_norm;
     double *d_r, *d_p, *d_temp;
-    gpuErrchk( cudaMalloc((void**)&d_r, m * sizeof(double)) ); 
-    gpuErrchk( cudaMalloc((void**)&d_p, m * sizeof(double)) ); 
-    gpuErrchk( cudaMalloc((void**)&d_temp, m * sizeof(double)) ); 
+    gpuErrchk( hipMalloc((void**)&d_r, m * sizeof(double)) ); 
+    gpuErrchk( hipMalloc((void**)&d_p, m * sizeof(double)) ); 
+    gpuErrchk( hipMalloc((void**)&d_temp, m * sizeof(double)) ); 
 
     // for SpMV:
     // - d_x is right hand side vector
     // - d_y is solution vector
-    cusparseDnVecDescr_t vecY, vecR, vecP, vectemp; 
-    cusparseCreateDnVec(&vecY, m, d_y, CUDA_R_64F);
-    cusparseCreateDnVec(&vecR, m, d_r, CUDA_R_64F);
-    cusparseCreateDnVec(&vecP, m, d_p, CUDA_R_64F);
-    cusparseCreateDnVec(&vectemp, m, d_temp, CUDA_R_64F);
+    hipsparseDnVecDescr_t vecY, vecR, vecP, vectemp; 
+    hipsparseCreateDnVec(&vecY, m, d_y, HIP_R_64F);
+    hipsparseCreateDnVec(&vecR, m, d_r, HIP_R_64F);
+    hipsparseCreateDnVec(&vecP, m, d_p, HIP_R_64F);
+    hipsparseCreateDnVec(&vectemp, m, d_temp, HIP_R_64F);
 
     size_t MVBufferSize;
     void *MVBuffer = 0;
-    status = cusparseSpMV_bufferSize(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                          vecY, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &MVBufferSize);  
-    gpuErrchk( cudaMalloc((void**)&MVBuffer, sizeof(double) * MVBufferSize) );
+    status = hipsparseSpMV_bufferSize(handle, HIPSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                          vecY, zero_d, vectemp, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, &MVBufferSize);  
+    gpuErrchk( hipMalloc((void**)&MVBuffer, sizeof(double) * MVBufferSize) );
 
     // Initialize the residual and conjugate vectors
     // r = A*y - x & p = -r
-    status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA,                         
-                          vecY, zero_d, vecR, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);           // r = A*y
-    CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                            // r = -x + r
-    CheckCublasError( cublasDcopy(handle_cublas, m, d_r, 1, d_p, 1) );                                    // p = r
-    CheckCublasError( cublasDscal(handle_cublas, m, &n_one, d_p, 1) );                                    // p = -p
+    status = hipsparseSpMV(handle, HIPSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA,                         
+                          vecY, zero_d, vecR, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, MVBuffer);           // r = A*y
+    CheckCublasError( hipblasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                            // r = -x + r
+    CheckCublasError( hipblasDcopy(handle_cublas, m, d_r, 1, d_p, 1) );                                    // p = r
+    CheckCublasError( hipblasDscal(handle_cublas, m, &n_one, d_p, 1) );                                    // p = -p
 
     // calculate the error (norm of the residual)
-    CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
-    gpuErrchk( cudaDeviceSynchronize() );
+    CheckCublasError( hipblasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
+    gpuErrchk( hipDeviceSynchronize() );
     
     // Conjugate Gradient steps
     int counter = 0;
@@ -798,28 +799,28 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     while (h_norm > tol*tol){
 
         // alpha = rT * r / (pT * A * p)
-        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                           // t = rT * r
-        status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                              vecP, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);   // temp = A*p
-        CheckCublasError( cublasDdot (handle_cublas, m, d_p, 1, d_temp, 1, &alpha_temp) );               // alpha = pT*temp = pT*A*p
+        CheckCublasError( hipblasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                           // t = rT * r
+        status = hipsparseSpMV(handle, HIPSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                              vecP, zero_d, vectemp, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, MVBuffer);   // temp = A*p
+        CheckCublasError( hipblasDdot (handle_cublas, m, d_p, 1, d_temp, 1, &alpha_temp) );               // alpha = pT*temp = pT*A*p
         alpha = t / alpha_temp; 
 
         // y = y + alpha * p
-        CheckCublasError( cublasDaxpy(handle_cublas, m, &alpha, d_p, 1, d_y, 1) );                       // y = y + alpha * p
+        CheckCublasError( hipblasDaxpy(handle_cublas, m, &alpha, d_p, 1, d_y, 1) );                       // y = y + alpha * p
 
         // r = r + alpha * A * p 
-        CheckCublasError( cublasDaxpy(handle_cublas, m, &alpha, d_temp, 1, d_r, 1) );                    // r = r + alpha * temp
+        CheckCublasError( hipblasDaxpy(handle_cublas, m, &alpha, d_temp, 1, d_r, 1) );                    // r = r + alpha * temp
 
         // beta = (rT * r) / t
-        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &tnew) );                        // tnew = rT * r
+        CheckCublasError( hipblasDdot (handle_cublas, m, d_r, 1, d_r, 1, &tnew) );                        // tnew = rT * r
         beta = tnew / t;
 
         // p = -r + beta * p
-        CheckCublasError( cublasDscal(handle_cublas, m, &beta, d_p, 1) );                                 // p = p * beta
-        CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1) );                        // p = p - r
+        CheckCublasError( hipblasDscal(handle_cublas, m, &beta, d_p, 1) );                                 // p = p * beta
+        CheckCublasError( hipblasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1) );                        // p = p - r
 
         // calculate the error (norm of the residual)
-        CheckCublasError( cublasDdot(handle_cublas, m, d_r, 1, d_r, 1, &h_norm) );
+        CheckCublasError( hipblasDdot(handle_cublas, m, d_r, 1, d_r, 1, &h_norm) );
         // std::cout << h_norm << "\n";
 
         counter++;
@@ -830,31 +831,31 @@ void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handl
     std::cout << "# CG steps: " << counter << "\n";
 
     // unprecondition the solution vector
-    jacobi_precondition_array<<<grid_size, block_size>>>(d_y, diagonal_values_inv_sqrt_d, m);
-    gpuErrchk(cudaPeekAtLastError());
-    gpuErrchk(cudaDeviceSynchronize());
+    hipLaunchKernelGGL(jacobi_precondition_array, grid_size, block_size, 0, 0, d_y, diagonal_values_inv_sqrt_d, m);
+    gpuErrchk(hipPeekAtLastError());
+    gpuErrchk(hipDeviceSynchronize());
 
     // // check solution vector
     // double *copy_back = (double *)calloc(m, sizeof(double));
-    // gpuErrchk( cudaMemcpy(copy_back, d_y, m * sizeof(double), cudaMemcpyDeviceToHost) );
+    // gpuErrchk( hipMemcpy(copy_back, d_y, m * sizeof(double), hipMemcpyDeviceToHost) );
     // for (int i = 0; i < m; i++){
     //     std::cout << copy_back[i] << " ";
     // }
     // std::cout << "\nPrinted solution vector, now exiting\n";
     // exit(1);
 
-    cudaFree(diagonal_values_inv_sqrt_d);
-    cudaFree(MVBuffer); 
-    cudaFree(one_d);
-    cudaFree(n_one_d);
-    cudaFree(zero_d);
-    cudaFree(d_r);
-    cudaFree(d_p);
-    cudaFree(d_temp);
+    hipFree(diagonal_values_inv_sqrt_d);
+    hipFree(MVBuffer); 
+    hipFree(one_d);
+    hipFree(n_one_d);
+    hipFree(zero_d);
+    hipFree(d_r);
+    hipFree(d_p);
+    hipFree(d_temp);
 }
 
 // Iterative sparse linear solver using CG steps
-void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+void solve_sparse_CG(hipblasHandle_t handle_cublas, hipsparseHandle_t handle, 
 					 double* A_data, int* A_row_ptr, int* A_col_indices, const int A_nnz, 
                      int m, double *d_x, double *d_y){
 
@@ -873,18 +874,18 @@ void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle,
     double n_one = -1.0;
     double zero = 0.0;
     double *one_d, *n_one_d, *zero_d;
-    gpuErrchk( cudaMalloc((void**)&one_d, sizeof(double)) );
-    gpuErrchk( cudaMalloc((void**)&n_one_d, sizeof(double)) );
-    gpuErrchk( cudaMalloc((void**)&zero_d, sizeof(double)) );
-    gpuErrchk( cudaMemcpy(one_d, &one, sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(n_one_d, &n_one, sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(zero_d, &zero, sizeof(double), cudaMemcpyHostToDevice) );
-    cusparseStatus_t status;
+    gpuErrchk( hipMalloc((void**)&one_d, sizeof(double)) );
+    gpuErrchk( hipMalloc((void**)&n_one_d, sizeof(double)) );
+    gpuErrchk( hipMalloc((void**)&zero_d, sizeof(double)) );
+    gpuErrchk( hipMemcpy(one_d, &one, sizeof(double), hipMemcpyHostToDevice) );
+    gpuErrchk( hipMemcpy(n_one_d, &n_one, sizeof(double), hipMemcpyHostToDevice) );
+    gpuErrchk( hipMemcpy(zero_d, &zero, sizeof(double), hipMemcpyHostToDevice) );
+    hipsparseStatus_t status;
 
-    cusparseSpMatDescr_t matA;
-    status = cusparseCreateCsr(&matA, m, m, A_nnz, A_row_ptr, A_col_indices, A_data, 
-                               CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
-    if (status != CUSPARSE_STATUS_SUCCESS)
+    hipsparseSpMatDescr_t matA;
+    status = hipsparseCreateCsr(&matA, m, m, A_nnz, A_row_ptr, A_col_indices, A_data, 
+                               HIPSPARSE_INDEX_32I, HIPSPARSE_INDEX_32I, HIPSPARSE_INDEX_BASE_ZERO, HIP_R_64F);
+    if (status != HIPSPARSE_STATUS_SUCCESS)
     {
         std::cout << "ERROR: creation of sparse matrix descriptor in solve_sparse_CG_Jacobi() failed!\n";
     }
@@ -895,8 +896,8 @@ void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle,
     if (zero_guess)
     {
         // Set the initial guess for the solution vector to zero
-        gpuErrchk( cudaMemset(d_y, 0, m * sizeof(double)) ); 
-        gpuErrchk( cudaDeviceSynchronize() );
+        gpuErrchk( hipMemset(d_y, 0, m * sizeof(double)) ); 
+        gpuErrchk( hipDeviceSynchronize() );
     }
 
     // *******************************
@@ -905,40 +906,40 @@ void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle,
     // initialize variables for the residual calculation
     double h_norm;
     double *d_r, *d_p, *d_temp;
-    gpuErrchk( cudaMalloc((void**)&d_r, m * sizeof(double)) ); 
-    gpuErrchk( cudaMalloc((void**)&d_p, m * sizeof(double)) ); 
-    gpuErrchk( cudaMalloc((void**)&d_temp, m * sizeof(double)) ); 
+    gpuErrchk( hipMalloc((void**)&d_r, m * sizeof(double)) ); 
+    gpuErrchk( hipMalloc((void**)&d_p, m * sizeof(double)) ); 
+    gpuErrchk( hipMalloc((void**)&d_temp, m * sizeof(double)) ); 
 
     // for SpMV:
     // - d_x is right hand side vector
     // - d_y is solution vector
-    cusparseDnVecDescr_t vecY, vecR, vecP, vectemp; 
-    cusparseCreateDnVec(&vecY, m, d_y, CUDA_R_64F);
-    cusparseCreateDnVec(&vecR, m, d_r, CUDA_R_64F);
-    cusparseCreateDnVec(&vecP, m, d_p, CUDA_R_64F);
-    cusparseCreateDnVec(&vectemp, m, d_temp, CUDA_R_64F);
+    hipsparseDnVecDescr_t vecY, vecR, vecP, vectemp; 
+    hipsparseCreateDnVec(&vecY, m, d_y, HIP_R_64F);
+    hipsparseCreateDnVec(&vecR, m, d_r, HIP_R_64F);
+    hipsparseCreateDnVec(&vecP, m, d_p, HIP_R_64F);
+    hipsparseCreateDnVec(&vectemp, m, d_temp, HIP_R_64F);
 
     size_t MVBufferSize;
     void *MVBuffer = 0;
-    status = cusparseSpMV_bufferSize(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                          vecY, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &MVBufferSize);
-    gpuErrchk( cudaMalloc((void**)&MVBuffer, sizeof(double) * MVBufferSize) );
+    status = hipsparseSpMV_bufferSize(handle, HIPSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                          vecY, zero_d, vectemp, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, &MVBufferSize);
+    gpuErrchk( hipMalloc((void**)&MVBuffer, sizeof(double) * MVBufferSize) );
     
     // Initialize the residual and conjugate vectors
     // r = A*y - x & p = -r
-    status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                          vecY, zero_d, vecR, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);         // r = A*y
-    //gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -x + r
-    //gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError(cublasDcopy(handle_cublas, m, d_r, 1, d_p, 1));                                    // p = r
-    //gpuErrchk( cudaDeviceSynchronize() );
-    CheckCublasError(cublasDscal(handle_cublas, m, &n_one, d_p, 1));                                    // p = -p
-    //gpuErrchk( cudaDeviceSynchronize() );
+    status = hipsparseSpMV(handle, HIPSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                          vecY, zero_d, vecR, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, MVBuffer);         // r = A*y
+    //gpuErrchk( hipDeviceSynchronize() );
+    CheckCublasError( hipblasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -x + r
+    //gpuErrchk( hipDeviceSynchronize() );
+    CheckCublasError(hipblasDcopy(handle_cublas, m, d_r, 1, d_p, 1));                                    // p = r
+    //gpuErrchk( hipDeviceSynchronize() );
+    CheckCublasError(hipblasDscal(handle_cublas, m, &n_one, d_p, 1));                                    // p = -p
+    //gpuErrchk( hipDeviceSynchronize() );
 
     // calculate the error (norm of the residual)
-    CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
-    gpuErrchk( cudaDeviceSynchronize() );
+    CheckCublasError( hipblasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
+    gpuErrchk( hipDeviceSynchronize() );
     
     // Conjugate Gradient steps
     int counter = 0;
@@ -946,37 +947,37 @@ void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle,
     while (h_norm > tol){
 
         // alpha = rT * r / (pT * A * p)
-        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                         // t = rT * r
-        //gpuErrchk( cudaDeviceSynchronize() );
-        status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                              vecP, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer); // temp = A*p
-        //gpuErrchk( cudaDeviceSynchronize() );
-        CheckCublasError( cublasDdot (handle_cublas, m, d_p, 1, d_temp, 1, &alpha_temp) );             // alpha = pT*temp = pT*A*p
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( hipblasDdot (handle_cublas, m, d_r, 1, d_r, 1, &t) );                         // t = rT * r
+        //gpuErrchk( hipDeviceSynchronize() );
+        status = hipsparseSpMV(handle, HIPSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                              vecP, zero_d, vectemp, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, MVBuffer); // temp = A*p
+        //gpuErrchk( hipDeviceSynchronize() );
+        CheckCublasError( hipblasDdot (handle_cublas, m, d_p, 1, d_temp, 1, &alpha_temp) );             // alpha = pT*temp = pT*A*p
+        //gpuErrchk( hipDeviceSynchronize() );
         alpha = t / alpha_temp; 
 
         // y = y + alpha * p
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &alpha, d_p, 1, d_y, 1));                       // y = y + alpha * p
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError(hipblasDaxpy(handle_cublas, m, &alpha, d_p, 1, d_y, 1));                       // y = y + alpha * p
+        //gpuErrchk( hipDeviceSynchronize() );
 
         // r = r + alpha * A * p 
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &alpha, d_temp, 1, d_r, 1));                    // r = r + alpha * temp
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError(hipblasDaxpy(handle_cublas, m, &alpha, d_temp, 1, d_r, 1));                    // r = r + alpha * temp
+        //gpuErrchk( hipDeviceSynchronize() );
 
         // beta = (rT * r) / t
-        CheckCublasError( cublasDdot (handle_cublas, m, d_r, 1, d_r, 1, &tnew) );                       // tnew = rT * r
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( hipblasDdot (handle_cublas, m, d_r, 1, d_r, 1, &tnew) );                       // tnew = rT * r
+        //gpuErrchk( hipDeviceSynchronize() );
         beta = tnew / t;
 
         // p = -r + beta * p
-        CheckCublasError(cublasDscal(handle_cublas, m, &beta, d_p, 1));                                  // p = p * beta
-        //gpuErrchk( cudaDeviceSynchronize() );
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1));                         // p = p - r
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError(hipblasDscal(handle_cublas, m, &beta, d_p, 1));                                  // p = p * beta
+        //gpuErrchk( hipDeviceSynchronize() );
+        CheckCublasError(hipblasDaxpy(handle_cublas, m, &n_one, d_r, 1, d_p, 1));                         // p = p - r
+        //gpuErrchk( hipDeviceSynchronize() );
 
         // calculate the error (norm of the residual)
-        CheckCublasError( cublasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
-        //gpuErrchk( cudaDeviceSynchronize() );
+        CheckCublasError( hipblasDnrm2(handle_cublas, m, d_r, 1, &h_norm) );
+        //gpuErrchk( hipDeviceSynchronize() );
         // std::cout << h_norm << "\n";
 
         counter++;
@@ -986,17 +987,17 @@ void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle,
     }
     std::cout << "# CG steps: " << counter << "\n";
 
-    cudaFree(MVBuffer); 
-    cudaFree(one_d);
-    cudaFree(n_one_d);
-    cudaFree(zero_d);
-    cudaFree(d_r);
-    cudaFree(d_p);
-    cudaFree(d_temp);
+    hipFree(MVBuffer); 
+    hipFree(one_d);
+    hipFree(n_one_d);
+    hipFree(zero_d);
+    hipFree(d_r);
+    hipFree(d_p);
+    hipFree(d_temp);
 
     // // check solution vector
     // double *copy_back = (double *)calloc(m, sizeof(double));
-    // gpuErrchk( cudaMemcpy(copy_back, d_y, m * sizeof(double), cudaMemcpyDeviceToHost) );
+    // gpuErrchk( hipMemcpy(copy_back, d_y, m * sizeof(double), hipMemcpyDeviceToHost) );
     // for (int i = 0; i < m; i++){
     //     std::cout << copy_back[i] << " ";
     // }
@@ -1043,7 +1044,7 @@ __global__ void elementwise_vector_vector_tmp(
 
 // Iterative sparse linear solver using CG steps on matrix represented in mixed sparse/dense format 
 // the insertion indices specify the correspondence between the (dense) submatrix rows/cols and the (sparse) full matrix rows/cols
-void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+void solve_sparse_CG_splitmatrix(hipblasHandle_t handle_cublas, hipsparseHandle_t handle, 
                                  double* M, int msub, double* A_data, int* A_row_ptr, int* A_col_indices, const int A_nnz, 
                                  int m, int *insertion_indices, double *d_x, double *d_y,
                                  double *diagonal_inv_d){
@@ -1065,18 +1066,18 @@ void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t 
     double n_one = -1.0;
     double zero = 0.0;
     double *one_d, *n_one_d, *zero_d;
-    gpuErrchk( cudaMalloc((void**)&one_d, sizeof(double)) );
-    gpuErrchk( cudaMalloc((void**)&n_one_d, sizeof(double)) );
-    gpuErrchk( cudaMalloc((void**)&zero_d, sizeof(double)) );
-    gpuErrchk( cudaMemcpy(one_d, &one, sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(n_one_d, &n_one, sizeof(double), cudaMemcpyHostToDevice) );
-    gpuErrchk( cudaMemcpy(zero_d, &zero, sizeof(double), cudaMemcpyHostToDevice) );
-    cusparseStatus_t status;
+    gpuErrchk( hipMalloc((void**)&one_d, sizeof(double)) );
+    gpuErrchk( hipMalloc((void**)&n_one_d, sizeof(double)) );
+    gpuErrchk( hipMalloc((void**)&zero_d, sizeof(double)) );
+    gpuErrchk( hipMemcpy(one_d, &one, sizeof(double), hipMemcpyHostToDevice) );
+    gpuErrchk( hipMemcpy(n_one_d, &n_one, sizeof(double), hipMemcpyHostToDevice) );
+    gpuErrchk( hipMemcpy(zero_d, &zero, sizeof(double), hipMemcpyHostToDevice) );
+    hipsparseStatus_t status;
 
-    cusparseSpMatDescr_t matA;
-    status = cusparseCreateCsr(&matA, m, m, A_nnz, A_row_ptr, A_col_indices, A_data, 
-                               CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
-    if (status != CUSPARSE_STATUS_SUCCESS)
+    hipsparseSpMatDescr_t matA;
+    status = hipsparseCreateCsr(&matA, m, m, A_nnz, A_row_ptr, A_col_indices, A_data, 
+                               HIPSPARSE_INDEX_32I, HIPSPARSE_INDEX_32I, HIPSPARSE_INDEX_BASE_ZERO, HIP_R_64F);
+    if (status != HIPSPARSE_STATUS_SUCCESS)
     {
         std::cout << "ERROR: creation of sparse matrix descriptor in solve_sparse_CG_splitmatrix() failed!\n";
     }
@@ -1087,8 +1088,8 @@ void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t 
     if (zero_guess)
     {
         // Set the initial guess for the solution vector to zero
-        gpuErrchk( cudaMemset(d_y, 0, m * sizeof(double)) ); 
-        gpuErrchk( cudaDeviceSynchronize() );
+        gpuErrchk( hipMemset(d_y, 0, m * sizeof(double)) ); 
+        gpuErrchk( hipDeviceSynchronize() );
     }
 
     // *******************************
@@ -1097,50 +1098,50 @@ void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t 
     // initialize variables for the residual calculation
     double h_norm;
     double *d_r, *d_p, *d_temp, *d_z;
-    gpuErrchk( cudaMalloc((void**)&d_r, m * sizeof(double)) ); 
-    gpuErrchk( cudaMalloc((void**)&d_p, m * sizeof(double)) );
-    gpuErrchk( cudaMalloc((void**)&d_temp, m * sizeof(double)) ); 
-    gpuErrchk( cudaMalloc((void**)&d_z, m * sizeof(double)) );
-    gpuErrchk(cudaMemcpy(d_r, d_x, m * sizeof(double), cudaMemcpyDeviceToDevice));
+    gpuErrchk( hipMalloc((void**)&d_r, m * sizeof(double)) ); 
+    gpuErrchk( hipMalloc((void**)&d_p, m * sizeof(double)) );
+    gpuErrchk( hipMalloc((void**)&d_temp, m * sizeof(double)) ); 
+    gpuErrchk( hipMalloc((void**)&d_z, m * sizeof(double)) );
+    gpuErrchk(hipMemcpy(d_r, d_x, m * sizeof(double), hipMemcpyDeviceToDevice));
 
     // gpuErrchk(cuda)
 
     // for SpMV:
     // - d_x is right hand side vector
     // - d_y is solution vector
-    cusparseDnVecDescr_t vecY, vecR, vecP, vectemp; 
-    cusparseCreateDnVec(&vecY, m, d_y, CUDA_R_64F);
-    cusparseCreateDnVec(&vecR, m, d_r, CUDA_R_64F);
-    cusparseCreateDnVec(&vecP, m, d_p, CUDA_R_64F);
-    cusparseCreateDnVec(&vectemp, m, d_temp, CUDA_R_64F);
+    hipsparseDnVecDescr_t vecY, vecR, vecP, vectemp; 
+    hipsparseCreateDnVec(&vecY, m, d_y, HIP_R_64F);
+    hipsparseCreateDnVec(&vecR, m, d_r, HIP_R_64F);
+    hipsparseCreateDnVec(&vecP, m, d_p, HIP_R_64F);
+    hipsparseCreateDnVec(&vectemp, m, d_temp, HIP_R_64F);
 
     size_t MVBufferSize;
     void *MVBuffer = 0;
-    status = cusparseSpMV_bufferSize(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                          vecY, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, &MVBufferSize);
-    gpuErrchk( cudaMalloc((void**)&MVBuffer, sizeof(double) * MVBufferSize) );
+    status = hipsparseSpMV_bufferSize(handle, HIPSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                          vecY, zero_d, vectemp, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, &MVBufferSize);
+    gpuErrchk( hipMalloc((void**)&MVBuffer, sizeof(double) * MVBufferSize) );
     
     // Initialize the residual and conjugate vectors
     // r = A*y - x & p = -r
 
     // r = (A + M)*y = A*y + M*y
-    status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                          vecY, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer);         // r = A*y
+    status = hipsparseSpMV(handle, HIPSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                          vecY, zero_d, vectemp, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, MVBuffer);         // r = A*y
 
     // do r += M*y in a single CUDA kernel by multiplying M by the sub-vector of y 
     // specified by in the indices in 'insertion indices', and adding the result to r. 
     int threads = 1024;
     int blocks = (m + threads - 1) / threads;
-    add_submatrix_product<<<blocks, threads>>>(M, d_y, d_temp, msub, insertion_indices);                   // r += M*y
+    hipLaunchKernelGGL(add_submatrix_product, blocks, threads, 0, 0, M, d_y, d_temp, msub, insertion_indices);                   // r += M*y
 
-    //gpuErrchk( cudaDeviceSynchronize() );
-    //CheckCublasError( cublasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -x + r
+    //gpuErrchk( hipDeviceSynchronize() );
+    //CheckCublasError( hipblasDaxpy(handle_cublas, m, &n_one, d_x, 1, d_r, 1) );                          // r = -x + r
     
     // r = b - Ax0
-    CheckCublasError(cublasDaxpy(handle_cublas, m, &n_one, d_temp, 1, d_r, 1));
+    CheckCublasError(hipblasDaxpy(handle_cublas, m, &n_one, d_temp, 1, d_r, 1));
 
     // Mz0 = r0
-    elementwise_vector_vector_tmp<<<blocks, threads>>>(
+    hipLaunchKernelGGL(elementwise_vector_vector_tmp, blocks, threads, 0, 0, 
         d_r,
         diagonal_inv_d,
         d_z,
@@ -1151,44 +1152,44 @@ void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t 
     double r1, r0, b, a, na, dot;
 
     // calculate the error (norm of the residual)
-    CheckCublasError(cublasDdot(handle_cublas, m, d_r, 1, d_z, 1, &r1));
+    CheckCublasError(hipblasDdot(handle_cublas, m, d_r, 1, d_z, 1, &r1));
 
     int k = 1;
     while (r1 > tol * tol && k <= 1000) {
         
         if(k > 1){
             b = r1 / r0;
-            CheckCublasError(cublasDscal(handle_cublas, m, &b, d_p, 1));
+            CheckCublasError(hipblasDscal(handle_cublas, m, &b, d_p, 1));
 
-            CheckCublasError(cublasDaxpy(handle_cublas, m, &one, d_z, 1, d_p, 1));   
+            CheckCublasError(hipblasDaxpy(handle_cublas, m, &one, d_z, 1, d_p, 1));   
         }
         else {
-            CheckCublasError(cublasDcopy(handle_cublas, m, d_z, 1, d_p, 1));
+            CheckCublasError(hipblasDcopy(handle_cublas, m, d_z, 1, d_p, 1));
         }
         // temp = (A + M)*p = A*p + M*p
-        status = cusparseSpMV(handle, CUSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
-                              vecP, zero_d, vectemp, CUDA_R_64F, CUSPARSE_SPMV_ALG_DEFAULT, MVBuffer); // temp = A*p
-        add_submatrix_product<<<blocks, threads>>>(M, d_p, d_temp, msub, insertion_indices);           // temp += M*p
-        CheckCublasError(cublasDdot(handle_cublas, m, d_p, 1, d_temp, 1, &dot));
+        status = hipsparseSpMV(handle, HIPSPARSE_OPERATION_NON_TRANSPOSE, one_d, matA, 
+                              vecP, zero_d, vectemp, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, MVBuffer); // temp = A*p
+        hipLaunchKernelGGL(add_submatrix_product, blocks, threads, 0, 0, M, d_p, d_temp, msub, insertion_indices);           // temp += M*p
+        CheckCublasError(hipblasDdot(handle_cublas, m, d_p, 1, d_temp, 1, &dot));
         a = r1 / dot;
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &a, d_p, 1, d_y, 1));
+        CheckCublasError(hipblasDaxpy(handle_cublas, m, &a, d_p, 1, d_y, 1));
         na = -a;
-        CheckCublasError(cublasDaxpy(handle_cublas, m, &na, d_temp, 1, d_r, 1));
+        CheckCublasError(hipblasDaxpy(handle_cublas, m, &na, d_temp, 1, d_r, 1));
         // Mz = r
-        elementwise_vector_vector_tmp<<<blocks, threads>>>(
+        hipLaunchKernelGGL(elementwise_vector_vector_tmp, blocks, threads, 0, 0, 
             d_r,
             diagonal_inv_d,
             d_z,
             m
         ); 
         r0 = r1;
-        CheckCublasError(cublasDdot(handle_cublas, m, d_r, 1, d_z, 1, &r1));
-        // gpuErrchk(cudaStreamSynchronize(stream));
+        CheckCublasError(hipblasDdot(handle_cublas, m, d_r, 1, d_z, 1, &r1));
+        // gpuErrchk(hipStreamSynchronize(stream));
         k++;
     }
 
     double *h_y = (double *)calloc(m, sizeof(double));
-    gpuErrchk( cudaMemcpy(h_y, d_y, m * sizeof(double), cudaMemcpyDeviceToHost) );
+    gpuErrchk( hipMemcpy(h_y, d_y, m * sizeof(double), hipMemcpyDeviceToHost) );
     double sum = 0.0;
     for (int i = 0; i < m; i++){
         sum += 1e30*h_y[i]*h_y[i];
@@ -1198,18 +1199,18 @@ void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t 
     std::cout << "# CG split steps: " << k << "\n";
     std::cout << "solve_sparse_CG_splitmatrix residual: " << r1 << "\n";
 
-    cudaFree(MVBuffer); 
-    cudaFree(one_d);
-    cudaFree(n_one_d);
-    cudaFree(zero_d);
-    cudaFree(d_r);
-    cudaFree(d_p);
-    cudaFree(d_temp);
-    cudaFree(d_z);
+    hipFree(MVBuffer); 
+    hipFree(one_d);
+    hipFree(n_one_d);
+    hipFree(zero_d);
+    hipFree(d_r);
+    hipFree(d_p);
+    hipFree(d_temp);
+    hipFree(d_z);
 
     // // check solution vector
     // double *copy_back = (double *)calloc(m, sizeof(double));
-    // gpuErrchk( cudaMemcpy(copy_back, d_y, m * sizeof(double), cudaMemcpyDeviceToHost) );
+    // gpuErrchk( hipMemcpy(copy_back, d_y, m * sizeof(double), hipMemcpyDeviceToHost) );
     // for (int i = 0; i < m; i++){
     //     std::cout << copy_back[i] << " ";
     // }
@@ -1373,31 +1374,31 @@ void indices_creation_gpu(
     int blocks = (matrix_size + threads - 1) / threads;
 
     int *nnz_per_row_d;
-    gpuErrchk( cudaMalloc((void **)row_ptr_d, (matrix_size + 1) * sizeof(int)) );
-    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
-    gpuErrchk(cudaMemset((*row_ptr_d), 0, (matrix_size + 1) * sizeof(int)) );
+    gpuErrchk( hipMalloc((void **)row_ptr_d, (matrix_size + 1) * sizeof(int)) );
+    gpuErrchk( hipMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
+    gpuErrchk(hipMemset((*row_ptr_d), 0, (matrix_size + 1) * sizeof(int)) );
 
     // calculate the nnz per row
-    calc_nnz_per_row_gpu<<<blocks, threads>>>(posx_d, posy_d, posz_d, lattice_d, pbc, cutoff_radius, matrix_size, nnz_per_row_d);
+    hipLaunchKernelGGL(calc_nnz_per_row_gpu, blocks, threads, 0, 0, posx_d, posy_d, posz_d, lattice_d, pbc, cutoff_radius, matrix_size, nnz_per_row_d);
 
     void     *temp_storage_d = NULL;
     size_t   temp_storage_bytes = 0;
     // determines temporary device storage requirements for inclusive prefix sum
-    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+    hipcub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
 
     // Allocate temporary storage for inclusive prefix sum
-    gpuErrchk(cudaMalloc(&temp_storage_d, temp_storage_bytes));
+    gpuErrchk(hipMalloc(&temp_storage_d, temp_storage_bytes));
     // Run inclusive prefix sum
     // inclusive sum starting at second value to get the row ptr
     // which is the same as inclusive sum starting at first value and last value filled with nnz
-    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
+    hipcub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*row_ptr_d)+1, matrix_size);
     
     // nnz is the same as (*row_ptr_d)[matrix_size]
-    gpuErrchk( cudaMemcpy(nnz, (*row_ptr_d) + matrix_size, sizeof(int), cudaMemcpyDeviceToHost) );
-    gpuErrchk( cudaMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
+    gpuErrchk( hipMemcpy(nnz, (*row_ptr_d) + matrix_size, sizeof(int), hipMemcpyDeviceToHost) );
+    gpuErrchk( hipMalloc((void **)col_indices_d, nnz[0] * sizeof(int)) );
 
     // assemble the indices of K
-    assemble_K_indices_gpu<<<blocks, threads>>>(
+    hipLaunchKernelGGL(assemble_K_indices_gpu, blocks, threads, 0, 0, 
         posx_d, posy_d, posz_d,
         lattice_d, pbc,
         cutoff_radius,
@@ -1407,8 +1408,8 @@ void indices_creation_gpu(
         (*col_indices_d)
     );
 
-    cudaFree(temp_storage_d);
-    cudaFree(nnz_per_row_d);
+    hipFree(temp_storage_d);
+    hipFree(nnz_per_row_d);
 }
 
 __global__ void assemble_X_indices_gpu(const double *posx_d, const double *posy_d, const double *posz_d,
@@ -2122,61 +2123,61 @@ __global__ void populate_sparse_X_gpu2(const double *posx_d, const double *posy_
 
 
 // Function to convert dense matrix to CSR format using cuSPARSE
-void denseToCSR(cusparseHandle_t handle, double* d_dense, int num_rows, int num_cols,
+void denseToCSR(hipsparseHandle_t handle, double* d_dense, int num_rows, int num_cols,
                 double** d_csr_values, int** d_csr_offsets, int** d_csr_columns, int* total_nnz)
 {
-    cusparseSpMatDescr_t matB;
-    cusparseDnMatDescr_t matA;
+    hipsparseSpMatDescr_t matB;
+    hipsparseDnMatDescr_t matA;
     void*                dBuffer    = NULL;
     size_t               bufferSize = 0;
     int                          ld = num_cols;
 
     // Create dense matrix A
-    cusparseCreateDnMat(&matA, num_rows, num_cols, ld, d_dense,
-                        CUDA_R_64F, CUSPARSE_ORDER_ROW);
+    hipsparseCreateDnMat(&matA, num_rows, num_cols, ld, d_dense,
+                        HIP_R_64F, HIPSPARSE_ORDER_ROW);
 
     // Create sparse matrix B in CSR format
-    cusparseCreateCsr(&matB, num_rows, num_cols, 0,
+    hipsparseCreateCsr(&matB, num_rows, num_cols, 0,
                       *d_csr_offsets, NULL, NULL,
-                      CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I,
-                      CUSPARSE_INDEX_BASE_ZERO, CUDA_R_64F);
+                      HIPSPARSE_INDEX_32I, HIPSPARSE_INDEX_32I,
+                      HIPSPARSE_INDEX_BASE_ZERO, HIP_R_64F);
 
     // allocate an external buffer if needed
-    cusparseDenseToSparse_bufferSize(handle, matA, matB,
-                                     CUSPARSE_DENSETOSPARSE_ALG_DEFAULT,
+    hipsparseDenseToSparse_bufferSize(handle, matA, matB,
+                                     HIPSPARSE_DENSETOSPARSE_ALG_DEFAULT,
                                      &bufferSize);
-    cudaMalloc(&dBuffer, bufferSize);
+    hipMalloc(&dBuffer, bufferSize);
 
     // execute Sparse to Dense conversion
-    cusparseDenseToSparse_analysis(handle, matA, matB,
-                                   CUSPARSE_DENSETOSPARSE_ALG_DEFAULT,
+    hipsparseDenseToSparse_analysis(handle, matA, matB,
+                                   HIPSPARSE_DENSETOSPARSE_ALG_DEFAULT,
                                    dBuffer);
                             
     // get number of non-zero elements
     int64_t num_rows_tmp, num_cols_tmp, nnz;
-    cusparseSpMatGetSize(matB, &num_rows_tmp, &num_cols_tmp, &nnz); 
+    hipsparseSpMatGetSize(matB, &num_rows_tmp, &num_cols_tmp, &nnz); 
     *total_nnz = static_cast<int>(nnz);
 
     // allocate CSR column indices and values
-    cudaMalloc((void**) d_csr_columns, nnz * sizeof(int));
-    cudaMalloc((void**) d_csr_values,  nnz * sizeof(double));
+    hipMalloc((void**) d_csr_columns, nnz * sizeof(int));
+    hipMalloc((void**) d_csr_values,  nnz * sizeof(double));
 
     // reset offsets, column indices, and values pointers
-    cusparseStatus_t status = cusparseCsrSetPointers(matB, *d_csr_offsets, *d_csr_columns, *d_csr_values);
-    if (status != CUSPARSE_STATUS_SUCCESS)
+    hipsparseStatus_t status = hipsparseCsrSetPointers(matB, *d_csr_offsets, *d_csr_columns, *d_csr_values);
+    if (status != HIPSPARSE_STATUS_SUCCESS)
     {
-        std::cerr << "cusparseCsrSetPointers failed." << std::endl;
+        std::cerr << "hipsparseCsrSetPointers failed." << std::endl;
         return;
     }
 
     // execute Sparse to Dense conversion
-    cusparseDenseToSparse_convert(handle, matA, matB,
-                                  CUSPARSE_DENSETOSPARSE_ALG_DEFAULT,
+    hipsparseDenseToSparse_convert(handle, matA, matB,
+                                  HIPSPARSE_DENSETOSPARSE_ALG_DEFAULT,
                                   dBuffer);
 
     // destroy matrix/vector descriptors
-    cusparseDestroyDnMat(matA);
-    cusparseDestroySpMat(matB);
+    hipsparseDestroyDnMat(matA);
+    hipsparseDestroySpMat(matB);
 }
 
 
@@ -2196,22 +2197,22 @@ void Assemble_X_sparsity(int Natom, const double *posx, const double *posy, cons
 
     // Compute the number of nonzeros per row of the matrix (Nsub x Nsub)
     int *nnz_per_row_d;
-    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
-    gpuErrchk( cudaMemset(nnz_per_row_d, 0, matrix_size * sizeof(int)) );
+    gpuErrchk( hipMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
+    gpuErrchk( hipMemset(nnz_per_row_d, 0, matrix_size * sizeof(int)) );
 
     int threads = 512;
     int blocks = (matrix_size + threads - 1) / threads;
-    calc_nnz_per_row_X_gpu<<<blocks, threads>>>(posx, posy, posz,
+    hipLaunchKernelGGL(calc_nnz_per_row_X_gpu, blocks, threads, 0, 0, posx, posy, posz,
                          metals, element, atom_charge, atom_CB_edge,
                          lattice, pbc, nn_dist, tol,
                          num_source_inj, num_ground_ext, num_layers_contact,
                          num_metals, matrix_size, nnz_per_row_d);
-    gpuErrchk( cudaPeekAtLastError() );
-    cudaDeviceSynchronize();
+    gpuErrchk( hipPeekAtLastError() );
+    hipDeviceSynchronize();
 
     // debug
     // int *nnz_per_row_h = new int[matrix_size];
-    // gpuErrchk(cudaMemcpy(nnz_per_row_h, nnz_per_row_d, matrix_size * sizeof(int), cudaMemcpyDeviceToHost));
+    // gpuErrchk(hipMemcpy(nnz_per_row_h, nnz_per_row_d, matrix_size * sizeof(int), hipMemcpyDeviceToHost));
     // int total_nnz = 0;
     // for (int i = 0; i < matrix_size; ++i) {
     //     total_nnz += nnz_per_row_h[i];
@@ -2219,20 +2220,20 @@ void Assemble_X_sparsity(int Natom, const double *posx, const double *posy, cons
     // }
 
     // Set the row pointers according to the cumulative sum of the nnz per row (total nnz is the last element of the row pointer)
-    gpuErrchk( cudaMalloc((void **)X_row_ptr, (matrix_size + 1 - 1) * sizeof(int)) );   // subtract 1 to ignore the ground node
-    gpuErrchk( cudaMemset((*X_row_ptr), 0, (matrix_size + 1 - 1) * sizeof(int)) );      // subtract 1 to ignore the ground node
+    gpuErrchk( hipMalloc((void **)X_row_ptr, (matrix_size + 1 - 1) * sizeof(int)) );   // subtract 1 to ignore the ground node
+    gpuErrchk( hipMemset((*X_row_ptr), 0, (matrix_size + 1 - 1) * sizeof(int)) );      // subtract 1 to ignore the ground node
 
     void     *temp_storage_d = NULL;                                                    // determines temporary device storage requirements for inclusive prefix sum
     size_t   temp_storage_bytes = 0;
-    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*X_row_ptr)+1, matrix_size - 1); // subtract 1 to ignore the ground node
-    gpuErrchk( cudaMalloc(&temp_storage_d, temp_storage_bytes) );                             // inclusive sum starting at second value to get the row ptr, which is the same as inclusive sum starting at first value and last value filled with nnz
-    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*X_row_ptr)+1, matrix_size - 1);
-    gpuErrchk( cudaMemcpy(X_nnz, (*X_row_ptr) + matrix_size - 1, sizeof(int), cudaMemcpyDeviceToHost) );
+    hipcub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*X_row_ptr)+1, matrix_size - 1); // subtract 1 to ignore the ground node
+    gpuErrchk( hipMalloc(&temp_storage_d, temp_storage_bytes) );                             // inclusive sum starting at second value to get the row ptr, which is the same as inclusive sum starting at first value and last value filled with nnz
+    hipcub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*X_row_ptr)+1, matrix_size - 1);
+    gpuErrchk( hipMemcpy(X_nnz, (*X_row_ptr) + matrix_size - 1, sizeof(int), hipMemcpyDeviceToHost) );
     // std::cout << "\nsparse nnz: " << *X_nnz << std::endl;
 
     // assemble the column indices from 0 to Nsub (excluding the ground node)
-    gpuErrchk( cudaMalloc((void **)X_col_indices, X_nnz[0] * sizeof(int)) );
-    assemble_X_indices_gpu<<<blocks, threads>>>(posx, posy, posz,
+    gpuErrchk( hipMalloc((void **)X_col_indices, X_nnz[0] * sizeof(int)) );
+    hipLaunchKernelGGL(assemble_X_indices_gpu, blocks, threads, 0, 0, posx, posy, posz,
                          metals, element, atom_charge, atom_CB_edge,
                          lattice, pbc, nn_dist, tol,
                          num_source_inj, num_ground_ext, num_layers_contact,
@@ -2243,7 +2244,7 @@ void Assemble_X_sparsity(int Natom, const double *posx, const double *posy, cons
     // debug
     // std::ofstream fout2("col_sparse.txt");
     // int *X_col_indices_host = (int*)malloc(X_nnz[0] * sizeof(int));
-    // gpuErrchk(cudaMemcpy(X_col_indices_host, *X_col_indices, X_nnz[0] * sizeof(int), cudaMemcpyDeviceToHost));
+    // gpuErrchk(hipMemcpy(X_col_indices_host, *X_col_indices, X_nnz[0] * sizeof(int), hipMemcpyDeviceToHost));
     // int sum_of_indices = 0;
     // for (int i = 0; i < X_nnz[0]; i++) {
     //     sum_of_indices += X_col_indices_host[i];
@@ -2254,8 +2255,8 @@ void Assemble_X_sparsity(int Natom, const double *posx, const double *posy, cons
     // std::cout << "\nSum of all column indices sparse: " << sum_of_indices << std::endl;
     // debug
 
-    cudaFree(temp_storage_d);
-    cudaFree(nnz_per_row_d);
+    hipFree(temp_storage_d);
+    hipFree(nnz_per_row_d);
 
 }
 
@@ -2278,18 +2279,18 @@ void Assemble_X_sparsity2(int Natom, const double *posx, const double *posy, con
 
     // Compute the number of nonzeros per row of the matrix (Nsub x Nsub)
     int *nnz_per_row_d;
-    gpuErrchk( cudaMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
-    gpuErrchk( cudaMemset(nnz_per_row_d, 0, matrix_size * sizeof(int)) );
+    gpuErrchk( hipMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
+    gpuErrchk( hipMemset(nnz_per_row_d, 0, matrix_size * sizeof(int)) );
 
     int threads = 512;
     int blocks = (matrix_size + threads - 1) / threads;
-    calc_nnz_per_row_X_gpu<<<blocks, threads>>>(posx, posy, posz,
+    hipLaunchKernelGGL(calc_nnz_per_row_X_gpu, blocks, threads, 0, 0, posx, posy, posz,
                          metals, element, atom_charge, atom_CB_edge,
                          lattice, pbc, nn_dist, tol,
                          num_source_inj, num_ground_ext, num_layers_contact,
                          num_metals, matrix_size, nnz_per_row_d);
-    gpuErrchk( cudaPeekAtLastError() );
-    cudaDeviceSynchronize();
+    gpuErrchk( hipPeekAtLastError() );
+    hipDeviceSynchronize();
 
     // diagonal and 0/1 and connections to ground and source
     int nnz2 = 4 + num_source_inj + (matrix_size - Natom + num_ground_ext);
@@ -2297,22 +2298,22 @@ void Assemble_X_sparsity2(int Natom, const double *posx, const double *posy, con
 
 
     // Set the row pointers according to the cumulative sum of the nnz per row (total nnz is the last element of the row pointer)
-    gpuErrchk( cudaMalloc((void **)X_row_ptr, (matrix_size + 1 - 1) * sizeof(int)) );   // subtract 1 to ignore the ground node
-    gpuErrchk( cudaMemset((*X_row_ptr), 0, (matrix_size + 1 - 1) * sizeof(int)) );      // subtract 1 to ignore the ground node
+    gpuErrchk( hipMalloc((void **)X_row_ptr, (matrix_size + 1 - 1) * sizeof(int)) );   // subtract 1 to ignore the ground node
+    gpuErrchk( hipMemset((*X_row_ptr), 0, (matrix_size + 1 - 1) * sizeof(int)) );      // subtract 1 to ignore the ground node
 
     void     *temp_storage_d = NULL;                                                    // determines temporary device storage requirements for inclusive prefix sum
     size_t   temp_storage_bytes = 0;
-    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*X_row_ptr)+1, matrix_size - 1); // subtract 1 to ignore the ground node
-    gpuErrchk( cudaMalloc(&temp_storage_d, temp_storage_bytes) );                             // inclusive sum starting at second value to get the row ptr, which is the same as inclusive sum starting at first value and last value filled with nnz
-    cub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*X_row_ptr)+1, matrix_size - 1);
-    gpuErrchk( cudaMemcpy(X_nnz, (*X_row_ptr) + matrix_size - 1, sizeof(int), cudaMemcpyDeviceToHost) );
+    hipcub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*X_row_ptr)+1, matrix_size - 1); // subtract 1 to ignore the ground node
+    gpuErrchk( hipMalloc(&temp_storage_d, temp_storage_bytes) );                             // inclusive sum starting at second value to get the row ptr, which is the same as inclusive sum starting at first value and last value filled with nnz
+    hipcub::DeviceScan::InclusiveSum(temp_storage_d, temp_storage_bytes, nnz_per_row_d, (*X_row_ptr)+1, matrix_size - 1);
+    gpuErrchk( hipMemcpy(X_nnz, (*X_row_ptr) + matrix_size - 1, sizeof(int), hipMemcpyDeviceToHost) );
     std::cout << "\nsparse nnz: " << *X_nnz << std::endl;
 
 
 
     // assemble the column indices from 0 to Nsub (excluding the ground node)
-    gpuErrchk( cudaMalloc((void **)X_col_indices, X_nnz[0] * sizeof(int)) );
-    assemble_X_indices_gpu<<<blocks, threads>>>(posx, posy, posz,
+    gpuErrchk( hipMalloc((void **)X_col_indices, X_nnz[0] * sizeof(int)) );
+    hipLaunchKernelGGL(assemble_X_indices_gpu, blocks, threads, 0, 0, posx, posy, posz,
                          metals, element, atom_charge, atom_CB_edge,
                          lattice, pbc, nn_dist, tol,
                          num_source_inj, num_ground_ext, num_layers_contact,
@@ -2320,8 +2321,8 @@ void Assemble_X_sparsity2(int Natom, const double *posx, const double *posy, con
                         (*X_row_ptr),
                         (*X_col_indices));
 
-    cudaFree(temp_storage_d);
-    cudaFree(nnz_per_row_d);
+    hipFree(temp_storage_d);
+    hipFree(nnz_per_row_d);
 
 }
 
@@ -2365,23 +2366,23 @@ void Assemble_X(int Natom, const double *posx, const double *posy, const double 
     int blocks = (Nfull + threads - 1) / threads;
 
     // allocate the data array and initialize it to zeros
-    gpuErrchk(cudaMalloc((void **)X_data, X_nnz[0] * sizeof(double)));
-    gpuErrchk(cudaMemset((*X_data), 0, X_nnz[0] * sizeof(double)));
+    gpuErrchk(hipMalloc((void **)X_data, X_nnz[0] * sizeof(double)));
+    gpuErrchk(hipMemset((*X_data), 0, X_nnz[0] * sizeof(double)));
 
     // assemble the off-diagonal values of X
-    populate_sparse_X_gpu<<<blocks, threads>>>(posx, posy, posz,
+    hipLaunchKernelGGL(populate_sparse_X_gpu, blocks, threads, 0, 0, posx, posy, posz,
                                                metals, element, atom_charge, atom_CB_edge,
                                                lattice, pbc, nn_dist, tol, high_G, low_G, loop_G,
                                                Vd, m_e, V0,
                                                num_source_inj, num_ground_ext, num_layers_contact,
                                                num_metals, Nfull, *X_row_ptr, *X_col_indices, *X_data);
-    gpuErrchk( cudaPeekAtLastError() );
-    // gpuErrchk( cudaDeviceSynchronize() );
+    gpuErrchk( hipPeekAtLastError() );
+    // gpuErrchk( hipDeviceSynchronize() );
 
     // add the off diagonals onto the diagonal
-    calc_diagonal_X_gpu<<<blocks, threads>>>(*X_col_indices, *X_row_ptr, *X_data, Nfull);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
+    hipLaunchKernelGGL(calc_diagonal_X_gpu, blocks, threads, 0, 0, *X_col_indices, *X_row_ptr, *X_data, Nfull);
+    gpuErrchk( hipPeekAtLastError() );
+    gpuErrchk( hipDeviceSynchronize() );
 
 }
 
@@ -2403,19 +2404,19 @@ void Assemble_X2(int Natom, const double *posx, const double *posy, const double
     int blocks = (Nfull + threads - 1) / threads;
 
     // allocate the data array and initialize it to zeros
-    gpuErrchk(cudaMalloc((void **)X_data, X_nnz[0] * sizeof(double)));
-    gpuErrchk(cudaMemset((*X_data), 0, X_nnz[0] * sizeof(double)));
+    gpuErrchk(hipMalloc((void **)X_data, X_nnz[0] * sizeof(double)));
+    gpuErrchk(hipMemset((*X_data), 0, X_nnz[0] * sizeof(double)));
 
 
     // assemble the off-diagonal values of X
-    populate_sparse_X_gpu2<<<blocks2, threads2>>>(posx, posy, posz,
+    hipLaunchKernelGGL(populate_sparse_X_gpu2, blocks2, threads2, 0, 0, posx, posy, posz,
                                                metals, element, atom_charge, atom_CB_edge,
                                                lattice, pbc, nn_dist, tol, high_G, low_G, loop_G,
                                                Vd, m_e, V0,
                                                num_source_inj, num_ground_ext, num_layers_contact,
                                                num_metals, Nfull, *X_row_indices, *X_col_indices, *X_data, X_nnz[0]);
-    gpuErrchk( cudaPeekAtLastError() );
-    // populate_sparse_X_gpu<<<blocks, threads>>>(posx, posy, posz,
+    gpuErrchk( hipPeekAtLastError() );
+    // hipLaunchKernelGGL(populate_sparse_X_gpu, blocks, threads, 0, 0, posx, posy, posz,
     //                                            metals, element, atom_charge, atom_CB_edge,
     //                                            lattice, pbc, nn_dist, tol, high_G, low_G, loop_G,
     //                                            Vd, m_e, V0,
@@ -2423,12 +2424,12 @@ void Assemble_X2(int Natom, const double *posx, const double *posy, const double
     //                                            num_metals, Nfull, *X_row_ptr, *X_col_indices, *X_data);
 
     
-    // gpuErrchk( cudaDeviceSynchronize() );
+    // gpuErrchk( hipDeviceSynchronize() );
 
     // add the off diagonals onto the diagonal
-    calc_diagonal_X_gpu<<<blocks, threads>>>(*X_col_indices, *X_row_ptr, *X_data, Nfull);
-    gpuErrchk( cudaPeekAtLastError() );
-    gpuErrchk( cudaDeviceSynchronize() );
+    hipLaunchKernelGGL(calc_diagonal_X_gpu, blocks, threads, 0, 0, *X_col_indices, *X_row_ptr, *X_data, Nfull);
+    gpuErrchk( hipPeekAtLastError() );
+    gpuErrchk( hipDeviceSynchronize() );
 
 }
 

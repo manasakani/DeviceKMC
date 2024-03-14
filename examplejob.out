@@ -1,0 +1,182 @@
+Setting GPUs...
+Rank 0 will use GPU 0
+Setting GPUs...
+Rank 1 will use GPU 0
+Setting GPUs...
+Rank 4 will use GPU 0
+Setting GPUs...
+Rank 6 will use GPU 0
+Setting GPUs...
+Rank 3 will use GPU 0
+Setting GPUs...
+Rank 2 will use GPU 0
+Setting GPUs...
+Rank 5 will use GPU 0
+Setting GPUs...
+Rank 7 will use GPU 0
+Number of OMP threads: 1
+Time to build neighbor list: 0.501154
+Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
+100 oxygen atoms will be converted to vacancies
+Constructing device...
+Re-Building the neighbor list on GPU - max_num_neighbors is known!
+Max number of sites within cutoff: 2613
+Time to build neighbor list: 0.503212
+Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
+100 oxygen atoms will be converted to vacancies
+Time to build neighbor list: 0.504127
+Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
+100 oxygen atoms will be converted to vacancies
+Time to build neighbor list: 0.503824
+Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
+100 oxygen atoms will be converted to vacancies
+Time to build neighbor list: 0.504061
+Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
+100 oxygen atoms will be converted to vacancies
+Time to build neighbor list: 0.506266
+Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
+100 oxygen atoms will be converted to vacancies
+Time to build neighbor list: 0.513096
+Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
+100 oxygen atoms will be converted to vacancies
+Time to build neighbor list: 0.514548
+Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
+100 oxygen atoms will be converted to vacancies
+Constructing distributed vector
+Constructing distributed vector
+Done constructing distributed vector
+Constructing distributed vector
+Done constructing distributed vector
+Done constructing distributed vector
+Constructing distributed vector
+Done constructing distributed vector
+Constructing distributed vector
+Constructing distributed vector
+Done constructing distributed vector
+Done constructing distributed vector
+Constructing distributed vector
+Done constructing distributed vector
+Constructing distributed vector
+Done constructing distributed vector
+updating boundary potential
+going to background_potential_gpu_sparse
+assembling matrix data
+updating boundary potential
+going to background_potential_gpu_sparse
+assembling matrix data
+updating boundary potential
+going to background_potential_gpu_sparse
+assembling matrix data
+updating boundary potential
+going to background_potential_gpu_sparse
+assembling matrix data
+updating boundary potential
+going to background_potential_gpu_sparse
+assembling matrix data
+updating boundary potential
+going to background_potential_gpu_sparse
+assembling matrix data
+updating boundary potential
+going to background_potential_gpu_sparse
+assembling matrix data
+next
+1
+next
+1
+next
+1
+next
+1
+updating boundary potential
+going to background_potential_gpu_sparse
+assembling matrix data
+next
+1
+next
+1
+2
+2
+2
+next
+1
+next
+2
+2
+getneighbor
+getneighbor
+getneighbor
+2
+2
+1
+getneighbor
+getneighbor
+memset
+memset
+memset
+getneighbor
+getneighbor
+2
+memset
+memset
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+memset
+memset
+getneighbor
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+getneighbor
+getneighbor
+getneighbor
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+memset
+getneighbor
+getneighbor
+memset
+memset
+memset
+memset
+getneighbor
+getneighbor
+calc_off_diagonal_dist
+memset
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+memset
+memset
+getneighbor
+calc_off_diagonal_dist
+done assembling matrix data
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+memset
+calc_off_diagonal_dist
+done assembling matrix data
+updating diagonals
+getneighbor
+getneighbor
+getneighbor
+getneighbor
+calc_off_diagonal_dist
+getneighbor
+updating diagonals
+memset
+memset
+memset
+memset
+getneighbor
+memset
+memset
+preparing rhs
+calc_off_diagonal_dist
+preparing rhs
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+calc_off_diagonal_dist
+going to K-CG
+going to K-CG

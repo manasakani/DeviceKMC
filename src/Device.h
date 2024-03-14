@@ -13,9 +13,7 @@
 #include <chrono>
 #include <iomanip>
 
-#ifdef USE_CUDA
-    #include "gpu_solvers.h"
-#endif
+#include "gpu_solvers.h"
 
 // #include <mpi.h>
 
@@ -153,22 +151,22 @@ private:
     //**************************************************
 
     // Solve the Laplace equation to get the CB edge along the device
-    public: void setLaplacePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, GPUBuffers gpubuf, 
+    public: void setLaplacePotential(hipblasHandle_t handle_cublas, hipsolverHandle_t handle_cusolver, GPUBuffers gpubuf, 
                                      KMCParameters &p, double Vd);
 
     // update the charge of each vacancy and ion
     public: std::map<std::string, double> updateCharge(GPUBuffers gpubuf, std::vector<ELEMENT> metals);
 
-    // update the potential of each site with a cpu/gpu hybrid scheme
-    public: std::map<std::string, double> updatePotential_hybrid(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, 
-                                                                         GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count);
+    // // update the potential of each site with a cpu/gpu hybrid scheme
+    // public: std::map<std::string, double> updatePotential_hybrid(hipblasHandle_t handle_cublas, hipsolverHandle_t handle_cusolver, 
+    //                                                                      GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count);
 
     // update the potential of each site
-    public: std::map<std::string, double> updatePotential(cublasHandle_t handle_cublas, cusolverDnHandle_t handle_cusolver, 
+    public: std::map<std::string, double> updatePotential(hipblasHandle_t handle_cublas, hipsolverHandle_t handle_cusolver, 
                                                           GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count);
     
     // resistive-network solver for the background potential
-    private: void background_potential(cusolverDnHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
+    private: void background_potential(hipsolverHandle_t handle, int num_atoms_contact, double Vd, std::vector<double> lattice,
                                        double G_coeff, double high_G, double low_G, std::vector<ELEMENT> metals, int kmc_step_num);
 
     // n-body poisson solver for the charged atoms - distance computations for cutoff_idx
@@ -183,7 +181,7 @@ private:
     //*********************************************
 
     // update the power of each site
-    public: std::map<std::string, double> updatePower(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, KMCParameters &p, double Vd);
+    public: std::map<std::string, double> updatePower(hipblasHandle_t handle, hipsolverHandle_t handle_cusolver, GPUBuffers &gpubuf, KMCParameters &p, double Vd);
 
 
     //****************************************

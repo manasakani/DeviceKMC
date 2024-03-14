@@ -38,6 +38,8 @@ def main():
 
     # read the large sparse matrix
     csr_matrix_data = read_csr_matrix(folder_path, step)
+    visualize_and_save_sparsity(csr_matrix_data, folder_path, step)
+    vgkv
 
     # Convert the sparse matrix to a dense matrix
     dense_matrix = csr_matrix_data.toarray()

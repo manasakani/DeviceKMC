@@ -14,11 +14,11 @@
 #include <math.h>
 #include <omp.h>
 
-#include <cuda_runtime.h>
-#include <cublas_v2.h>
-#include <cusolverDn.h>
-#include <cusolverSp.h>
-#include <cusparse_v2.h>
+#include <hip/hip_runtime.h>
+#include <hipblas.h>
+// #include <cusolverDn.h>
+#include <hipsolver.h>
+#include <hipsparse.h>
 
 #define print(x) std::cout << x << std::endl
 
@@ -127,15 +127,15 @@ void translate_cell(std::vector<double> &x, std::vector<double> &y, std::vector<
 void save_CSR_format(const double* K, int N_left_tot, int N_right_tot, int N, const std::string& filename);
 
 // CUDA/cuBLAS/CuSolver
-void CheckCublasError(cublasStatus_t const& status);
-void CheckCusolverDnError(cusolverStatus_t const &status);
-cublasHandle_t CreateCublasHandle(int device);
-void CreateCublasHandle(cublasHandle_t handle, int device);
-cusolverDnHandle_t CreateCusolverDnHandle(int device);
-void CreateCusolverDnHandle(cusolverDnHandle_t handle, int device);
+void CheckCublasError(hipblasStatus_t const& status);
+void CheckCusolverDnError(hipsolverStatus_t const &status);
+hipblasHandle_t CreateCublasHandle(int device);
+void CreateCublasHandle(hipblasHandle_t handle, int device);
+hipsolverDnHandle_t CreateCusolverDnHandle(int device);
+void CreateCusolverDnHandle(hipsolverDnHandle_t handle, int device);
 
 // GEMM
-void gemm(cublasHandle_t handle, char *transa, char *transb, int *m, int *n, int *k, double *alpha, double *A, int *lda, double *B, int *ldb, double *beta, double *C, int *ldc);
+void gemm(hipblasHandle_t handle, char *transa, char *transb, int *m, int *n, int *k, double *alpha, double *A, int *lda, double *B, int *ldb, double *beta, double *C, int *ldc);
 
 // GESV (by LU decomposition)
 void gesv(int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb, int *info);
@@ -143,11 +143,11 @@ void gesv(int *N, int *nrhs, double *A, int *lda, int *ipiv, double *B, int *ldb
 // error checking for CUDA calls
 // #ifdef USE_CUDA
 #define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
-inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+inline void gpuAssert(hipError_t code, const char *file, int line, bool abort=true)
 {
-   if (code != cudaSuccess) 
+   if (code != hipSuccess) 
    {
-      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+      fprintf(stderr,"GPUassert: %s %s %d\n", hipGetErrorString(code), file, line);
       exit(1);
     //   if (abort) exit(code);
    }

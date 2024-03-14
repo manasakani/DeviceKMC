@@ -1,3 +1,4 @@
+#include "hip/hip_runtime.h"
 #pragma once
 
 #include "utils.h"
@@ -12,23 +13,27 @@
 #include <stdio.h>
 #include <vector>
 #include <cassert>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 #include <cmath>
 #include <math.h>
 #include <chrono>
 
 #include <thrust/reduce.h>
-#include <thrust/extrema.h>
-#include <thrust/binary_search.h>
-#include <thrust/device_ptr.h>
-#include <thrust/scan.h>
-#include <thrust/copy.h>
-#include <thrust/execution_policy.h>
+#include <rocprim/rocprim.hpp>
+#include <hipcub/hipcub.hpp>
+// #include <thrust/extrema.h>
+// #include <thrust/binary_search.h>
+// #include <thrust/device_ptr.h>
+// #include <thrust/scan.h>
+// #include <thrust/copy.h>
+// #include <thrust/execution_policy.h>
 #include <thrust/sequence.h>
-#include <thrust/device_vector.h>
-#include <thrust/fill.h>
+// #include <thrust/device_vector.h>
+// #include <thrust/fill.h>
 #include <thrust/transform.h>
-#include <cusparse_v2.h>
+#include <hipsparse.h>
+#include <hipsolver.h>
+#include <hipblas.h>
 
 #include "../dist_iterative/dist_conjugate_gradient.h"
 #include "../dist_iterative/dist_spmv.h"
@@ -62,27 +67,27 @@ void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRo
 void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices, double* d_csrValues, int kmc_step_count);
 
 // convert dense matrix to CSR representation
-void denseToCSR(cusparseHandle_t handle, double* d_dense, int num_rows, int num_cols,
+void denseToCSR(hipsparseHandle_t handle, double* d_dense, int num_rows, int num_cols,
                 double** d_csr_values, int** d_csr_offsets, int** d_csr_columns, int* total_nnz);
 
-// Solution of A*x = y on sparse representation of A using cusolver in host pointer mode
-void sparse_system_solve(cusolverSpHandle_t handle, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal,
-                         int nnz, int m, double *d_x, double *d_y);
+// // Solution of A*x = y on sparse representation of A using cusolver in host pointer mode
+// void sparse_system_solve(hipsolverHandle_t handle, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal,
+//                          int nnz, int m, double *d_x, double *d_y);
 
 // Iterative sparse linear solver using CG steps
-void solve_sparse_CG(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+void solve_sparse_CG(hipblasHandle_t handle_cublas, hipsparseHandle_t handle, 
 					 double* A_data, int* A_row_ptr, int* A_col_indices, const int A_nnz, 
                      int m, double *d_x, double *d_y);
 
 // Iterative sparse linear solver using CG steps on matrix represented in mixed sparse/dense format 
 // the insertion indices specify the correspondence between the (dense) submatrix rows/cols and the (sparse) full matrix rows/cols
-void solve_sparse_CG_splitmatrix(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+void solve_sparse_CG_splitmatrix(hipblasHandle_t handle_cublas, hipsparseHandle_t handle, 
                                  double* M, int msub, double* A_data, int* A_row_ptr, int* A_col_indices, const int A_nnz, 
                                  int m, int *insertion_indices, double *d_x, double *d_y,
                                  double *diagonal_inv_d);
 
 // Iterative sparse linear solver using CG steps and Jacobi preconditioner
-void solve_sparse_CG_Jacobi(cublasHandle_t handle_cublas, cusparseHandle_t handle, 
+void solve_sparse_CG_Jacobi(hipblasHandle_t handle_cublas, hipsparseHandle_t handle, 
                             double* A_data, int* A_row_ptr, int* A_col_indices,  
                             const int A_nnz, int m, double *d_x, double *d_y);
 
@@ -132,7 +137,7 @@ void set_gpu(int dev);
 //*****************************************************
 
 // Solve the Laplace equation to get the CB edge along the device
-void update_CB_edge_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle, GPUBuffers &gpubuf,
+void update_CB_edge_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnHandle_t handle, GPUBuffers &gpubuf,
                                const int N, const int N_left_tot, const int N_right_tot,
                                const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist, 
                                const int num_metals);
@@ -145,12 +150,18 @@ void update_charge_gpu(ELEMENT *gpu_site_element,
 
 // Updates the site-resolved potential (gpubuf.site_potential) using a resistive network model 
 // dense matrix with LU solver
-void background_potential_gpu(cusolverDnHandle_t handle, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
+void background_potential_gpu(hipsolverDnHandle_t handle, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count);
 
 // sparse matrix with iterative solver
-void background_potential_gpu_sparse(cublasHandle_t handle_cublas, cusolverDnHandle_t handle, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
+void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnHandle_t handle, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
+                              const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
+                              const int num_metals, int kmc_step_count);
+
+
+// sparse matrix with iterative solver - not distributed
+void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsolverDnHandle_t handle, GPUBuffers &gpubuf, const int N, const int N_left_tot, const int N_right_tot,
                               const double d_Vd, const int pbc, const double d_high_G, const double d_low_G, const double nn_dist,
                               const int num_metals, int kmc_step_count);
 
@@ -172,7 +183,7 @@ void sum_and_gather_potential(GPUBuffers &gpubuf);
 // Updates the site-resolved dissipated power (gpubuf.site_power) using a graph-based current flow solver 
 
 // dense matrix with LU solver
-void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+void update_power_gpu(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
                       const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
                       const double Vd, const int pbc, 
                       const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
@@ -180,14 +191,14 @@ void update_power_gpu(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver,
                       const bool solve_heating_local, const bool solve_heating_global, const double alpha);
                     
 // sparse matrix with iterative solver
-void update_power_gpu_sparse(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+void update_power_gpu_sparse(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
                              const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
                              const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
                              const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
                              const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp);
 
 // mixed sparse neighbor matrix + dense tunneling submatrix
-void update_power_gpu_split(cublasHandle_t handle, cusolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+void update_power_gpu_split(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
                             const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
                             const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
                             const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
@@ -243,9 +254,7 @@ double execute_kmc_step_mpi2(
         ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
 
 // excluded for testing
-#ifndef COMPILE_WITH_TESTS
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff);
-#endif
 
 }
 
