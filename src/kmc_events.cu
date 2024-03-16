@@ -30,21 +30,21 @@ __constant__ double E_Odiff_const[MAX_NUM_LAYERS];
 
 void get_gpu_info(char *gpu_string, int dev) {
     hipDeviceProp_t dprop;
-    hipError_t hipStatus;
+    // hipError_t hipStatus;
 
-    hipStatus = hipSetDevice(dev);
-    if (hipStatus != hipSuccess) {
-        fprintf(stderr, "hipSetDevice failed! Error: %s\n", hipGetErrorString(hipStatus));
-        exit(EXIT_FAILURE);
-    }
+    // // hipStatus = hipSetDevice(dev);
+    // if (hipStatus != hipSuccess) {
+    //     fprintf(stderr, "hipSetDevice failed! Error: %s\n", hipGetErrorString(hipStatus));
+    //     exit(EXIT_FAILURE);
+    // }
 
     hipGetDeviceProperties(&dprop, dev);
     sprintf(gpu_string, "GPU %d", dev);
 }
 
-void set_gpu(int dev){
- hipSetDevice(dev);
-}
+// void set_gpu(int dev){
+//  hipSetDevice(dev);
+// }
 
 __global__ void build_event_list(const int N, const int nn, const int *neigh_idx, 
                                  const int *layer, const double *lattice, const int pbc, 
@@ -463,15 +463,21 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
         event_time = -log(rng.getRandomNumber()) / Psum_host;
     }
 
-
     std::cout << "Number of KMC events: " << event_counter << "\n";
     std::cout << "Event time: " << event_time << "\n";
 
     gpuErrchk( hipFree(event_prob_cum) );
     gpuErrchk( hipFree(event_type) );
     gpuErrchk( hipFree(event_prob) );
+    gpuErrchk( hipFree(two_d) );
+    gpuErrchk( hipFree(two_neg_d) );
+    gpuErrchk( hipFree(zero_d) );
+    gpuErrchk( hipFree(defect_element_d) );
+    gpuErrchk( hipFree(O_defect_element_d) );
+    gpuErrchk( hipFree(vacancy_element_d) );
+    gpuErrchk( hipFree(O_element_d) );
 
-    return event_time;    
+    return event_time;
 }
 
 double execute_kmc_step_mpi(
@@ -572,16 +578,13 @@ double execute_kmc_step_mpi(
     gpuErrchk( hipMalloc((void**)&charge_i_d, 1 * sizeof(int)) );
     gpuErrchk( hipMalloc((void**)&charge_j_d, 1 * sizeof(int)) );
 
-
     int ijevent_to_delete[3];
-
 
     double event_time = 0.0;
     int event_counter = 0;
 
     double *Psum_host;
     gpuErrchk(hipHostMalloc((void**)&Psum_host, 1 * sizeof(double)));
-
 
     double freq_h;
     gpuErrchk( hipMemcpy(&freq_h, freq, 1 * sizeof(double), hipMemcpyDeviceToHost) );
@@ -591,12 +594,14 @@ double execute_kmc_step_mpi(
         // get the cumulative sum of the probabilities
         thrust::inclusive_scan(thrust::device, event_prob_local_d, event_prob_local_d + count[rank] * nn, event_prob_cum_local_d);
 
-        
         // select an event
 
+        // allgather using host pointers:
         gpuErrchk( hipMemcpy(Psum_host, event_prob_cum_local_d + count[rank] * nn - 1, sizeof(double), hipMemcpyDeviceToHost) );
-        
         MPI_Allgather(Psum_host, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
+
+        // allgather using device pointers with cuda aware mpi
+        // MPI_Allgather(event_prob_cum_local_d + count[rank] * nn - 1, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
 
         for (int i = 1; i < size; i++){
             event_prob_cum_global_h[i] += event_prob_cum_global_h[i-1];
@@ -620,18 +625,13 @@ double execute_kmc_step_mpi(
             }
         
             int event_idx = thrust::upper_bound(thrust::device, event_prob_cum_local_d, event_prob_cum_local_d + count[rank] * nn, number) - event_prob_cum_local_d;
-            // std::cout << "selected event: " << event_idx << "\n";
-
-            
+            std::cout << "selected event: " << event_idx << "\n";
 
             // get attributes of the sites involved:
-            // i
+            // i, j, event_type
             ijevent_to_delete[0] = event_idx / nn + displs[rank];
-            // j
             gpuErrchk( hipMemcpy(&ijevent_to_delete[1], neigh_idx + displs[rank]*nn + event_idx , sizeof(int), hipMemcpyDeviceToHost) );
-            // event type
             gpuErrchk( hipMemcpy(&ijevent_to_delete[2], event_type_local_d + event_idx, sizeof(EVENTTYPE), hipMemcpyDeviceToHost) );
-
             MPI_Bcast(ijevent_to_delete, 3, MPI_INT, source_rank, comm);
         }
         else{
@@ -704,15 +704,23 @@ double execute_kmc_step_mpi(
         std::cout << "Event time: " << event_time << "\n";
     }
 
-
     gpuErrchk( hipFree(event_prob_cum_local_d) );
     gpuErrchk( hipFree(event_type_local_d) );
     gpuErrchk( hipFree(event_prob_local_d) );
     gpuErrchk(hipHostFree(event_prob_cum_global_h));
+    gpuErrchk(hipHostFree(Psum_host));
     gpuErrchk( hipFree(element_i_d) );
     gpuErrchk( hipFree(element_j_d) );
     gpuErrchk( hipFree(charge_i_d) );
     gpuErrchk( hipFree(charge_j_d) );
+    gpuErrchk( hipFree(two_d) );
+    gpuErrchk( hipFree(two_neg_d) );
+    gpuErrchk( hipFree(zero_d) );
+    gpuErrchk( hipFree(defect_element_d) );
+    gpuErrchk( hipFree(O_defect_element_d) );
+    gpuErrchk( hipFree(vacancy_element_d) );
+    gpuErrchk( hipFree(O_element_d) );
+
     return event_time;    
 }
 
@@ -958,133 +966,8 @@ double execute_kmc_step_mpi2(
 
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff)
 {
-    std::cout << "in copytoConstMemory - NOT hipified!\n";
-    // gpuErrchk( hipMemcpyToSymbol(HIP_SYMBOL(E_gen_const), E_gen.data(), E_gen.size() * sizeof(double)) );
-    // gpuErrchk( hipMemcpyToSymbol(HIP_SYMBOL(E_rec_const), E_rec.data(), E_rec.size() * sizeof(double)) );
-    // gpuErrchk( hipMemcpyToSymbol(HIP_SYMBOL(E_Vdiff_const), E_Vdiff.data(), E_Vdiff.size() * sizeof(double)) );
-    // gpuErrchk( hipMemcpyToSymbol(HIP_SYMBOL(E_Odiff_const), E_Odiff.data(), E_Odiff.size() * sizeof(double)) );
+    gpuErrchk( hipMemcpyToSymbol(HIP_SYMBOL(E_gen_const), E_gen.data(), E_gen.size() * sizeof(double)) );
+    gpuErrchk( hipMemcpyToSymbol(HIP_SYMBOL(E_rec_const), E_rec.data(), E_rec.size() * sizeof(double)) );
+    gpuErrchk( hipMemcpyToSymbol(HIP_SYMBOL(E_Vdiff_const), E_Vdiff.data(), E_Vdiff.size() * sizeof(double)) );
+    gpuErrchk( hipMemcpyToSymbol(HIP_SYMBOL(E_Odiff_const), E_Odiff.data(), E_Odiff.size() * sizeof(double)) );
 }
-
-// *** The Graveyard of Code ***
-
-    // dump A to file:
-    // dump_csr_matrix_txt(N_interface, A_nnz, A_row_ptr_d, A_col_indices_d, A_data_d, kmc_step_count);
-
-    // # if __CUDA_ARCH__>=200
-    // printf("%i \n", tid);
-    // #endif  
-
-    // // debug - use floor() for i
-    // std::vector<double> new_k(N * N);
-    // gpuErrchk( hipMemcpy(new_k.data(), gpu_k , N * N * sizeof(double), hipMemcpyDeviceToHost) );
-    // std::cout << "copied";
-    // std::ofstream fout("new_k.txt");
-    // for(int i = 0; i< N*N; i++){
-    //     if (new_k[i] != 0){
-    //         fout << new_k[i]; 
-    //         fout << ' ';
-    //     }
-    // }
-    // exit(1);
-
-    // // debug
-    // double *M = (double *)calloc(N, sizeof(double));
-    // gpuErrchk( hipMemcpy(M, gpubuf.site_potential, N * sizeof(double), hipMemcpyDeviceToHost) );
-    // std::cout << "copied\n";
-    // std::ofstream fout2("gpu_M.txt");
-    // for(int i = 0; i< N; i++){
-    //     if (M[i] != 0){
-    //         fout2 << M[i]; 
-    //         fout2 << ' ';
-    //     }
-    // }
-
-
-    // // ************************************************************
-    // // 1. Convert D matrix to sparse COO format using the COOElement struct
-    // int numNonZero = 0;
-
-    // COOElement* d_cooData;
-    // hipMalloc((void**)&d_cooData, N_interface * N_interface * sizeof(COOElement));
-
-    // int* d_numNonZero;
-    // hipMalloc((void**)&d_numNonZero, sizeof(int));
-    // hipMemcpy(d_numNonZero, &numNonZero, sizeof(int), hipMemcpyHostToDevice);
-
-    // int numThreadsPerBlock = 256;
-    // int numBlocks = (N_interface + numThreadsPerBlock - 1) / numThreadsPerBlock;
-    // hipLaunchKernelGGL(extractCOOData, numBlocks, numThreadsPerBlock, 0, 0, gpu_D, N_interface, d_cooData, d_numNonZero);
-    // gpuErrchk( hipPeekAtLastError() );
-    // gpuErrchk( hipDeviceSynchronize() );
-
-    // hipMemcpy(&numNonZero, d_numNonZero, sizeof(int), hipMemcpyDeviceToHost);
-    // std::cout << "number of nonzeros in COO rep: " << numNonZero << "\n";
-
-    // // ************************************************************
-    // // 2. Sort and filter the coordinates
-    // thrust::device_vector<COOElement> d_cooDataVec(d_cooData, d_cooData + numNonZero);
-    
-    // // Sort the COO data based on row-major order 
-    // thrust::sort(thrust::device, d_cooDataVec.begin(), d_cooDataVec.end(), [] __device__ (const COOElement& a, const COOElement& b) {
-    //     return a.row < b.row || (a.row == b.row && a.col < b.col);
-    // });
-
-    // // Remove duplicate entries 
-    // auto newEnd = thrust::unique(thrust::device, d_cooDataVec.begin(), d_cooDataVec.end(), [] __device__ (const COOElement& a, const COOElement& b) {
-    //     return a.row == b.row && a.col == b.col;
-    // });
-    // numNonZero = newEnd - d_cooDataVec.begin();
-
-    // // ************************************************************
-    // // 3. Extract CSR data from COO representation and nnz
-    // int* d_csrRowPtr;
-    // int* d_csrColIndices;
-    // double* d_csrValues;
-
-    // hipMalloc((void**)&d_csrRowPtr, (N_interface + 1) * sizeof(int));   // +1 for the row pointers
-    // hipMalloc((void**)&d_csrColIndices, numNonZero * sizeof(int));      // Allocate space for the maximum number of non-zero elements
-    // hipMalloc((void**)&d_csrValues, numNonZero * sizeof(double));       // Allocate space for the maximum number of non-zero elements
-    // hipMemset(d_csrRowPtr, 0, (N_interface + 1) * sizeof(int));
-    // gpuErrchk( hipDeviceSynchronize() );
-
-    // hipLaunchKernelGGL(extractCOOToCSR, numBlocks, numThreadsPerBlock, 0, 0, thrust::raw_pointer_cast(d_cooDataVec.data()), numNonZero, N_interface, d_csrRowPtr, d_csrColIndices, d_csrValues);
-    // gpuErrchk( hipPeekAtLastError() );
-    // gpuErrchk( hipDeviceSynchronize() );
-
-    // std::cout << "number of nonzeros in CSR rep: " << numNonZero << "\n";
-
-
-
-
-// //debug
-    // double *cpu_x = new double[(N_atom + 2) * (N_atom + 2)];
-    // hipMemcpy(cpu_x, gpu_x, sizeof(double) * (N_atom + 2) * (N_atom + 2), hipMemcpyDeviceToHost);
-    // std::cout << "printing X_gpu\n";
-    // std::ofstream fout2("X_gpu_noT.txt");
-    // int row, col;
-    // for (row = 0; row < (N_atom + 2); row++) {
-    // for (col = 0; col < (N_atom + 2); col++) {
-    //     fout2 << cpu_x[row * (N_atom + 2) + col] << ' ';
-    // }
-    // fout2 << '\n';
-    // }
-    // fout2.close(); 
-    // exit(1);
-    // //debug end
-
-
-    // // dense to sparse conversion:
-    // hipsparseHandle_t cusparseHandle;
-    // hipsparseCreate(&cusparseHandle);
-    // hipsparseSetPointerMode(cusparseHandle, HIPSPARSE_POINTER_MODE_DEVICE);
-    
-    // gpuErrchk( hipMemcpy2D(gpu_A, (N_atom + 1) * sizeof(double), gpu_x, (N_atom + 2) * sizeof(double), (N_atom + 1) * sizeof(double), (N_atom + 1), hipMemcpyDeviceToDevice) );
-    // int numRows = N_atom + 1;
-    // int numCols = N_atom + 1;
-    // double *csrValues;
-    // int *csrRowPtr;
-    // int *csrColInd;
-    // int nnz = 0;
-    // hipMalloc((void**) &csrRowPtr, (N_atom + 1 + 1) * sizeof(int));
-    // denseToCSR(cusparseHandle, gpu_A, numRows, numCols, &csrValues, &csrRowPtr, &csrColInd, &nnz);
-    // std::cout << "dense nnz: " << nnz << "\n";

@@ -20,9 +20,39 @@ Copyright 2023 ETH Zurich and the Computational Nanoelectronics Group. All right
 #include "gpu_buffers.h"
 #include "input_parser.h"
 
+#include "rocm_smi/rocm_smi.h"
+
 #ifdef USE_CUDA
 #include "gpu_solvers.h"
 #endif
+
+std::string getHipErrorString(hipError_t error) {
+    switch (error) {
+        case hipSuccess:
+            return "hipSuccess";
+        case hipErrorInvalidValue:
+            return "hipErrorInvalidValue";
+        case hipErrorOutOfMemory:
+            return "hipErrorOutOfMemory";
+        // Add more cases as needed
+        default:
+            return "Unknown HIP error";
+    }
+}
+
+std::string exec(const char* cmd) {
+    std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
+    if (!pipe) {
+        throw std::runtime_error("popen() failed!");
+    }
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
+
 
 int main(int argc, char **argv)
 {
@@ -36,18 +66,50 @@ int main(int argc, char **argv)
     MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
+     if (!mpi_rank) 
+            {
+                std::cout << "**************literally the beginning********************\n";
+                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
+                std::cout << rocm_smi_output;
+                std::cout << "**********************************\n";
+            }
+
     //***********************************
     // Setup accelerators (GPU)
     //***********************************
 
-    char gpu_string[1000];
-    // get_gpu_info(gpu_string, mpi_rank);
-    get_gpu_info(gpu_string, 0);
+    char* slurm_localid = getenv("SLURM_LOCALID");
+    int localid = -1;
+    if (slurm_localid != nullptr) {
+        localid = atoi(slurm_localid);
+        std::cout << "Rank " << mpi_rank << " has SLURM_LOCALID " << localid << std::endl;
+    } else {
+        std::cerr << "Rank " << mpi_rank << " cannot access SLURM_LOCALID" << std::endl;
+        exit(1);
+    }
 
-    // Manage bindings - TODO
-    MPI_Barrier(MPI_COMM_WORLD);
-    std::cout << "Setting GPUs..." << std::endl;
-    printf("Rank %i will use %s\n", mpi_rank, gpu_string);
+    char* rocr_visible_devices = getenv("ROCR_VISIBLE_DEVICES");
+    if (rocr_visible_devices != nullptr) {
+        std::cout << "Rank " << mpi_rank << " ROCR_VISIBLE_DEVICES: " << rocr_visible_devices << std::endl;
+    } else {
+        std::cerr << "Rank " << mpi_rank << " ROCR_VISIBLE_DEVICES not set" << std::endl;
+        exit(1);
+    }
+
+    hipError_t hipStatus;
+    int device_id = localid; 
+    hipStatus = hipSetDevice(device_id);
+
+    hipDeviceProp_t dprop;
+    hipGetDeviceProperties(&dprop, device_id);
+    if (hipStatus == hipSuccess)
+    {
+        std::cout << "Rank " << mpi_rank << " successfully set device " << device_id << std::endl;
+    } else {
+        std::cerr << "Rank " << mpi_rank << " failed to set device " << device_id << std::endl;
+        std::cerr << "Error: " << getHipErrorString(hipStatus) << std::endl;
+    }
+
     fflush(stdout);
     MPI_Barrier(MPI_COMM_WORLD);
 
@@ -60,6 +122,14 @@ int main(int argc, char **argv)
         std::cout << "Number of OMP threads: " << num_threads << std::endl;
     }
 }
+
+     if (!mpi_rank) 
+            {
+                std::cout << "**************pretty much the start********************\n";
+                std::string rocm_smi_output = exec("rocm-smi --showmeminfo all");
+                std::cout << rocm_smi_output;
+                std::cout << "**********************************\n";
+            }
 
     //***************************************
     // Parse inputs and setup output logging
@@ -102,6 +172,15 @@ int main(int argc, char **argv)
     std::cout << "Constructing device...\n"; 
     Device device(xyz_files, p);                                                    // contains the simulation domain and field solver functions
 
+    
+     if (!mpi_rank) 
+            {
+                std::cout << "**************constructed the device********************\n";
+                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
+                std::cout << rocm_smi_output;
+                std::cout << "**********************************\n";
+            }
+    
     if (p.solve_heating_local)                                                      // build the Laplacian to solve for the local temperature distribution
     {
         std::chrono::duration<double> diff_laplacian;
@@ -120,28 +199,71 @@ int main(int argc, char **argv)
     //******************************
     // Initialize the KMC Simulation
     //******************************
-
     KMCProcess sim(device, p.freq);                                                // stores the division of the device into KMC 'layers' with different EA
+
 
     //*****************************
     // Setup GPU memory management
     //*****************************
 
+    if (!mpi_rank) 
+            {
+                std::cout << "**************Before gpubuffers********************\n";
+                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
+                std::cout << rocm_smi_output;
+                std::cout << "**********************************\n";
+            }
+
 #ifdef USE_CUDA
     GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,                         
                       device.N, device.N_atom, device.site_x, device.site_y, device.site_z,
                       device.max_num_neighbors, device.sigma, device.k, 
-                      device.lattice, device.neigh_idx, device.cutoff_window, device.cutoff_idx, device.cutoff_dists, p.metals, p.metals.size(),
+                      device.lattice, device.neigh_idx, device.cutoff_window, device.cutoff_idx, p.metals, p.metals.size(),
                       MPI_COMM_WORLD, p.num_atoms_first_layer);
     gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
-    initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer);
+
+
+    if (!mpi_rank) 
+            {
+                std::cout << "*************After gpu buffers*********************\n";
+                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
+                std::cout << rocm_smi_output;
+                std::cout << "**********************************\n";
+            }
+
+
+    if (p.solve_potential || p.solve_current)
+    {
+        initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer);
+    }
+
+    if (!mpi_rank) 
+            {
+                std::cout << "*****************After initialize sparsity*****************\n";
+                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
+                std::cout << rocm_smi_output;
+                std::cout << "**********************************\n";
+            }
+
+    // make layer arrays and copy them to const memory
+    std::vector<double> E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host;
+    for (auto l : sim.layers){
+        E_gen_host.push_back(l.E_gen_0);
+        E_rec_host.push_back(l.E_rec_1);
+        E_Vdiff_host.push_back(l.E_diff_2); 
+        E_Odiff_host.push_back(l.E_diff_3);
+    }
+    int num_layers = sim.layers.size();
+    copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host); 
 #else
     GPUBuffers gpubuf;
 #endif
 
-    // Create CUDA library handles to pass into the gpu_Device functions
-    hipblasHandle_t handle = CreateCublasHandle(0);
-    hipsolverHandle_t handle_cusolver = CreateCusolverDnHandle(0);                                   
+    // Create hip library handles to pass into the gpu_Device functions
+    hipblasHandle_t handle;
+    hipblasCreate(&handle);
+    hipsolverHandle_t handle_cusolver;
+    hipsolverCreate(&handle_cusolver);                           
 
     // loop over V_switch and t_switch
     double Vd, t, kmc_time, step_time, I_macro, T_kmc, V_vcm;                                       // KMC loop variables
@@ -185,9 +307,15 @@ int main(int argc, char **argv)
         // **** Update fields and execute events on structure *****
         // ********************************************************
 
+        std::string file_name = "snapshot_init.xyz";
+        device.writeSnapshot(file_name, folder_name);
+
 #ifdef USE_CUDA
         gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
 #endif
+
+        gpuErrchk( hipDeviceSynchronize() ); //debug
+
         while (kmc_time < t)
         {
             outputBuffer << "--------------\n";
@@ -198,29 +326,32 @@ int main(int argc, char **argv)
             if (p.solve_potential)
             {
                 // update site-resolved charge
+                std::cout << "mpi rank" << mpi_rank << "  updating charge " << std::endl;
                 std::map<std::string, double> chargeMap = device.updateCharge(gpubuf, p.metals);           
-                resultMap.insert(chargeMap.begin(), chargeMap.end());                                  
+                resultMap.insert(chargeMap.begin(), chargeMap.end());               
                 
-                std::cout << "updating boundary potential" << std::endl;
+                std::cout << "mpi rank" << mpi_rank << " starting updating boundary potential " << std::endl;
                 // update site-resolved potential
                 std::map<std::string, double> potentialMap = device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);
                 resultMap.insert(potentialMap.begin(), potentialMap.end());      
-                std::cout << "done updating boundary potential" << std::endl;                             
+                std::cout << "mpi rank" << mpi_rank << " done updating boundary potential " << std::endl;                        
             }
 
-            // generate xyz snapshot
-            std::cout << "making snapshot" << std::endl;
-            if (!(kmc_step_count % p.log_freq))
-            {
-#ifdef USE_CUDA
-        gpubuf.sync_GPUToHost(device);
-#endif
-                std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-                device.writeSnapshot(file_name, folder_name);
-            }
+//             // generate xyz snapshot
+//             if (!(kmc_step_count % p.log_freq))
+//             {
+// #ifdef USE_CUDA
+//         gpubuf.sync_GPUToHost(device);
+// #endif
+//                 if (!mpi_rank){
+//                     std::cout << "making snapshot" << std::endl;
+//                     std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
+//                     device.writeSnapshot(file_name, folder_name);
+//                 }
+//             }
 
             // Execute events and update kmc_time
-            std::cout << "kmc events\n";
+            std::cout << "mpi rank" << mpi_rank << " is starting kmc events " << std::endl;
             if (p.perturb_structure){                                  
                 std::map<std::string, double> kmcMap = sim.executeKMCStep(gpubuf, device, &step_time);   // execute events on the structure
                 kmc_time += step_time;
@@ -232,31 +363,41 @@ int main(int argc, char **argv)
                     kmc_time = t;
                 }
             }
+            std::cout << "mpi rank" << mpi_rank << " is done kmc events " << std::endl;
            
-            // Update current and joule heating
-            if (p.solve_current)
-            {
-                std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver,    // update site-resolved dissipated power
-                                                                            gpubuf, p, Vd);
-                resultMap.insert(powerMap.begin(), powerMap.end());
-                I_macro = device.imacro;
+            // // Update current and joule heating
+            // if (p.solve_current)
+            // {
+            //     std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver,    // update site-resolved dissipated power
+            //                                                                 gpubuf, p, Vd);
+            //     resultMap.insert(powerMap.begin(), powerMap.end());
+            //     I_macro = device.imacro;
 
-                // Temperature
-                if (p.solve_heating_global || p.solve_heating_local)                                     // update site-resolved heat
-                {
-                    std::map<std::string, double> temperatureMap = device.updateTemperature(gpubuf, p, step_time);
-                    resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-                }
-            }
+            //     // Temperature
+            //     if (p.solve_heating_global || p.solve_heating_local)                                     // update site-resolved heat
+            //     {
+            //         std::map<std::string, double> temperatureMap = device.updateTemperature(gpubuf, p, step_time);
+            //         resultMap.insert(temperatureMap.begin(), temperatureMap.end());
+            //     }
+            // }
 
             auto tfield = std::chrono::steady_clock::now();
             std::chrono::duration<double> dt_field = tfield - t0;
 
+            if (!mpi_rank) 
+            {
+                std::cout << "**********************************\n";
+                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
+                std::cout << rocm_smi_output;
+                std::cout << "**********************************\n";
+            }
+            
             // ********************************************************
             // ******************** Log results ***********************
             // ********************************************************
 
             outputBuffer << "KMC time is: " << kmc_time << "\n";
+            std::cout << "mpi rank" << mpi_rank << " logging results " << std::endl;
             
             // load step results into print buffer
             for (const auto &pair : resultMap)
@@ -276,9 +417,6 @@ int main(int argc, char **argv)
             if (I_macro > p.Icc*(1e-6))
             {
                 outputBuffer << "I_macro > Icc, compliance current reached.\n";
-
-                // no more structural changes after this!
-                // p.perturb_structure = 0;
                 break;
             }
 
@@ -292,21 +430,30 @@ int main(int argc, char **argv)
             outputBuffer << "Z - calculation time - logging results [s]: " << dt_log.count() << "\n";
             outputBuffer << "Z - calculation time - KMC superstep [s]: " << dt.count() << "\n";
             outputBuffer << "--------------------------------------";
+            
+            gpuErrchk( hipDeviceSynchronize() ); //debug
+
         } // while (kmc_time < t)
 
 // Get device attributes from GPU memory
 #ifdef USE_CUDA
         gpubuf.sync_GPUToHost(device);
 #endif
-        const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-        device.writeSnapshot(file_name, folder_name);
+        if (!mpi_rank)
+        {
+            const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
+            std::cout << "logging the last snapshot\n";
+            //print kmc step count
+            std::cout << "KMC step count: " << kmc_step_count << "\n";
+            device.writeSnapshot(file_name, folder_name);
+        }
 
     } // for (int vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
 
-// #ifdef USE_CUDA
-//     gpubuf.freeGPUmemory();
-//     CheckCublasError(hipblasDestroy(handle));
-// #endif
+#ifdef USE_CUDA
+    gpubuf.freeGPUmemory();
+    CheckCublasError(hipblasDestroy(handle));
+#endif
 
     // close logger
     outputFile << outputBuffer.str();

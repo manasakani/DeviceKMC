@@ -256,10 +256,36 @@ __global__ void populate_cutoff_dists(double *cutoff_dists, const ELEMENT *eleme
 //     // hipFree(d_cutoff_dists);
 // }
 
-void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::vector<int> &cutoff_idx, std::vector<double> &cutoff_dists,
+
+std::string exec1(const char* cmd) {
+    std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
+    if (!pipe) {
+        throw std::runtime_error("popen() failed!");
+    }
+    while (fgets(buffer.data(), static_cast<int>(buffer.size()), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
+
+void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::vector<int> &cutoff_idx,
                                       const ELEMENT *site_element, const double *posx, const double *posy, const double *posz, 
                                       const double *lattice, const bool pbc, double nn_dist, double cutoff_radius, int N, int max_num_neighbors)
 {
+
+    int mpi_size, mpi_rank;
+    MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
+
+    if (!mpi_rank) 
+    {
+        std::cout << "**************start of construct_site_neighbor_list_gpu********************\n";
+        std::string rocm_smi_output = exec1("rocm-smi --showmeminfo vram");
+        std::cout << rocm_smi_output;
+        std::cout << "**********************************\n";
+    }
 
     double *d_posx, *d_posy, *d_posz, *d_lattice;
     int *d_neigh_idx, *d_cutoff_window;
@@ -304,7 +330,6 @@ void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::v
     getsize_cutoff_idx<<<num_blocks, num_threads>>>(d_num_cutoff_idx, d_element, d_posx, d_posy, d_posz, d_lattice, pbc, cutoff_radius, N);
     gpuErrchk( hipPeekAtLastError() );
     gpuErrchk( hipDeviceSynchronize() );
-
     int max_num_cutoff = thrust::reduce(d_num_cutoff_idx, d_num_cutoff_idx + N, 0, thrust::maximum<int>());
 
     int *d_cutoff_idx;
@@ -312,64 +337,45 @@ void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::v
     gpuErrchk( hipMemset(d_cutoff_idx, -1, N * max_num_cutoff * sizeof(int)) );     // unused neighbor elements are set to -1
     gpuErrchk( hipDeviceSynchronize() );
 
+    // print max_num_cutoff * N in gigabytes
+    std::cout << "memcon for cutoff_idx: " << max_num_cutoff * N * sizeof(int) / 1e9 << " GB" << std::endl;
     num_blocks = (N * max_num_cutoff - 1) / num_threads + 1;
     populate_cutoff_idx<<<num_blocks, num_threads>>>(d_cutoff_idx, d_element, d_posx, d_posy, d_posz, d_lattice, pbc, cutoff_radius, N, max_num_cutoff);
     gpuErrchk( hipPeekAtLastError() );
     gpuErrchk( hipDeviceSynchronize() );
 
-    //Debug
-    // int *h_cutoff_idx = new int[N * max_num_cutoff];
-    // gpuErrchk(hipMemcpy(h_cutoff_idx, d_cutoff_idx, N * max_num_cutoff * sizeof(int), hipMemcpyDeviceToHost));
-    // std::ofstream outputFile("cutoff_idx.txt");
-    // if (outputFile.is_open()) {
-    //     for (int i = 0; i < N; ++i) {
-    //         for (int j = 0; j < max_num_cutoff; ++j) {
-    //             outputFile << h_cutoff_idx[i*max_num_cutoff + j] << " "; 
-    //         }
-    //         outputFile << "\n"; 
-    //     }
-    //     outputFile.close();
-    //     std::cout << "Data has been written to cutoff_idx.txt" << std::endl;
-    // } else {
-    //     std::cerr << "Unable to open file for writing" << std::endl;
-    // }
-    // delete[] h_cutoff_idx;
-    // gpuErrchk(hipFree(d_cutoff_idx));
-    //Debug
-
-
-    // int* h_num_cutoff_idx = new int[N * max_num_cutoff];
-    // hipMemcpy(h_num_cutoff_idx, d_cutoff_idx, N * max_num_cutoff * sizeof(int), hipMemcpyDeviceToHost);
-    // for (int i = 0; i < N; ++i)
-    // {
-    //     std::cout << "Element " << i << ": ";
-    //     for (int j = 0; j < max_num_cutoff; ++j)
-    //     {
-    //         std::cout << h_num_cutoff_idx[i * max_num_cutoff + j] << " ";
-    //     }
-    //     std::cout << std::endl;
-    // }
-    // exit(1);
-
     // *** construct cutoff distances: list of distances of other sites within the cutoff radius
-    double *d_cutoff_dists;
-    gpuErrchk( hipMalloc((void**)&d_cutoff_dists, N * max_num_cutoff * sizeof(double)) );
-    gpuErrchk( hipMemset(d_cutoff_dists, 0, N * max_num_cutoff * sizeof(double)) );     // unused neighbor elements are set to 0
-    gpuErrchk( hipDeviceSynchronize() );
+    // double *d_cutoff_dists;
+    // gpuErrchk( hipMalloc((void**)&d_cutoff_dists, N * max_num_cutoff * sizeof(double)) );
+    // gpuErrchk( hipMemset(d_cutoff_dists, 0, N * max_num_cutoff * sizeof(double)) );     // unused neighbor elements are set to 0
+    // gpuErrchk( hipDeviceSynchronize() );
 
-    num_blocks = (N * max_num_cutoff - 1) / num_threads + 1;
-    populate_cutoff_dists<<<num_blocks, num_threads>>>(d_cutoff_dists, d_element, d_posx, d_posy, d_posz, d_lattice, pbc, cutoff_radius, N, max_num_cutoff);
-    gpuErrchk( hipPeekAtLastError() );
-    gpuErrchk( hipDeviceSynchronize() );
+    // num_blocks = (N * max_num_cutoff - 1) / num_threads + 1;
+    // populate_cutoff_dists<<<num_blocks, num_threads>>>(d_cutoff_dists, d_element, d_posx, d_posy, d_posz, d_lattice, pbc, cutoff_radius, N, max_num_cutoff);
+    // gpuErrchk( hipPeekAtLastError() );
+    // gpuErrchk( hipDeviceSynchronize() );
 
     // get the neighbor lists back to host
     hipMemcpy(neigh_idx, d_neigh_idx, N * max_num_neighbors * sizeof(int), hipMemcpyDeviceToHost);
     hipMemcpy(cutoff_window, d_cutoff_window, N * 2 * sizeof(int), hipMemcpyDeviceToHost);
     cutoff_idx.resize(N * max_num_cutoff, 0);
     hipMemcpy(cutoff_idx.data(), d_cutoff_idx, N * max_num_cutoff * sizeof(int), hipMemcpyDeviceToHost);
-    cutoff_dists.resize(N * max_num_cutoff, 0);
-    hipMemcpy(cutoff_dists.data(), d_cutoff_dists, N * max_num_cutoff * sizeof(double), hipMemcpyDeviceToHost);
 
+    // mpi rank 0 pauses for a second so that smi will update
+    if (!mpi_rank) 
+    {
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
+    if (!mpi_rank) 
+    {
+        std::cout << "**************before cuda free********************\n";
+        std::string rocm_smi_output = exec1("rocm-smi --showmeminfo vram");
+        std::cout << rocm_smi_output;
+        std::cout << "**********************************\n";
+    }
+
+    hipFree(d_element);
     hipFree(d_posx);
     hipFree(d_posy);
     hipFree(d_posz);
@@ -378,5 +384,26 @@ void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::v
     hipFree(d_cutoff_window);
     hipFree(d_num_cutoff_idx);
     hipFree(d_cutoff_idx);
-    hipFree(d_cutoff_dists);
+    
+    gpuErrchk( hipPeekAtLastError() );
+    //synchronize gpu
+    gpuErrchk( hipDeviceSynchronize() );
+    // hipFree(d_cutoff_dists);
+
+    if (!mpi_rank) 
+    {
+        std::cout << "**************after cuda free********************\n";
+        std::string rocm_smi_output = exec1("rocm-smi --showmeminfo vram");
+        std::cout << rocm_smi_output;
+        std::cout << "**********************************\n";
+    }
+
+    MPI_Barrier(MPI_COMM_WORLD);
+    // exit(1);
 }
+
+        // std::cout << "--------------------------\n";
+        // std::string rocm_smi_output = exec1("rocm-smi ---gpureset");
+        // std::cout << rocm_smi_output;
+        // std::cout << "--------------------------\n";
+        // MPI_Barrier(MPI_COMM_WORLD);

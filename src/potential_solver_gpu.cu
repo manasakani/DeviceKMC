@@ -21,9 +21,9 @@ __global__ void update_charge(const ELEMENT *element,
 
     // each thread gets a different site to evaluate
     for (int idx = tid; idx < N; idx += blockDim.x * gridDim.x) {
-        
         if (tid < N && element[tid] == VACANCY){
-            charge[tid] = 2;
+            charge[tid] = 2;    
+            // atomicExch(&charge[tid], 2);        
 
             // iterate over the neighbors
             for (int j = tid * nn; j < (tid + 1) * nn; ++j){
@@ -32,26 +32,97 @@ __global__ void update_charge(const ELEMENT *element,
                 }
                 if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
                     charge[tid] = 0;
+                    // atomicExch(&charge[tid], 0);
                 }
                 if (Vnn >= 2){
                     charge[tid] = 0;
+                    // atomicExch(&charge[tid], 0);
                 }
             }
         }
 
         if (tid < N && element[tid] == OXYGEN_DEFECT){
             charge[tid] = -2;
+            // atomicExch(&charge[tid], -2);
 
             // iterate over the neighbors
             for (int j = tid * nn; j < (tid + 1) * nn; ++j){
                 
                 if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
                     charge[tid] = 0;
+                    // atomicExch(&charge[tid], 0);
                 }
             }
         }
     }
 }
+
+
+// __global__ void update_charge_by_dist(const double *posx,  const double *posy, const double *posz, 
+//                                     const ELEMENT *element, const int *cutoff_window, int N_cutoff,
+//                                     int *charge, 
+//                                     const int N, 
+//                                     const int nn_dist,
+//                                     const ELEMENT* metals, const int num_metals){
+
+//     int tid = blockIdx.x * blockDim.x + threadIdx.x;
+//     int Vnn = 0;
+
+//     // each thread gets a different site to evaluate
+//     for (int idx = tid; idx < N; idx += blockDim.x * gridDim.x) {
+//         if (idx < N && element[idx] == VACANCY){
+//             charge[idx] = 2;    
+//             // atomicExch(&charge[tid], 2);     
+
+//             int col_start = cutoff_window[2*i];
+//             int col_end = cutoff_window[2*i + 1];   
+
+//             // iterate over the neighbors
+//             for (int j = col_start; j < col_end; j++){
+
+//                 double dist = site_dist_gpu(posx[i], posy[i], posz[i], 
+//                                             posx[j], posy[j], posz[j]);
+                
+//                 if (dist < nn_dist)
+//                 {
+//                     if (element[j] == VACANCY){
+//                         Vnn++;
+//                     }
+//                     if (is_in_array_gpu(metals, element[j], num_metals)){
+//                         charge[idx] = 0;
+//                         // atomicExch(&charge[tid], 0);
+//                     }
+//                     if (Vnn >= 2){
+//                         charge[idx] = 0;
+//                         // atomicExch(&charge[tid], 0);
+//                     }
+//                 }
+//             }
+//         }
+
+//         if (tid < N && element[tid] == OXYGEN_DEFECT){
+//             charge[tid] = -2;
+//             // atomicExch(&charge[tid], -2);
+
+//             int col_start = cutoff_window[2*i];
+//             int col_end = cutoff_window[2*i + 1];   
+
+//             // iterate over the neighbors
+//             for (int j = col_start; j < col_end; j++){
+//                 double dist = site_dist_gpu(posx[i], posy[i], posz[i], 
+//                                             posx[j], posy[j], posz[j]);
+//                 if (dist < nn_dist)
+//                 {
+//                     if (is_in_array_gpu(metals, element[j], num_metals)){
+//                         charge[tid] = 0;
+//                         // atomicExch(&charge[tid], 0);
+//                     }
+//                 }
+//             }
+//         }
+//     }
+// }
+
 
 void update_charge_gpu(ELEMENT *d_site_element, 
                        int *d_site_charge,
@@ -61,7 +132,26 @@ void update_charge_gpu(ELEMENT *d_site_element,
     int num_threads = 1024;
     int num_blocks = (N * nn + num_threads - 1) / num_threads;
 
-    hipLaunchKernelGGL(update_charge, num_blocks, num_threads, 0, 0, d_site_element, d_site_charge, d_neigh_idx, N, nn, d_metals, num_metals);
+    // hipLaunchKernelGGL(update_charge, num_blocks, num_threads, 0, 0, d_site_element, d_site_charge, d_neigh_idx, N, nn, d_metals, num_metals);
+    update_charge<<<num_blocks, num_threads>>>(d_site_element, d_site_charge, d_neigh_idx, N, nn, d_metals, num_metals); 
+
+    // copy back and print neigh_idx
+    // int *neigh_idx = (int *)calloc(N * nn, sizeof(int));
+    // gpuErrchk( hipMemcpy(neigh_idx, d_neigh_idx, N * nn * sizeof(int), hipMemcpyDeviceToHost) );
+    // for (int i = 0; i < N; i++){
+    //     for (int j = 0; j < nn; j++){
+    //         std::cout << neigh_idx[i * nn + j] << " ";
+    //     }
+    //     std::cout << "\n";
+    // }
+    // exit(1);
+
+
+    // update_charge_by_dist<<<num_blocks, num_threads>>>(gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, gpubuf.site_element, 
+    //                                 gpubuf.cutoff_window, gpubuf.N_cutoff,
+    //                                 gpubuf.site_charge, gpubuf.N_, 
+    //                                 const int nn_dist,
+    //                                 const ELEMENT* metals, const int num_metals);
 }
 
 
@@ -450,16 +540,26 @@ void Assemble_A(
 
     int system_size = K_size - contact_left_size - contact_right_size;
 
+    std::cout << "mpi rank  before mallocs " << std::endl;
+
     gpuErrchk(hipMalloc((void **)K_left_reduced, system_size * sizeof(double)));
     gpuErrchk(hipMalloc((void **)K_right_reduced, system_size * sizeof(double)));
+
+    std::cout << "mpi rank  after mallocs " << std::endl;
 
     // parallelize over rows
     int threads = 512;
     int blocks = (system_size + threads - 1) / threads;
 
+    std::cout << "mpi rank before A_data mallocs " << std::endl;
+
     // allocate the data array
     gpuErrchk(hipMalloc((void **)A_data, A_nnz[0] * sizeof(double)));
     gpuErrchk(hipMemset((*A_data), 0, A_nnz[0] * sizeof(double)));
+
+    std::cout << "mpi rank  after A_data mallocs " << std::endl;
+
+    std::cout << "mpi rank  before calc_off_diagonal_A_gpu " << std::endl;
 
     // assemble only smaller part of K
     hipLaunchKernelGGL(calc_off_diagonal_A_gpu, blocks, threads, 0, 0, 
@@ -473,8 +573,12 @@ void Assemble_A(
         *A_data);
     gpuErrchk( hipDeviceSynchronize() );
 
+    std::cout << "mpi rank after calc_off_diagonal_A_gpu " << std::endl;
+
     hipLaunchKernelGGL(reduce_rows_into_diag, blocks, threads, 0, 0, *A_col_indices, *A_row_ptr, *A_data, system_size);
     gpuErrchk( hipDeviceSynchronize() );
+
+    std::cout << "mpi rank after reduce_rows_into_diag " << std::endl;
 
     // reduce the left part of K
     // block starts at i = contact_left_size (first downshifted row)
@@ -492,6 +596,8 @@ void Assemble_A(
         *K_left_reduced
     );
 
+    std::cout << "mpi rank  after reduce_contact_into_diag " << std::endl;
+
     // reduce the right part of K
     // block starts at i = contact_left_size (first downshifted row)
     // block starts at j = contact_left_size + system_size (first column)
@@ -508,6 +614,8 @@ void Assemble_A(
         *K_right_reduced
     );
 
+    std::cout << "mpi rank  after reduce_contact_into_diag2 " << std::endl;
+
     // add left and right part of K to the diagonal of the data array
     hipLaunchKernelGGL(add_vector_to_diagonal, blocks, threads, 0, 0, 
         *A_data,
@@ -516,6 +624,9 @@ void Assemble_A(
         system_size,
         *K_left_reduced
     );
+
+    std::cout << "mpi rank  after add_vector_to_diagonal " << std::endl;
+
     hipLaunchKernelGGL(add_vector_to_diagonal, blocks, threads, 0, 0, 
         *A_data,
         *A_row_ptr,
@@ -523,6 +634,8 @@ void Assemble_A(
         system_size,
         *K_right_reduced
     );
+
+    std::cout << "mpi rank after add_vector_to_diagonal2 " << std::endl;
 
 }
 
@@ -816,28 +929,19 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     int rows_this_rank = A_distributed->rows_this_rank;
     int disp_this_rank = A_distributed->displacements[A_distributed->rank];
 
-    std::cout << "assembling matrix data" << std::endl;  fflush(stdout); MPI_Barrier(MPI_COMM_WORLD); 
-    std::cout << "next" << std::endl;  fflush(stdout); MPI_Barrier(MPI_COMM_WORLD); 
-
     // TODO switch to COO format to assemble faster
     int threads = 1024;
-    std::cout << "1" << std::endl;  fflush(stdout); MPI_Barrier(MPI_COMM_WORLD); 
     int blocks = (A_distributed->rows_this_rank + threads - 1) / threads;   
-    std::cout << "2" << std::endl;  fflush(stdout); MPI_Barrier(MPI_COMM_WORLD); 
  
     for(int i = 0; i < A_distributed->number_of_neighbours; i++){
 
-        std::cout << "getneighbor" << std::endl;  fflush(stdout); MPI_Barrier(MPI_COMM_WORLD); 
         int rows_neighbour = A_distributed->counts[A_distributed->neighbours[i]];
         int disp_neighbour = A_distributed->displacements[A_distributed->neighbours[i]];
 
         //maybe remove it
-        std::cout << "memset" << std::endl;  fflush(stdout); MPI_Barrier(MPI_COMM_WORLD); 
         gpuErrchk(hipMemset(A_distributed->data_d[i], 0,
             A_distributed->nnz_per_neighbour[i] * sizeof(double)) );
-        MPI_Barrier(MPI_COMM_WORLD);
 
-        std::cout << "calc_off_diagonal_dist" << std::endl;  fflush(stdout); MPI_Barrier(MPI_COMM_WORLD); 
         hipLaunchKernelGGL(calc_off_diagonal_dist, blocks, threads, 0, 0, 
             gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
             rows_this_rank,
@@ -849,19 +953,14 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
             A_distributed->col_indices_d[i],
             A_distributed->row_ptr_d[i],
             A_distributed->data_d[i]);
-        MPI_Barrier(MPI_COMM_WORLD);
     }
 
-    std::cout << "done assembling matrix data" << std::endl;  fflush(stdout); MPI_Barrier(MPI_COMM_WORLD); 
 
     // ** update the diagonal
 
-    MPI_Barrier(MPI_COMM_WORLD); std::cout << "updating diagonals" << std::endl; 
-    fflush(stdout);
-
     // compute the local pieces of the diagonal
     double *diagonal_local_d;
-    gpuErrchk( hipMalloc((void **)&diagonal_local_d, A_distributed->rows_this_rank * sizeof(double)) );
+    gpuErrchk( hipMalloc((void **)&diagonal_local_d, A_distributed->rows_this_rank* sizeof(double)) );
     gpuErrchk( hipMemset(diagonal_local_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
 
     // contribution to diagonal from left boundary
@@ -945,9 +1044,6 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     // ***********************************
     // 2. Solve system of linear equations 
 
-    MPI_Barrier(MPI_COMM_WORLD); std::cout << "preparing rhs" << std::endl;
-    fflush(stdout);
-
     // the initial guess for the solution is the current site-resolved potential inside the device
     double *v_soln = gpubuf.site_potential_boundary + N_left_tot + disp_this_rank;
 
@@ -981,9 +1077,6 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     hipLaunchKernelGGL(calc_rhs_for_A, blocks, threads, 0, 0, left_boundary_d, right_boundary_d, VL, VR,
         rhs_local_d, A_distributed->rows_this_rank, N_left_tot, N_right_tot);
 
-    MPI_Barrier(MPI_COMM_WORLD); std::cout << "going to K-CG" << std::endl;
-    fflush(stdout);
-
     // TODO: remove the MPI barrier inside
     double relative_tolerance = 1e-10 * N_interface;
     int max_iterations = 50000;
@@ -1012,7 +1105,7 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     gpuErrchk( hipFree(diagonal_local_d) );
     gpuErrchk( hipFree(left_boundary_d) );
     gpuErrchk( hipFree(right_boundary_d) );
-    // gpuErrchk( hipFree(inv_diagonal_d) );        //UNCOMMENT
+    gpuErrchk( hipFree(inv_diagonal_d) );     
 
 }
 
@@ -1078,6 +1171,8 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
     double *K_left_reduced_d = NULL;
     double *K_right_reduced_d = NULL;
 
+    std::cout << "mpi rank" << gpubuf.rank << "  before Assemble_A " << std::endl;
+
     // the sparsity of the graph connectivity (which goes into A) is precomputed and stored in the buffers:
     Assemble_A( gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                 gpubuf.lattice, pbc, nn_dist,
@@ -1088,6 +1183,8 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
                 &gpubuf.contact_left_col_indices, &gpubuf.contact_left_row_ptr, &gpubuf.contact_left_nnz,
                 &gpubuf.contact_right_col_indices, &gpubuf.contact_right_row_ptr, &gpubuf.contact_left_nnz,
                 &K_left_reduced_d, &K_right_reduced_d );
+
+    std::cout << "mpi rank" << gpubuf.rank << "  after Assemble_A " << std::endl;
 
     // // DEBUG
     // dump A into a text file:
@@ -1114,6 +1211,8 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
     calc_rhs_for_A<<<num_blocks, num_threads>>>(K_left_reduced_d, K_right_reduced_d, VL, VR, rhs, N_interface, N_left_tot, N_right_tot);
     gpuErrchk( hipPeekAtLastError() );
     gpuErrchk( hipDeviceSynchronize() );
+
+    std::cout << "mpi rank" << gpubuf.rank << "  after calc_rhs_for_A " << std::endl;
     
     // ***********************************
     // 2. Solve system of linear equations 
@@ -1125,10 +1224,14 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
     hipsparseCreate(&cusparseHandle);
     hipsparseSetPointerMode(cusparseHandle, HIPSPARSE_POINTER_MODE_DEVICE);
 
+    std::cout << "mpi rank" << gpubuf.rank << "  going to solve " << std::endl;
+
     // sparse solver with Jacobi preconditioning:
     solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_data_d, gpubuf.Device_row_ptr_d, gpubuf.Device_col_indices_d, gpubuf.Device_nnz, N_interface, rhs, v_soln);
     gpuErrchk( hipPeekAtLastError() );
     gpuErrchk( hipDeviceSynchronize() );
+
+    std::cout << "mpi rank" << gpubuf.rank << "  after solve " << std::endl;
 
     // ***************************************************************************
     // 3. Re-fix the boundary (for changes in applied potential across an IV sweep)
@@ -1138,6 +1241,8 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
     thrust::device_ptr<double> right_boundary = thrust::device_pointer_cast(gpubuf.site_potential_boundary + N_left_tot + N_interface);
     thrust::fill(right_boundary, right_boundary + N_right_tot, Vd/2);
 
+    std::cout << "mpi rank" << gpubuf.rank << " refixed the boundary " << std::endl;
+
     hipsparseDestroy(cusparseHandle);
     hipFree(A_data_d);
     hipFree(VL);
@@ -1146,6 +1251,8 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
     hipFree(K_left_reduced_d);
     hipFree(K_right_reduced_d);
     gpuErrchk( hipPeekAtLastError() );
+
+    std::cout << "mpi rank" << gpubuf.rank << " freed stuff " << std::endl;
     
 }
 
@@ -1306,10 +1413,10 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
                 dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
                                              posx[j], posy[j], posz[j], 
                                              lattice[0], lattice[1], lattice[2], pbc);
-                // implement cutoff radius
-                if (dist < 2e-9) { // HARDCODED
+                // // implement cutoff radius
+                // if (dist < 2e-9) { // HARDCODED
                     buf[tid] = v_solve_gpu(dist, charge[j], sigma, k);
-                }
+                // }
             }
         }
 
@@ -1328,6 +1435,7 @@ __global__ void calculate_pairwise_interaction(const double* posx, const double*
     
     }
 }
+
 
 __global__ void calculate_pairwise_interaction_windowed(const double* posx, const double* posy, const double*posz, 
                                                         const double *lattice, const int pbc, 
@@ -1364,6 +1472,59 @@ __global__ void calculate_pairwise_interaction_windowed(const double* posx, cons
     }
 }
 
+__global__ void calculate_pairwise_interaction_singlenode(const double* posx, const double* posy, const double* posz,
+                                                            const double* lattice, const int pbc,
+                                                            const int N, const double* sigma, const double* k,
+                                                            const int* charge, double* potential,
+                                                            const int row_start, const int row_end) {
+
+    int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
+    int num_threads_total = blockDim.x * gridDim.x;
+
+    for (int i = tid_total + row_start; i < row_end; i += num_threads_total) {
+        double local_potential = 0.0;
+
+        for (int j = 0; j < N; j++) {
+            if (i != j && charge[j] != 0) {
+                double dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i],
+                                                     posx[j], posy[j], posz[j],
+                                                     lattice[0], lattice[1], lattice[2], pbc);
+                local_potential += v_solve_gpu(dist, charge[j], sigma, k);
+            }
+        }
+
+        atomicAdd(&potential[i], local_potential);
+    }
+}
+
+// __global__ void calculate_pairwise_interaction_singlenode(const double* posx, const double* posy, const double*posz, 
+//                                                                   const double *lattice, const int pbc, 
+//                                                                   const int N, const double *sigma, const double *k, 
+//                                                                   const int *charge, double* potential,
+//                                                                   const int row_start, const int row_end){
+
+//     // Version without reduction, where every thread evaluates a row - NO MPI
+//     int tid_total = blockIdx.x * blockDim.x + threadIdx.x; 
+//     int num_threads_total = blockDim.x * gridDim.x;
+
+//     // TODO: switch to reduction
+//     for (int i = tid_total + row_start; i < row_end; i += num_threads_total)
+//     {
+//         for (int j = 0; j < N; j++)
+//         {
+//             double dist = site_dist_gpu(posx[i], posy[i], posz[i], 
+//                                         posx[j], posy[j], posz[j], 
+//                                         lattice[0], lattice[1], lattice[2], pbc);
+
+//             if (i != j && charge[j] != 0)
+//             {    
+//                 potential[i] += v_solve_gpu(dist, charge[j], sigma, k);
+//             }
+//         }
+//     }
+// }
+
+
 __global__ void calculate_pairwise_interaction_indexed(const double* posx, const double* posy, const double*posz, 
                                                        const double *lattice, const int pbc, 
                                                        const int N, const double *sigma, const double *k, 
@@ -1379,25 +1540,28 @@ __global__ void calculate_pairwise_interaction_indexed(const double* posx, const
 
     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
     int num_threads_total = blockDim.x * gridDim.x;
+    
 
-    // TODO: switch to reduction
     for (int i = tid_total + row_start; i < row_end; i += num_threads_total)
     {
         int j;
+        double local_potential = 0.0;
 
         for (int j_idx = 0; j_idx < N_cutoff; j_idx++)
         {
             j = cutoff_idx[i*N_cutoff + j_idx];
 
-            if ((i != j) && (charge[j] != 0) && (j != 0)){
+            if (i != j && charge[j] != 0) {
                 double dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
-                                            posx[j], posy[j], posz[j], 
-                                            lattice[0], lattice[1], lattice[2], pbc);
+                                                    posx[j], posy[j], posz[j], 
+                                                    lattice[0], lattice[1], lattice[2], pbc);
 
-                potential[i] += v_solve_gpu(dist, charge[j], sigma, k);
+                local_potential += v_solve_gpu(dist, charge[j], sigma, k);
             }
         }
+        atomicAdd(&potential[i], local_potential);
     }
+    
 }
 
 // template <int NTHREADS>
@@ -1459,7 +1623,7 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const double *posx, const double *posy, const double *posz, 
                           const int *site_charge, double *site_potential_charge,
                           const int rank, const int size, const int *count, const int *displ, 
-                          const int *cutoff_window, const int *cutoff_idx, const double *cutoff_dists, const int N_cutoff){
+                          const int *cutoff_window, const int *cutoff_idx, const int N_cutoff){
 
     int num_threads = NUM_THREADS;
     int blocks_per_row = (N + NUM_THREADS - 1) / NUM_THREADS; 
@@ -1472,12 +1636,17 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     gpuErrchk( hipMemset(site_potential_charge, 0, N * sizeof(double)) ); 
     gpuErrchk( hipDeviceSynchronize() );
 
-    auto t1 = std::chrono::steady_clock::now();
-
+    // auto t1 = std::chrono::steady_clock::now();
     // this num_threads should be equal to NUM_THREADS
 
     // // naive implementation, all-to-all
     // calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, NUM_THREADS, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice,
+    //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank]);
+    // gpuErrchk( hipPeekAtLastError() );
+    // gpuErrchk( hipDeviceSynchronize() );
+    // gpuErrchk( hipPeekAtLastError() );
+
+    // calculate_pairwise_interaction_singlenode<<<num_blocks, num_threads>>>(posx, posy, posz, lattice,
     //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank]);
     // gpuErrchk( hipPeekAtLastError() );
     // gpuErrchk( hipDeviceSynchronize() );
@@ -1489,26 +1658,6 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     gpuErrchk( hipPeekAtLastError() );
     gpuErrchk( hipDeviceSynchronize() );
     gpuErrchk( hipPeekAtLastError() );
-
-    // Debug
-    // int *h_cutoff_idx = new int[N * N_cutoff];
-    // gpuErrchk(hipMemcpy(h_cutoff_idx, cutoff_idx, N * N_cutoff * sizeof(int), hipMemcpyDeviceToHost));
-    // std::ofstream outputFile("cutoff_idx.txt");
-    // if (outputFile.is_open()) {
-    //     for (int i = 0; i < N; ++i) {
-    //         for (int j = 0; j < N_cutoff; ++j) {
-    //             outputFile << h_cutoff_idx[i*N_cutoff + j] << " "; 
-    //         }
-    //         outputFile << "\n"; 
-    //     }
-    //     outputFile.close();
-    //     std::cout << "Data has been written to cutoff_idx.txt" << std::endl;
-    // } else {
-    //     std::cerr << "Unable to open file for writing" << std::endl;
-    // }
-    // delete[] h_cutoff_idx;
-    // exit(1);
-    // Debug
 
     // // row-wise: only checks sites which were precomputed to be within the cutoff radius
     // hipLaunchKernelGGL(calculate_pairwise_interaction_indexed, num_blocks, num_threads, 0, 0, posx, posy, posz, lattice,

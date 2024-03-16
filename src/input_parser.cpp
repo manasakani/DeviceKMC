@@ -100,7 +100,7 @@ KMCParameters::KMCParameters(std::string param_file){
 			shifts = read_vec_double(line);
 		}
 		
-		if (line.find("lattice ") != std::string::npos) {
+		if (line.find("lattice ") != std::string::npos) {			
 			lattice = read_vec_double(line);
 		}
 		

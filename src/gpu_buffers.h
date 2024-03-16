@@ -3,9 +3,7 @@
 #include <mpi.h>
 #include "../dist_iterative/dist_objects.h"
 
-#ifdef USE_CUDA
 #include "gpu_solvers.h"
-#endif
 
 // forward declaration of device class
 class Device;
@@ -32,12 +30,10 @@ public:
     ELEMENT *metal_types;
     double *sigma, *k, *lattice, *freq;
     int *neigh_idx, *cutoff_window, *cutoff_idx, *site_layer = nullptr;
-    double *cutoff_dists = nullptr;
 
     // host vectors used for the collection and sum of the distributed potential
     double *potential_local_h = nullptr; // = (double *)calloc(gpubuf.count_sites[gpubuf.rank], sizeof(double));
     double *potential_h = nullptr; // (double *)calloc(gpubuf.N_, sizeof(double));
-
 
     // CUDA library handles
     // hipblasHandle_t cublas_handle;
@@ -100,7 +96,7 @@ public:
     GPUBuffers(std::vector<Layer> layers, std::vector<int> site_layer_in, double freq_in, int N, int N_atom,
                std::vector<double> site_x_in,  std::vector<double> site_y_in,  std::vector<double> site_z_in,
                int nn, double sigma_in, double k_in, std::vector<double> lattice_in, 
-               std::vector<int> neigh_idx_in, std::vector<int> cutoff_window_in, std::vector<int> cutoff_idx_in, std::vector<double> cutoff_dists_in,
+               std::vector<int> neigh_idx_in, std::vector<int> cutoff_window_in, std::vector<int> cutoff_idx_in,
                std::vector<ELEMENT> metals, int num_metals_types, MPI_Comm comm, int N_contact) {
             
         this->N_ = N;
@@ -157,11 +153,10 @@ public:
         // CreateCublasHandle(cublas_handle, 0);
         // hipblasSetPointerMode(cublas_handle, HIPBLAS_POINTER_MODE_DEVICE);
         // CreateCusolverDnHandle(cusolver_handle, 0);
-
-#ifdef USE_CUDA
-
+ 
         // small lists and variables to store in GPU cache
         // copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host);       //COMMENTED OUT
+        hipPeekAtLastError();
         hipDeviceSynchronize();
         
         // member variables of the KMCProcess 
@@ -182,8 +177,6 @@ public:
         gpuErrchk( hipMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );
         gpuErrchk( hipMalloc((void**)&cutoff_window, N_ * 2 * sizeof(int)) );
         gpuErrchk( hipMalloc((void**)&cutoff_idx, N_ * N_cutoff_ * sizeof(int)) );
-        gpuErrchk( hipMalloc((void**)&cutoff_dists, N_ * N_cutoff_ * sizeof(double)) );
-        // gpuErrchk( hipMalloc((void**)&cutoff_dists, N_ * 1 * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&T_bg, 1 * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&sigma, 1 * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&k, 1 * sizeof(double)) );
@@ -222,13 +215,9 @@ public:
         gpuErrchk( hipMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(cutoff_window, cutoff_window_in.data(), N_ * 2 * sizeof(int), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(cutoff_idx, cutoff_idx_in.data(), N_ * N_cutoff_ * sizeof(int), hipMemcpyHostToDevice) );
-        gpuErrchk( hipMemcpy(cutoff_dists, cutoff_dists_in.data(), N_ * N_cutoff_ * sizeof(double), hipMemcpyHostToDevice) );
-        //  gpuErrchk( hipMemcpy(cutoff_dists, cutoff_dists_in.data(), N_ * 1 * sizeof(double), hipMemcpyHostToDevice) );
     
         hipDeviceSynchronize();
         
-#endif
-
     }
 
     // ~GPUBuffers() {

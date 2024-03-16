@@ -365,26 +365,16 @@ void CheckCublasError(hipblasStatus_t const& status) {
 #endif
 }
 
-hipblasHandle_t CreateCublasHandle(int device) {
+hipblasHandle_t CreateCublasHandle() {
 #ifdef USE_CUDA
-  if (device >= 0) {
-    if (hipSetDevice(device) != hipSuccess) {
-      throw std::runtime_error("Failed to set CUDA device.");
-    }
-  }
   hipblasHandle_t handle;
   CheckCublasError(hipblasCreate(&handle));
   return handle;
 #endif
 }
 
-void CreateCublasHandle(hipblasHandle_t handle, int device) {
+void CreateCublasHandle(hipblasHandle_t handle) {
 #ifdef USE_CUDA
-  if (device >= 0) {
-    if (hipSetDevice(device) != hipSuccess) {
-      throw std::runtime_error("Failed to set CUDA device.");
-    }
-  }
   CheckCublasError(hipblasCreate(&handle));
 #endif
 }
@@ -445,25 +435,22 @@ void gemm(hipblasHandle_t handle, char *transa, char *transb, int *m, int *n, in
 
 hipsolverHandle_t CreateCusolverDnHandle(int device) {
 #ifdef USE_CUDA
-  if (hipSetDevice(device) != hipSuccess) {
-    throw std::runtime_error("Failed to set CUDA device.");
-  }
   hipsolverHandle_t handle;
   CheckCusolverDnError(hipsolverCreate(&handle));
   return handle;
 #endif
 }
 
-void CreateCusolverDnHandle(hipsolverHandle_t handle, int device) {
-#ifdef USE_CUDA
-  if (hipSetDevice(device) != hipSuccess) {
-    throw std::runtime_error("Failed to set CUDA device.");
-  }
-  std::cout << "making handle\n";
-  CheckCusolverDnError(hipsolverCreate(&handle));
-  std::cout << "made handle\n";
-#endif
-}
+// void CreateCusolverDnHandle(hipsolverHandle_t handle, int device) {
+// #ifdef USE_CUDA
+//   if (hipSetDevice(device) != hipSuccess) {
+//     throw std::runtime_error("Failed to set CUDA device.");
+//   }
+//   std::cout << "making handle\n";
+//   CheckCusolverDnError(hipsolverCreate(&handle));
+//   std::cout << "made handle\n";
+// #endif
+// }
 
 void CheckCusolverDnError(hipsolverStatus_t const &status)
 {

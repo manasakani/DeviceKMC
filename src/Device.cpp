@@ -68,7 +68,7 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
     
         neigh_idx.resize(N * max_num_neighbors, -1);
         cutoff_window.resize(N * 2, 0);
-        construct_site_neighbor_list_gpu(neigh_idx.data(), cutoff_window.data(), cutoff_idx, cutoff_dists,
+        construct_site_neighbor_list_gpu(neigh_idx.data(), cutoff_window.data(), cutoff_idx,
                                          site_element.data(), site_x.data(), site_y.data(), site_z.data(),
                                          lattice.data(), pbc, nn_dist, cutoff_radius, N, max_num_neighbors);
         this->N_cutoff = cutoff_idx.size()/N;

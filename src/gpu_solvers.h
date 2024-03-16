@@ -5,10 +5,7 @@
 #include "random_num.h"
 // #define NUM_THREADS 512
 
-// excluded for testing
-#ifndef COMPILE_WITH_TESTS
 #include "gpu_buffers.h"
-#endif 
 
 #include <stdio.h>
 #include <vector>
@@ -48,7 +45,7 @@ extern "C" {
 //*****************************************************
 
 // constructs the neighbor lists
-void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::vector<int> &cutoff_idx, std::vector<double> &cutoff_dists,
+void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::vector<int> &cutoff_idx,
                                       const ELEMENT *site_element, const double *posx, const double *posy, const double *posz, 
                                       const double *lattice, const bool pbc, double nn_dist, double cutoff_radius, int N, int max_num_neighbors);
 
@@ -171,7 +168,7 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const double *posx, const double *posy, const double *posz, 
                           const int *site_charge, double *site_potential_charge,
                           const int rank, const int size, const int *count, const int *displ, 
-                          const int *cutoff_window, const int *cutoff_idx, const double *cutoff_dists, const int N_cutoff);
+                          const int *cutoff_window, const int *cutoff_idx, const int N_cutoff);
 
 // sums the site_potential_boundary and site_potential_charge into the site_potential_charge
 void sum_and_gather_potential(GPUBuffers &gpubuf);
@@ -253,9 +250,7 @@ double execute_kmc_step_mpi2(
         const double *site_potential_charge, const double *site_temperature,
         ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
 
-// excluded for testing
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff);
-
 }
 
 //******************************************************************************
