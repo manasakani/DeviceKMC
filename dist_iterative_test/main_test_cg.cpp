@@ -2,17 +2,17 @@
 #include <string>
 #include "utils.h"
 #include <mpi.h>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
-#include <cuda.h>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime.h>
 #include "utils_gpu.h"
-#include <cublas_v2.h>
+#include <hipblas.h>
 #include "../dist_iterative/dist_conjugate_gradient.h"
 #include "../dist_iterative/dist_spmv.h"
 
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, cusparseDnVecDescr_t&, cudaStream_t&, cusparseHandle_t&)>
+template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, hipsparseDnVecDescr_t&, hipStream_t&, hipsparseHandle_t&)>
 void test_preconditioned(
     double *data_h,
     int *col_indices_h,
@@ -84,15 +84,15 @@ void test_preconditioned(
     );
     double *r_local_d;
     double *x_local_d;
-    cudaMalloc(&r_local_d, rows_per_rank * sizeof(double));
-    cudaMalloc(&x_local_d, rows_per_rank * sizeof(double));
-    cudaMemcpy(r_local_d, r_local_h, rows_per_rank * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(x_local_d, starting_guess_h + row_start_index,
-        rows_per_rank * sizeof(double), cudaMemcpyHostToDevice);
+    hipMalloc(&r_local_d, rows_per_rank * sizeof(double));
+    hipMalloc(&x_local_d, rows_per_rank * sizeof(double));
+    hipMemcpy(r_local_d, r_local_h, rows_per_rank * sizeof(double), hipMemcpyHostToDevice);
+    hipMemcpy(x_local_d, starting_guess_h + row_start_index,
+        rows_per_rank * sizeof(double), hipMemcpyHostToDevice);
 
 
     MPI_Barrier(comm);
-    cudaDeviceSynchronize();
+    hipDeviceSynchronize();
     time_taken[0] = MPI_Wtime();
 
     double *diag_inv_local_d = diag_inv_d + row_start_index;
@@ -119,7 +119,7 @@ void test_preconditioned(
     std::cout << "rank " << rank << " time_taken " << time_taken[0] << std::endl;
 
     //copy solution to host
-    cudaErrchk(cudaMemcpy(r_local_h, x_local_d, rows_per_rank * sizeof(double), cudaMemcpyDeviceToHost));
+    cudaErrchk(hipMemcpy(r_local_h, x_local_d, rows_per_rank * sizeof(double), hipMemcpyDeviceToHost));
 
 
     double difference = 0;
@@ -138,8 +138,8 @@ void test_preconditioned(
     delete[] r_local_h;
     delete[] col_indices_local_h;
     delete[] data_local_h;
-    cudaFree(r_local_d);
-    cudaFree(x_local_d);
+    hipFree(r_local_d);
+    hipFree(x_local_d);
 
     MPI_Barrier(comm);
 }
@@ -167,7 +167,7 @@ int main(int argc, char **argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    cudaError_t set_device_error = cudaSetDevice(0);
+    hipError_t set_device_error = hipSetDevice(0);
     std::cout << "rank " << rank << " set_device_error " << set_device_error << std::endl;
 
     int matsize = 7;
@@ -241,12 +241,12 @@ int main(int argc, char **argv) {
     double *reference_solution_d;
     double *diagonal_d;
 
-    cudaMalloc(&data_d, nnz * sizeof(double));
-    cudaMalloc(&row_ptr_d, (matrix_size+1) * sizeof(int));
-    cudaMalloc(&col_indices_d, nnz * sizeof(int));
-    cudaMalloc(&rhs_d, matrix_size * sizeof(double));
-    cudaMalloc(&reference_solution_d, matrix_size * sizeof(double));
-    cudaMalloc(&diagonal_d, matrix_size * sizeof(double));
+    hipMalloc(&data_d, nnz * sizeof(double));
+    hipMalloc(&row_ptr_d, (matrix_size+1) * sizeof(int));
+    hipMalloc(&col_indices_d, nnz * sizeof(int));
+    hipMalloc(&rhs_d, matrix_size * sizeof(double));
+    hipMalloc(&reference_solution_d, matrix_size * sizeof(double));
+    hipMalloc(&diagonal_d, matrix_size * sizeof(double));
 
 
 
@@ -302,11 +302,11 @@ int main(int argc, char **argv) {
 
         std::cout << "rank " << rank << " data loaded" << std::endl;
 
-        cudaMemcpy(data_d, data, nnz * sizeof(double), cudaMemcpyHostToDevice);
-        cudaMemcpy(row_ptr_d, row_ptr, (matrix_size+1) * sizeof(int), cudaMemcpyHostToDevice);
-        cudaMemcpy(col_indices_d, col_indices, nnz * sizeof(int), cudaMemcpyHostToDevice);
-        cudaMemcpy(rhs_d, rhs, matrix_size * sizeof(double), cudaMemcpyHostToDevice);
-        cudaMemcpy(reference_solution_d, reference_solution, matrix_size * sizeof(double), cudaMemcpyHostToDevice);
+        hipMemcpy(data_d, data, nnz * sizeof(double), hipMemcpyHostToDevice);
+        hipMemcpy(row_ptr_d, row_ptr, (matrix_size+1) * sizeof(int), hipMemcpyHostToDevice);
+        hipMemcpy(col_indices_d, col_indices, nnz * sizeof(int), hipMemcpyHostToDevice);
+        hipMemcpy(rhs_d, rhs, matrix_size * sizeof(double), hipMemcpyHostToDevice);
+        hipMemcpy(reference_solution_d, reference_solution, matrix_size * sizeof(double), hipMemcpyHostToDevice);
 
         // extract_diagonal_inv_sqrt(
         //     data_d,
@@ -341,9 +341,9 @@ int main(int argc, char **argv) {
             matrix_size
         );
 
-        cudaMemcpy(rhs, rhs_d, matrix_size * sizeof(double), cudaMemcpyDeviceToHost);
-        cudaMemcpy(reference_solution, reference_solution_d, matrix_size * sizeof(double), cudaMemcpyDeviceToHost);
-        cudaMemcpy(data, data_d, nnz * sizeof(double), cudaMemcpyDeviceToHost);
+        hipMemcpy(rhs, rhs_d, matrix_size * sizeof(double), hipMemcpyDeviceToHost);
+        hipMemcpy(reference_solution, reference_solution_d, matrix_size * sizeof(double), hipMemcpyDeviceToHost);
+        hipMemcpy(data, data_d, nnz * sizeof(double), hipMemcpyDeviceToHost);
 
 
         int iteration;
@@ -411,14 +411,14 @@ int main(int argc, char **argv) {
     delete[] reference_solution;
     delete[] starting_guess;
 
-    cudaFree(data_d);
-    cudaFree(row_ptr_d);
-    cudaFree(col_indices_d);
-    cudaFree(rhs_d);
-    cudaFree(reference_solution_d);
-    cudaFree(diagonal_d);
+    hipFree(data_d);
+    hipFree(row_ptr_d);
+    hipFree(col_indices_d);
+    hipFree(rhs_d);
+    hipFree(reference_solution_d);
+    hipFree(diagonal_d);
 
-    cudaDeviceSynchronize();
+    hipDeviceSynchronize();
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
     return 0;

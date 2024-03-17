@@ -41,10 +41,12 @@ void conjugate_gradient_jacobi_split_sparse(
 
     double a, b, na;
     double alpha, alpham1, r0;
-    double *r_norm2_h;
-    double *dot_h;    
-    cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
-    cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
+    // double *r_norm2_h;
+    // double *dot_h;    
+    // cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
+    // cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
+    double    r_norm2_h[1];
+    double    dot_h[1];
 
     alpha = 1.0;
     alpham1 = -1.0;
@@ -192,8 +194,8 @@ void conjugate_gradient_jacobi_split_sparse(
     cudaErrchk(hipFree(Ap_local_d));
     cudaErrchk(hipFree(z_local_d));
 
-    cudaErrchk(hipHostFree(r_norm2_h));
-    cudaErrchk(hipHostFree(dot_h));
+    // cudaErrchk(hipHostFree(r_norm2_h));
+    // cudaErrchk(hipHostFree(dot_h));
     cudaErrchk(hipFree(p_subblock_d));
     cusparseErrchk(hipsparseDestroyDnVec(vecp_subblock));
     cudaErrchk(hipFree(Ap_subblock_d));
@@ -212,50 +214,49 @@ void conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_spars
     double relative_tolerance,
     int max_iterations,
     MPI_Comm comm);
-// template 
-// void conjugate_gradient_jacobi_split_sparse<dspmv_split::spmm_split2>(
-//     Distributed_subblock &A_subblock,
-//     Distributed_matrix &A_distributed,
-//     Distributed_vector &p_distributed,
-//     double *r_local_d,
-//     double *x_local_d,
-//     double *diag_inv_local_d,
-//     double relative_tolerance,
-//     int max_iterations,
-//     MPI_Comm comm);
-// template 
-// void conjugate_gradient_jacobi_split_sparse<dspmv_split::spmm_split3>(
-//     Distributed_subblock &A_subblock,
-//     Distributed_matrix &A_distributed,
-//     Distributed_vector &p_distributed,
-//     double *r_local_d,
-//     double *x_local_d,
-//     double *diag_inv_local_d,
-//     double relative_tolerance,
-//     int max_iterations,
-//     MPI_Comm comm);
-// template 
-// void conjugate_gradient_jacobi_split_sparse<dspmv_split::spmm_split4>(
-//     Distributed_subblock &A_subblock,
-//     Distributed_matrix &A_distributed,
-//     Distributed_vector &p_distributed,
-//     double *r_local_d,
-//     double *x_local_d,
-//     double *diag_inv_local_d,
-//     double relative_tolerance,
-//     int max_iterations,
-//     MPI_Comm comm);
-// template 
-// void conjugate_gradient_jacobi_split_sparse<dspmv_split::spmm_split5>(
-//     Distributed_subblock &A_subblock,
-//     Distributed_matrix &A_distributed,
-//     Distributed_vector &p_distributed,
-//     double *r_local_d,
-//     double *x_local_d,
-//     double *diag_inv_local_d,
-//     double relative_tolerance,
-//     int max_iterations,
-//     MPI_Comm comm);
-
+template
+void conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse2>(
+    Distributed_subblock_sparse &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template
+void conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse3>(
+    Distributed_subblock_sparse &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template
+void conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse4>(
+    Distributed_subblock_sparse &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
+template
+void conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse5>(
+    Distributed_subblock_sparse &A_subblock,
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
 
 } // namespace iterative_solver

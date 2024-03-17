@@ -17,12 +17,13 @@ timing_data = {
     "KMC step count": [],
     "Z - calculation time - dissipated power [s]": [],
     "Z - calculation time - potential from boundaries [s]": [],
+    "Z - calculation time - potential from charges [s]": [],
     "Z - calculation time - kmc events [s]": [],
     "Z - calculation time - KMC superstep [s]": [],
 }
 
 # Read the log file and extract timing information
-with open("output.txt", "r") as file:
+with open("output1_0.txt", "r") as file:
     lines = file.readlines()
     current_kmc_step = None
 

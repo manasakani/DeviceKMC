@@ -1,5 +1,5 @@
 #pragma once
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 void extract_diagonal_inv_sqrt(
     double *data,

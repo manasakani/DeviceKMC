@@ -26,10 +26,12 @@ void conjugate_gradient(
 
     double a, b, na;
     double alpha, alpham1, r0;
-    double *r_norm2_h;
-    double *dot_h;    
-    cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
-    cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
+    // double *r_norm2_h;
+    // double *dot_h;    
+    // cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
+    // cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
+    double    r_norm2_h[1];
+    double    dot_h[1];
 
     alpha = 1.0;
     alpham1 = -1.0;
@@ -124,9 +126,8 @@ void conjugate_gradient(
     cusparseErrchk(hipsparseDestroyDnVec(vecAp_local));
     cudaErrchk(hipFree(Ap_local_d));
     
-
-    cudaErrchk(hipHostFree(r_norm2_h));
-    cudaErrchk(hipHostFree(dot_h));
+    // cudaErrchk(hipHostFree(r_norm2_h));
+    // cudaErrchk(hipHostFree(dot_h));
 
 }
 template 
@@ -178,10 +179,10 @@ void conjugate_gradient_jacobi(
     double alpha, alpham1, r0;
     // double *r_norm2_h;
     // double *dot_h;    
-    // cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));  // change this
+    // cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
     // cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
-    double    *r_norm2_h = new    double[1];
-    double    *dot_h     = new    double[1];
+    double    r_norm2_h[1];
+    double    dot_h[1];
 
     alpha = 1.0;
     alpham1 = -1.0;
@@ -229,14 +230,13 @@ void conjugate_gradient_jacobi(
         A_distributed.rows_this_rank,
         default_stream
     ); 
-
+    
     cublasErrchk(hipblasDdot(default_cublasHandle, A_distributed.rows_this_rank, r_local_d, 1, z_local_d, 1, r_norm2_h));
     MPI_Allreduce(MPI_IN_PLACE, r_norm2_h, 1, MPI_DOUBLE, MPI_SUM, comm);
 
-    int k = 1;
 
+    int k = 1;
     while (r_norm2_h[0]/norm2_rhs > relative_tolerance * relative_tolerance && k <= max_iterations) {
-        
         if(k > 1){
             // pk+1 = rk+1 + b*pk
             b = r_norm2_h[0] / r0;
@@ -303,8 +303,6 @@ void conjugate_gradient_jacobi(
 
     // cudaErrchk(hipHostFree(r_norm2_h));
     // cudaErrchk(hipHostFree(dot_h));
-    free(r_norm2_h);
-    free(dot_h);
 
 }
 template 

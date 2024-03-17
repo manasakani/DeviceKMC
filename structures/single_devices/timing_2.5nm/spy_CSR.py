@@ -34,7 +34,7 @@ def main():
     #     sys.exit(1)
 
     folder_path = './'# sys.argv[1]
-    step = 0
+    step = 1
 
     # read the large sparse matrix
     csr_matrix_data = read_csr_matrix(folder_path, step)

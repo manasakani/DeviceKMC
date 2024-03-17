@@ -38,10 +38,12 @@ void conjugate_gradient_split(
 
     double a, b, na;
     double alpha, alpham1, r0;
-    double *r_norm2_h;
-    double *dot_h;    
-    cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
-    cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
+    // double *r_norm2_h;
+    // double *dot_h;    
+    // cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
+    // cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
+    double    r_norm2_h[1];
+    double    dot_h[1];
 
     alpha = 1.0;
     alpham1 = -1.0;
@@ -156,8 +158,8 @@ void conjugate_gradient_split(
     cudaErrchk(hipStreamDestroy(default_stream));
     cusparseErrchk(hipsparseDestroyDnVec(vecAp_local));
     cudaErrchk(hipFree(Ap_local_d));
-    cudaErrchk(hipHostFree(r_norm2_h));
-    cudaErrchk(hipHostFree(dot_h));
+    // cudaErrchk(hipHostFree(r_norm2_h));
+    // cudaErrchk(hipHostFree(dot_h));
     cudaErrchk(hipFree(p_subblock_d));
     cudaErrchk(hipFree(Ap_subblock_d));
     cudaErrchk(hipHostFree(p_subblock_h));
@@ -264,10 +266,12 @@ void conjugate_gradient_jacobi_split(
 
     double a, b, na;
     double alpha, alpham1, r0;
-    double *r_norm2_h;
-    double *dot_h;    
-    cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
-    cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
+    // double *r_norm2_h;
+    // double *dot_h;    
+    // cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
+    // cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
+    double    r_norm2_h[1];
+    double    dot_h[1];
 
     alpha = 1.0;
     alpham1 = -1.0;
@@ -409,8 +413,8 @@ void conjugate_gradient_jacobi_split(
     cudaErrchk(hipFree(Ap_local_d));
     cudaErrchk(hipFree(z_local_d));
 
-    cudaErrchk(hipHostFree(r_norm2_h));
-    cudaErrchk(hipHostFree(dot_h));
+    // cudaErrchk(hipHostFree(r_norm2_h));
+    // cudaErrchk(hipHostFree(dot_h));
     cudaErrchk(hipFree(p_subblock_d));
     cudaErrchk(hipFree(Ap_subblock_d));
     cudaErrchk(hipHostFree(p_subblock_h));

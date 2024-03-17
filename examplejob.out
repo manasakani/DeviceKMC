@@ -1,182 +1,174 @@
-Setting GPUs...
-Rank 0 will use GPU 0
-Setting GPUs...
-Rank 1 will use GPU 0
-Setting GPUs...
-Rank 4 will use GPU 0
-Setting GPUs...
-Rank 6 will use GPU 0
-Setting GPUs...
-Rank 3 will use GPU 0
-Setting GPUs...
-Rank 2 will use GPU 0
-Setting GPUs...
-Rank 5 will use GPU 0
-Setting GPUs...
-Rank 7 will use GPU 0
-Number of OMP threads: 1
-Time to build neighbor list: 0.501154
-Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
-100 oxygen atoms will be converted to vacancies
+Rank 0 has SLURM_LOCALID 0
+Rank 0 ROCR_VISIBLE_DEVICES: 0
+Rank 0 successfully set device 0
+Number of OMP threads: 7
 Constructing device...
 Re-Building the neighbor list on GPU - max_num_neighbors is known!
-Max number of sites within cutoff: 2613
-Time to build neighbor list: 0.503212
-Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
-100 oxygen atoms will be converted to vacancies
-Time to build neighbor list: 0.504127
-Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
-100 oxygen atoms will be converted to vacancies
-Time to build neighbor list: 0.503824
-Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
-100 oxygen atoms will be converted to vacancies
-Time to build neighbor list: 0.504061
-Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
-100 oxygen atoms will be converted to vacancies
-Time to build neighbor list: 0.506266
-Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
-100 oxygen atoms will be converted to vacancies
-Time to build neighbor list: 0.513096
-Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
-100 oxygen atoms will be converted to vacancies
-Time to build neighbor list: 0.514548
-Loaded 9399 sites into device : 6421 atoms and 2978 interstitials 
-100 oxygen atoms will be converted to vacancies
-Constructing distributed vector
-Constructing distributed vector
-Done constructing distributed vector
-Constructing distributed vector
-Done constructing distributed vector
-Done constructing distributed vector
-Constructing distributed vector
-Done constructing distributed vector
-Constructing distributed vector
-Constructing distributed vector
-Done constructing distributed vector
-Done constructing distributed vector
-Constructing distributed vector
-Done constructing distributed vector
-Constructing distributed vector
-Done constructing distributed vector
-updating boundary potential
-going to background_potential_gpu_sparse
-assembling matrix data
-updating boundary potential
-going to background_potential_gpu_sparse
-assembling matrix data
-updating boundary potential
-going to background_potential_gpu_sparse
-assembling matrix data
-updating boundary potential
-going to background_potential_gpu_sparse
-assembling matrix data
-updating boundary potential
-going to background_potential_gpu_sparse
-assembling matrix data
-updating boundary potential
-going to background_potential_gpu_sparse
-assembling matrix data
-updating boundary potential
-going to background_potential_gpu_sparse
-assembling matrix data
-next
-1
-next
-1
-next
-1
-next
-1
-updating boundary potential
-going to background_potential_gpu_sparse
-assembling matrix data
-next
-1
-next
-1
-2
-2
-2
-next
-1
-next
-2
-2
-getneighbor
-getneighbor
-getneighbor
-2
-2
-1
-getneighbor
-getneighbor
-memset
-memset
-memset
-getneighbor
-getneighbor
-2
-memset
-memset
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-memset
-memset
-getneighbor
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-getneighbor
-getneighbor
-getneighbor
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-memset
-getneighbor
-getneighbor
-memset
-memset
-memset
-memset
-getneighbor
-getneighbor
-calc_off_diagonal_dist
-memset
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-memset
-memset
-getneighbor
-calc_off_diagonal_dist
-done assembling matrix data
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-memset
-calc_off_diagonal_dist
-done assembling matrix data
-updating diagonals
-getneighbor
-getneighbor
-getneighbor
-getneighbor
-calc_off_diagonal_dist
-getneighbor
-updating diagonals
-memset
-memset
-memset
-memset
-getneighbor
-memset
-memset
-preparing rhs
-calc_off_diagonal_dist
-preparing rhs
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-calc_off_diagonal_dist
-going to K-CG
-going to K-CG
+**************start of construct_site_neighbor_list_gpu********************
+
+
+======================= ROCm System Management Interface =======================
+============================= Memory Usage (Bytes) =============================
+GPU[0]		: VRAM Total Memory (B): 68702699520
+GPU[0]		: VRAM Total Used Memory (B): 13393920
+================================================================================
+============================= End of ROCm SMI Log ==============================
+**********************************
+memcon for cutoff_idx: 6.11656 GB
+**************before cuda free********************
+
+
+======================= ROCm System Management Interface =======================
+============================= Memory Usage (Bytes) =============================
+GPU[0]		: VRAM Total Memory (B): 68702699520
+GPU[0]		: VRAM Total Used Memory (B): 6238138368
+================================================================================
+============================= End of ROCm SMI Log ==============================
+**********************************
+**************after cuda free********************
+
+
+======================= ROCm System Management Interface =======================
+============================= Memory Usage (Bytes) =============================
+GPU[0]		: VRAM Total Memory (B): 68702699520
+GPU[0]		: VRAM Total Used Memory (B): 6135369728
+================================================================================
+============================= End of ROCm SMI Log ==============================
+**********************************
+Max number of sites within cutoff: 3786
+Time to build neighbor list: 42.4172
+Loaded 403893 sites into device : 274080 atoms and 129813 interstitials 
+6400 oxygen atoms will be converted to vacancies
+printing things
+rank 0 count_Tdevice: 274081 
+rank 0displ_Tdevice: 0 
+Nsub inside gpubuf: 274081
+mpi rank0  updating charge 
+mpi rank0 starting updating boundary potential 
+iteration = 199, relative residual = 3.91381e-05
+Z - calculation time - potential from boundaries [s]0.202976
+Z - calculation time - potential from charges [s]0.0927837
+mpi rank0 done updating boundary potential 
+making snapshot
+mpi rank0 is starting kmc events 
+Number of KMC events: 71
+Event time: 1.35462e-14
+mpi rank0 is done kmc events 
+**********************************
+
+
+======================= ROCm System Management Interface =======================
+============================= Memory Usage (Bytes) =============================
+GPU[0]		: VRAM Total Memory (B): 68702699520
+GPU[0]		: VRAM Total Used Memory (B): 6551334912
+================================================================================
+============================= End of ROCm SMI Log ==============================
+**********************************
+mpi rank0 logging results 
+mpi rank0  updating charge 
+mpi rank0 starting updating boundary potential 
+iteration = 4, relative residual = 1.77172e-05
+Z - calculation time - potential from boundaries [s]0.0447813
+Z - calculation time - potential from charges [s]0.0920713
+mpi rank0 done updating boundary potential 
+mpi rank0 is starting kmc events 
+Number of KMC events: 27
+Event time: 1.05264e-14
+mpi rank0 is done kmc events 
+**********************************
+
+
+======================= ROCm System Management Interface =======================
+============================= Memory Usage (Bytes) =============================
+GPU[0]		: VRAM Total Memory (B): 68702699520
+GPU[0]		: VRAM Total Used Memory (B): 6551334912
+================================================================================
+============================= End of ROCm SMI Log ==============================
+**********************************
+mpi rank0 logging results 
+mpi rank0  updating charge 
+mpi rank0 starting updating boundary potential 
+iteration = 3, relative residual = 1.87068e-05
+Z - calculation time - potential from boundaries [s]0.0455943
+Z - calculation time - potential from charges [s]0.091387
+mpi rank0 done updating boundary potential 
+mpi rank0 is starting kmc events 
+Number of KMC events: 6
+Event time: 1.21439e-14
+mpi rank0 is done kmc events 
+**********************************
+
+
+======================= ROCm System Management Interface =======================
+============================= Memory Usage (Bytes) =============================
+GPU[0]		: VRAM Total Memory (B): 68702699520
+GPU[0]		: VRAM Total Used Memory (B): 6553436160
+================================================================================
+============================= End of ROCm SMI Log ==============================
+**********************************
+mpi rank0 logging results 
+mpi rank0  updating charge 
+mpi rank0 starting updating boundary potential 
+iteration = 1, relative residual = 1.8681e-05
+Z - calculation time - potential from boundaries [s]0.0458055
+Z - calculation time - potential from charges [s]0.0901315
+mpi rank0 done updating boundary potential 
+mpi rank0 is starting kmc events 
+Number of KMC events: 2
+Event time: 2.03726e-14
+mpi rank0 is done kmc events 
+**********************************
+
+
+======================= ROCm System Management Interface =======================
+============================= Memory Usage (Bytes) =============================
+GPU[0]		: VRAM Total Memory (B): 68702699520
+GPU[0]		: VRAM Total Used Memory (B): 6553436160
+================================================================================
+============================= End of ROCm SMI Log ==============================
+**********************************
+mpi rank0 logging results 
+mpi rank0  updating charge 
+mpi rank0 starting updating boundary potential 
+iteration = 1, relative residual = 1.87068e-05
+Z - calculation time - potential from boundaries [s]0.0425919
+Z - calculation time - potential from charges [s]0.0916953
+mpi rank0 done updating boundary potential 
+mpi rank0 is starting kmc events 
+Number of KMC events: 2
+Event time: 2.64012e-14
+mpi rank0 is done kmc events 
+**********************************
+
+
+======================= ROCm System Management Interface =======================
+============================= Memory Usage (Bytes) =============================
+GPU[0]		: VRAM Total Memory (B): 68702699520
+GPU[0]		: VRAM Total Used Memory (B): 6555537408
+================================================================================
+============================= End of ROCm SMI Log ==============================
+**********************************
+mpi rank0 logging results 
+mpi rank0  updating charge 
+mpi rank0 starting updating boundary potential 
+iteration = 1, relative residual = 1.8681e-05
+Z - calculation time - potential from boundaries [s]0.0451758
+Z - calculation time - potential from charges [s]0.0913907
+mpi rank0 done updating boundary potential 
+mpi rank0 is starting kmc events 
+Number of KMC events: 5
+Event time: 4.79928e-14
+mpi rank0 is done kmc events 
+**********************************
+
+
+======================= ROCm System Management Interface =======================
+============================= Memory Usage (Bytes) =============================
+GPU[0]		: VRAM Total Memory (B): 68702699520
+GPU[0]		: VRAM Total Used Memory (B): 6555537408
+================================================================================
+============================= End of ROCm SMI Log ==============================
+**********************************
+mpi rank0 logging results 
+logging the last snapshot
+KMC step count: 6

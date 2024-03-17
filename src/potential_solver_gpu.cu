@@ -1551,7 +1551,7 @@ __global__ void calculate_pairwise_interaction_indexed(const double* posx, const
         {
             j = cutoff_idx[i*N_cutoff + j_idx];
 
-            if (i != j && charge[j] != 0) {
+            if (j >= 0 && i != j && charge[j] != 0) {
                 double dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
                                                     posx[j], posy[j], posz[j], 
                                                     lattice[0], lattice[1], lattice[2], pbc);
@@ -1652,19 +1652,19 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     // gpuErrchk( hipDeviceSynchronize() );
     // gpuErrchk( hipPeekAtLastError() );
 
-    // only checks sites within an index window
-    hipLaunchKernelGGL(calculate_pairwise_interaction_windowed, num_blocks, num_threads, 0, 0, posx, posy, posz, lattice,
-        pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_window);
-    gpuErrchk( hipPeekAtLastError() );
-    gpuErrchk( hipDeviceSynchronize() );
-    gpuErrchk( hipPeekAtLastError() );
-
-    // // row-wise: only checks sites which were precomputed to be within the cutoff radius
-    // hipLaunchKernelGGL(calculate_pairwise_interaction_indexed, num_blocks, num_threads, 0, 0, posx, posy, posz, lattice,
-    //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_idx, N_cutoff);
+    // // only checks sites within an index window
+    // hipLaunchKernelGGL(calculate_pairwise_interaction_windowed, num_blocks, num_threads, 0, 0, posx, posy, posz, lattice,
+    //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_window);
     // gpuErrchk( hipPeekAtLastError() );
     // gpuErrchk( hipDeviceSynchronize() );
     // gpuErrchk( hipPeekAtLastError() );
+
+    // row-wise: only checks sites which were precomputed to be within the cutoff radius
+    hipLaunchKernelGGL(calculate_pairwise_interaction_indexed, num_blocks, num_threads, 0, 0, posx, posy, posz, lattice,
+        pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_idx, N_cutoff);
+    gpuErrchk( hipPeekAtLastError() );
+    gpuErrchk( hipDeviceSynchronize() );
+    gpuErrchk( hipPeekAtLastError() );
 
     // // element-wise: only checks sites which were precomputed to be within the cutoff radius
     // calculate_pairwise_interaction_indexed<NUM_THREADS><<<num_blocks, NUM_THREADS, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice,

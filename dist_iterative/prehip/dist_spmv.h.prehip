@@ -126,4 +126,60 @@ void spmm_split_sparse1(
     cudaStream_t &default_stream,
     cusparseHandle_t &default_cusparseHandle);
 
+void spmm_split_sparse2(
+    Distributed_subblock_sparse &A_subblock,
+    Distributed_matrix &A_distributed,    
+    double *p_subblock_d,
+    double *p_subblock_h,
+    cusparseDnVecDescr_t &vecp_subblock,
+    Distributed_vector &p_distributed,
+    double *Ap_subblock_d,
+    cusparseDnVecDescr_t &vecAp_subblock,
+    cusparseDnVecDescr_t &vecAp_local,
+    double *Ap_local_d,
+    cudaStream_t &default_stream,
+    cusparseHandle_t &default_cusparseHandle);
+
+void spmm_split_sparse3(
+    Distributed_subblock_sparse &A_subblock,
+    Distributed_matrix &A_distributed,    
+    double *p_subblock_d,
+    double *p_subblock_h,
+    cusparseDnVecDescr_t &vecp_subblock,
+    Distributed_vector &p_distributed,
+    double *Ap_subblock_d,
+    cusparseDnVecDescr_t &vecAp_subblock,
+    cusparseDnVecDescr_t &vecAp_local,
+    double *Ap_local_d,
+    cudaStream_t &default_stream,
+    cusparseHandle_t &default_cusparseHandle);
+
+void spmm_split_sparse4(
+    Distributed_subblock_sparse &A_subblock,
+    Distributed_matrix &A_distributed,    
+    double *p_subblock_d,
+    double *p_subblock_h,
+    cusparseDnVecDescr_t &vecp_subblock,
+    Distributed_vector &p_distributed,
+    double *Ap_subblock_d,
+    cusparseDnVecDescr_t &vecAp_subblock,
+    cusparseDnVecDescr_t &vecAp_local,
+    double *Ap_local_d,
+    cudaStream_t &default_stream,
+    cusparseHandle_t &default_cusparseHandle);
+
+void spmm_split_sparse5(
+    Distributed_subblock_sparse &A_subblock,
+    Distributed_matrix &A_distributed,    
+    double *p_subblock_d,
+    double *p_subblock_h,
+    cusparseDnVecDescr_t &vecp_subblock,
+    Distributed_vector &p_distributed,
+    double *Ap_subblock_d,
+    cusparseDnVecDescr_t &vecAp_subblock,
+    cusparseDnVecDescr_t &vecAp_local,
+    double *Ap_local_d,
+    cudaStream_t &default_stream,
+    cusparseHandle_t &default_cusparseHandle);
+
 } // namespace dspmv_split_sparse

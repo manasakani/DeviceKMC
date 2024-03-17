@@ -8,7 +8,6 @@ Distributed_vector::Distributed_vector(
     int *neighbours,
     MPI_Comm comm
 ){
-    std::cout << "Constructing distributed vector" << std::endl;
     MPI_Comm_size(comm, &size);
     MPI_Comm_rank(comm, &rank);
     this->matrix_size = matrix_size;
@@ -39,7 +38,6 @@ Distributed_vector::Distributed_vector(
         cusparseErrchk(cusparseCreateDnVec(&descriptors[k], counts[neighbour_idx], vec_d[k], CUDA_R_64F));
 
     }
-    std::cout << "Done constructing distributed vector" << std::endl;
 }
 
 Distributed_vector::~Distributed_vector(){
