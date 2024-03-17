@@ -598,10 +598,10 @@ double execute_kmc_step_mpi(
 
         // allgather using host pointers:
         gpuErrchk( hipMemcpy(Psum_host, event_prob_cum_local_d + count[rank] * nn - 1, sizeof(double), hipMemcpyDeviceToHost) );
-        MPI_Allgather(Psum_host, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
+        // MPI_Allgather(Psum_host, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
 
         // allgather using device pointers with cuda aware mpi
-        // MPI_Allgather(event_prob_cum_local_d + count[rank] * nn - 1, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
+        MPI_Allgather(event_prob_cum_local_d + count[rank] * nn - 1, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
 
         for (int i = 1; i < size; i++){
             event_prob_cum_global_h[i] += event_prob_cum_global_h[i-1];

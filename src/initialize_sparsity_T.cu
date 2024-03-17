@@ -293,21 +293,21 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
 
         //debug
         // copy back to host and print nnz per row dist_nnz_per_row_d:
-        int *dist_nnz_per_row_h = new int[1000];
-        gpuErrchk( hipMemcpy(dist_nnz_per_row_h, dist_nnz_per_row_d, 1000 * sizeof(int), hipMemcpyDeviceToHost) );
-        for(int i = 0; i < 1000; i++){
-            std::cout << "rank " << gpubuf.rank << " dist_nnz_per_row_h[" << i << "] = " << dist_nnz_per_row_h[i] << std::endl;
-        }
-        //debug
-        //debug
-        // // print nnz per row to file
-        // std::ofstream fout("nnz_per_row_testing.txt");
-        // int *dist_nnz_per_row_h = new int[rows_this_rank];
-        // gpuErrchk( hipMemcpy(dist_nnz_per_row_h, dist_nnz_per_row_d, rows_this_rank * sizeof(int), hipMemcpyDeviceToHost) );
-        // for (int i = 0; i < rows_this_rank; i++) {
-        //     fout << dist_nnz_per_row_h[i]; 
-        //     fout << ' ';
+        // int *dist_nnz_per_row_h = new int[1000];
+        // gpuErrchk( hipMemcpy(dist_nnz_per_row_h, dist_nnz_per_row_d, 1000 * sizeof(int), hipMemcpyDeviceToHost) );
+        // for(int i = 0; i < 1000; i++){
+        //     std::cout << "rank " << gpubuf.rank << " dist_nnz_per_row_h[" << i << "] = " << dist_nnz_per_row_h[i] << std::endl;
         // }
+        //debug
+        //debug
+        // print nnz per row to file
+        std::ofstream fout("nnz_per_row_testing.txt");
+        int *dist_nnz_per_row_h = new int[rows_this_rank];
+        gpuErrchk( hipMemcpy(dist_nnz_per_row_h, dist_nnz_per_row_d, rows_this_rank * sizeof(int), hipMemcpyDeviceToHost) );
+        for (int i = 0; i < rows_this_rank; i++) {
+            fout << dist_nnz_per_row_h[i]; 
+            fout << ' ';
+        }
         // //debug
         exit(1);
 
@@ -344,8 +344,6 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
         std::cout << "rank " << gpubuf.rank << "T dist_nnz_h[" << i << "] = " << dist_nnz_h[i] << std::endl;
     }
     std::cout << "rank " << gpubuf.rank <<  "T neighbor_count = " << neighbor_count << std::endl;
-
-    // CHECK NNZ PER ROW
 
     // get the indices of the neighbours
     int *neighbor_idx = new int[neighbor_count];

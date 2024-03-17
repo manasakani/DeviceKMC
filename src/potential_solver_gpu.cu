@@ -26,7 +26,7 @@ __global__ void update_charge(const ELEMENT *element,
 
             // iterate over the neighbors
             for (int j = tid * nn; j < (tid + 1) * nn; ++j){
-                if (j >= 0)
+                if (neigh_idx[j] >= 0)
                 {
                     if (element[neigh_idx[j]] == VACANCY){
                         Vnn++;
@@ -46,7 +46,7 @@ __global__ void update_charge(const ELEMENT *element,
 
             // iterate over the neighbors
             for (int j = tid * nn; j < (tid + 1) * nn; ++j){
-                if (j >= 0)
+                if (neigh_idx[j] >= 0)
                 {
                     if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
                         charge[tid] = 0;
