@@ -277,32 +277,28 @@ int main(int argc, char **argv)
             if (p.solve_potential)
             {
                 // update site-resolved charge
-                std::cout << "mpi rank" << mpi_rank << "  updating charge " << std::endl;
                 std::map<std::string, double> chargeMap = device.updateCharge(gpubuf, p.metals);           
                 resultMap.insert(chargeMap.begin(), chargeMap.end());               
                 
-                std::cout << "mpi rank" << mpi_rank << " starting updating boundary potential " << std::endl;
                 // update site-resolved potential
                 std::map<std::string, double> potentialMap = device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);
                 resultMap.insert(potentialMap.begin(), potentialMap.end());      
-                std::cout << "mpi rank" << mpi_rank << " done updating boundary potential " << std::endl;                        
             }
 
-            // generate xyz snapshot
-            if (!(kmc_step_count % p.log_freq))
-            {
-#ifdef USE_CUDA
-        gpubuf.sync_GPUToHost(device);
-#endif
-                if (!mpi_rank){
-                    std::cout << "making snapshot" << std::endl;
-                    std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-                    device.writeSnapshot(file_name, folder_name);
-                }
-            }
+//             // generate xyz snapshot
+//             if (!(kmc_step_count % p.log_freq))
+//             {
+// #ifdef USE_CUDA
+//         gpubuf.sync_GPUToHost(device);
+// #endif
+//                 if (!mpi_rank){
+//                     std::cout << "making snapshot" << std::endl;
+//                     std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
+//                     device.writeSnapshot(file_name, folder_name);
+//                 }
+//             }
 
             // Execute events and update kmc_time
-            std::cout << "mpi rank" << mpi_rank << " is starting kmc events " << std::endl;
             if (p.perturb_structure){                                  
                 std::map<std::string, double> kmcMap = sim.executeKMCStep(gpubuf, device, &step_time);   // execute events on the structure
                 kmc_time += step_time;
@@ -314,8 +310,7 @@ int main(int argc, char **argv)
                     kmc_time = t;
                 }
             }
-            std::cout << "mpi rank" << mpi_rank << " is done kmc events " << std::endl;
-           
+
             // Update current and joule heating
             if (p.solve_current)
             {
@@ -335,20 +330,19 @@ int main(int argc, char **argv)
             auto tfield = std::chrono::steady_clock::now();
             std::chrono::duration<double> dt_field = tfield - t0;
 
-            if (!mpi_rank) 
-            {
-                std::cout << "**********************************\n";
-                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
-                std::cout << rocm_smi_output;
-                std::cout << "**********************************\n";
-            }
+            // if (!mpi_rank) 
+            // {
+            //     std::cout << "**********************************\n";
+            //     std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
+            //     std::cout << rocm_smi_output;
+            //     std::cout << "**********************************\n";
+            // }
             
             // ********************************************************
             // ******************** Log results ***********************
             // ********************************************************
 
             outputBuffer << "KMC time is: " << kmc_time << "\n";
-            std::cout << "mpi rank" << mpi_rank << " logging results " << std::endl;
             
             // load step results into print buffer
             for (const auto &pair : resultMap)
@@ -382,7 +376,7 @@ int main(int argc, char **argv)
             outputBuffer << "Z - calculation time - KMC superstep [s]: " << dt.count() << "\n";
             outputBuffer << "--------------------------------------";
             
-            gpuErrchk( hipDeviceSynchronize() ); //debug
+            // gpuErrchk( hipDeviceSynchronize() ); //debug
 
         } // while (kmc_time < t)
 

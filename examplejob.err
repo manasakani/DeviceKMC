@@ -1,0 +1,6 @@
+GPUassert: hipErrorOutOfMemory src/neighbor_lists_gpu.cu 336
+srun: error: nid006914: task 3: Exited with exit code 1
+srun: launch/slurm: _step_signal: Terminating StepId=6535723.0
+slurmstepd: error: *** STEP 6535723.0 ON nid006914 CANCELLED AT 2024-03-17T15:01:30 ***
+srun: error: nid006914: tasks 0-2,4-5: Terminated
+srun: Force Terminated StepId=6535723.0

@@ -6,6 +6,7 @@
 #include <iostream>
 #include "cudaerrchk.h"
 #include <unistd.h>
+#include <rocsparse.h>
 
 class Distributed_vector{
     public:
@@ -49,7 +50,9 @@ struct Distributed_subblock{
 
 struct Distributed_subblock_sparse{
     int *subblock_indices_local_d;
-    hipsparseSpMatDescr_t *descriptor;
+    rocsparse_spmat_descr *descriptor;
+    rocsparse_spmv_alg algo;
+    size_t *buffersize;
     double *buffer_d;
     int subblock_size;
     int *count_subblock_h;
@@ -59,6 +62,7 @@ struct Distributed_subblock_sparse{
     MPI_Request *send_subblock_requests;
     MPI_Request *recv_subblock_requests;
 };
+
 
 // assumes that the matrix is symmetric
 // does a 1D decomposition over the rows

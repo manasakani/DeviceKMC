@@ -520,14 +520,15 @@ template <void (*distributed_spmv_split_sparse)
     Distributed_matrix &,    
     double *,
     double *,
-    hipsparseDnVecDescr_t &,
+    rocsparse_dnvec_descr &,
     Distributed_vector &,
     double *,
-    hipsparseDnVecDescr_t &,
+    rocsparse_dnvec_descr &,
     hipsparseDnVecDescr_t &,
     double *,
     hipStream_t &,
-    hipsparseHandle_t &)>
+    hipsparseHandle_t &,
+    rocsparse_handle &)>
 void test_preconditioned_split_sparse(
     double *data_h,
     int *col_indices_h,
@@ -676,19 +677,31 @@ void test_preconditioned_split_sparse(
     hipMemcpy(A_subblock_col_indices_local_d, A_subblock_col_indices_local_h, nnz_local_subblock * sizeof(int), hipMemcpyHostToDevice);
     hipMemcpy(A_subblock_row_ptr_local_d, A_subblock_row_ptr_local_h, (count_subblock[rank]+1) * sizeof(int), hipMemcpyHostToDevice);
 
-    hipsparseSpMatDescr_t subblock_descriptor;
-    hipsparseCreateCsr(
-        &subblock_descriptor,
-        count_subblock[rank],
-        subblock_size,
-        nnz_local_subblock,
-        A_subblock_row_ptr_local_d,
-        A_subblock_col_indices_local_d,
-        A_subblock_data_local_d,
-        HIPSPARSE_INDEX_32I,
-        HIPSPARSE_INDEX_32I,
-        HIPSPARSE_INDEX_BASE_ZERO,
-        HIP_R_64F);
+    // hipsparseSpMatDescr_t subblock_descriptor;
+    // hipsparseCreateCsr(
+    //     &subblock_descriptor,
+    //     count_subblock[rank],
+    //     subblock_size,
+    //     nnz_local_subblock,
+    //     A_subblock_row_ptr_local_d,
+    //     A_subblock_col_indices_local_d,
+    //     A_subblock_data_local_d,
+    //     HIPSPARSE_INDEX_32I,
+    //     HIPSPARSE_INDEX_32I,
+    //     HIPSPARSE_INDEX_BASE_ZERO,
+    //     HIP_R_64F);
+    rocsparse_spmat_descr subblock_descriptor;
+    rocsparse_create_csr_descr(&subblock_descriptor,
+                            count_subblock[rank],
+                            subblock_size,
+                            nnz_local_subblock,
+                            A_subblock_row_ptr_local_d,
+                            A_subblock_col_indices_local_d,
+                            A_subblock_data_local_d,
+                            rocsparse_indextype_i32,
+                            rocsparse_indextype_i32,
+                            rocsparse_index_base_zero,
+                            rocsparse_datatype_f64_r);
 
     double alpha = 1.0;
     double beta = 0.0;
@@ -697,83 +710,79 @@ void test_preconditioned_split_sparse(
     hipMalloc(&tmp_in_d, subblock_size * sizeof(double));
     hipMemset(&tmp_in_d, 1, subblock_size * sizeof(double)); //
     hipMalloc(&tmp_out_d, count_subblock[rank] * sizeof(double));
-    hipsparseDnVecDescr_t subblock_vector_descriptor_in;
-    hipsparseCreateDnVec(
-        &subblock_vector_descriptor_in,
-        subblock_size,
-        tmp_in_d,
-        HIP_R_64F);
-    hipsparseDnVecDescr_t subblock_vector_descriptor_out;
-    hipsparseCreateDnVec(
-        &subblock_vector_descriptor_out,
-        count_subblock[rank],
-        tmp_out_d,
-        HIP_R_64F);
+
+    // hipsparseDnVecDescr_t subblock_vector_descriptor_in;
+    // hipsparseDnVecDescr_t subblock_vector_descriptor_out;
+    rocsparse_dnvec_descr subblock_vector_descriptor_in;
+    rocsparse_dnvec_descr subblock_vector_descriptor_out;
+
+    // hipsparseCreateDnVec(
+    //     &subblock_vector_descriptor_in,
+    //     subblock_size,
+    //     tmp_in_d,
+    //     HIP_R_64F);
+    
+    // hipsparseCreateDnVec(
+    //     &subblock_vector_descriptor_out,
+    //     count_subblock[rank],
+    //     tmp_out_d,
+    //     HIP_R_64F);
+
+    rocsparse_create_dnvec_descr(&subblock_vector_descriptor_in,
+                                subblock_size,
+                                tmp_in_d,
+                                rocsparse_datatype_f64_r);
+
+    // Create dense vector Y
+    rocsparse_create_dnvec_descr(&subblock_vector_descriptor_out,
+                                count_subblock[rank],
+                                tmp_out_d,
+                                rocsparse_datatype_f64_r);
 
     size_t subblock_buffersize;
 
-    hipsparseHandle_t cusparse_handle;
-    hipsparseCreate(&cusparse_handle);
+    // hipsparseHandle_t cusparse_handle;
+    // hipsparseCreate(&cusparse_handle);
+    rocsparse_handle rocsparse_handle;
+    rocsparse_create_handle(&rocsparse_handle);
 
-    hipsparseSpMV_bufferSize(
-        cusparse_handle,
-        HIPSPARSE_OPERATION_NON_TRANSPOSE,
-        &alpha,
-        subblock_descriptor,
-        subblock_vector_descriptor_in,
-        &beta,
-        subblock_vector_descriptor_out,
-        HIP_R_64F,
-        HIPSPARSE_CSRMV_ALG2,
-        &subblock_buffersize);
 
-    // DEBUG - rocsparse
-    // rocsparse_handle     rochandle;
-    // rocsparse_spmat_descr matA;
-    // rocsparse_dnvec_descr vecX;
-    // rocsparse_dnvec_descr vecY;
-    // rocsparse_create_handle(&rochandle);
+    // hipsparseSpMV_bufferSize(
+    //     cusparse_handle,
+    //     HIPSPARSE_OPERATION_NON_TRANSPOSE,
+    //     &alpha,
+    //     subblock_descriptor,
+    //     subblock_vector_descriptor_in,
+    //     &beta,
+    //     subblock_vector_descriptor_out,
+    //     HIP_R_64F,
+    //     HIPSPARSE_CSRMV_ALG2,
+    //     &subblock_buffersize);
 
-    // // Create sparse matrix A
-    // rocsparse_create_csr_descr(&matA,
-    //                         count_subblock[rank],
-    //                         subblock_size,
-    //                         nnz_local_subblock,
-    //                         A_subblock_row_ptr_local_d,
-    //                         A_subblock_col_indices_local_d,
-    //                         A_subblock_data_local_d,
-    //                         rocsparse_indextype_i32,
-    //                         rocsparse_indextype_i32,
-    //                         rocsparse_index_base_zero,
-    //                         rocsparse_datatype_f64_r);
+    rocsparse_spmv_alg algo = rocsparse_spmv_alg_csr_adaptive;
 
-    // // Create dense vector X
-    // rocsparse_create_dnvec_descr(&vecX,
-    //                             subblock_size,
-    //     tmp_in_d,
-    //                             rocsparse_datatype_f64_r);
-
-    // // Create dense vector Y
-    // rocsparse_create_dnvec_descr(&vecY,
-    //                             count_subblock[rank],
-    //     tmp_out_d,
-    //                             rocsparse_datatype_f64_r);
-
-    // size_t buffer_size;
-    // rocsparse_spmv(rochandle, rocsparse_operation_none, &alpha, matA,vecX, &beta, vecY, rocsparse_datatype_f64_r, rocsparse_spmv_alg_csr_adaptive, &buffer_size, nullptr);
+    rocsparse_spmv(rocsparse_handle,
+                rocsparse_operation_none,
+                &alpha,
+                subblock_descriptor,
+                subblock_vector_descriptor_in,
+                &beta,
+                subblock_vector_descriptor_out,
+                rocsparse_datatype_f64_r,
+                algo,
+                &subblock_buffersize,
+                nullptr);
     
-    // void* temp_buffer;
-    // hipMalloc((void**)&temp_buffer, buffer_size);
-    // rocsparse_spmv(rochandle, rocsparse_operation_none, &alpha, matA,vecX, &beta, vecY, rocsparse_datatype_f64_r, rocsparse_spmv_alg_csr_adaptive, &buffer_size, &temp_buffer);
-    // DEBUG - rocsparse
- 
+    // hipsparseDestroy(cusparse_handle);
+    rocsparse_destroy_handle(rocsparse_handle);
 
-    // DEBUG - hipsparse
-    hipsparseDestroy(cusparse_handle);
     hipFree(tmp_in_d);
     hipFree(tmp_out_d);
-    hipsparseDestroyDnVec(subblock_vector_descriptor_in);
-    hipsparseDestroyDnVec(subblock_vector_descriptor_out);
+
+    // hipsparseDestroyDnVec(subblock_vector_descriptor_in);
+    // hipsparseDestroyDnVec(subblock_vector_descriptor_out);
+    rocsparse_destroy_dnvec_descr(subblock_vector_descriptor_in);
+    rocsparse_destroy_dnvec_descr(subblock_vector_descriptor_out);
 
     double *subblock_buffer_d;
     hipMalloc(&subblock_buffer_d, subblock_buffersize);
@@ -815,6 +824,8 @@ void test_preconditioned_split_sparse(
     Distributed_subblock_sparse A_subblock;
     A_subblock.subblock_indices_local_d = subblock_indices_local_d;
     A_subblock.descriptor = &subblock_descriptor;
+    A_subblock.algo = algo;
+    A_subblock.buffersize = &subblock_buffersize;
     A_subblock.buffer_d = subblock_buffer_d;
     A_subblock.subblock_size = subblock_size;
     A_subblock.count_subblock_h = count_subblock;

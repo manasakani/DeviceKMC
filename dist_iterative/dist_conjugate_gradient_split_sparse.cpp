@@ -7,14 +7,15 @@ template <void (*distributed_spmv_split_sparse)
     Distributed_matrix &,    
     double *,
     double *,
-    hipsparseDnVecDescr_t &,
+    rocsparse_dnvec_descr &,
     Distributed_vector &,
     double *,
-    hipsparseDnVecDescr_t &,
+    rocsparse_dnvec_descr &,
     hipsparseDnVecDescr_t &,
     double *,
     hipStream_t &,
-    hipsparseHandle_t &)>
+    hipsparseHandle_t &,
+    rocsparse_handle &)>
 void conjugate_gradient_jacobi_split_sparse(
     Distributed_subblock_sparse &A_subblock,
     Distributed_matrix &A_distributed,
@@ -34,6 +35,8 @@ void conjugate_gradient_jacobi_split_sparse(
     
     hipsparseHandle_t default_cusparseHandle = 0;
     cusparseErrchk(hipsparseCreate(&default_cusparseHandle));    
+    rocsparse_handle default_rocsparseHandle = 0;
+    rocsparse_create_handle(&default_rocsparseHandle);
 
     cudaErrchk(hipStreamCreate(&default_stream));
     cusparseErrchk(hipsparseSetStream(default_cusparseHandle, default_stream));
@@ -41,10 +44,6 @@ void conjugate_gradient_jacobi_split_sparse(
 
     double a, b, na;
     double alpha, alpham1, r0;
-    // double *r_norm2_h;
-    // double *dot_h;    
-    // cudaErrchk(hipHostMalloc((void**)&r_norm2_h, sizeof(double)));
-    // cudaErrchk(hipHostMalloc((void**)&dot_h, sizeof(double)));
     double    r_norm2_h[1];
     double    dot_h[1];
 
@@ -75,10 +74,10 @@ void conjugate_gradient_jacobi_split_sparse(
         A_subblock.count_subblock_h[A_distributed.rank] * sizeof(double)));
     double *p_subblock_h;
     cudaErrchk(hipHostMalloc((void**)&p_subblock_h, A_subblock.subblock_size * sizeof(double)));
-    hipsparseDnVecDescr_t vecp_subblock = NULL;
-    cusparseErrchk(hipsparseCreateDnVec(&vecp_subblock, A_subblock.subblock_size, p_subblock_d, HIP_R_64F));
-    hipsparseDnVecDescr_t vecAp_subblock = NULL;
-    cusparseErrchk(hipsparseCreateDnVec(&vecAp_subblock, A_subblock.count_subblock_h[A_distributed.rank], Ap_subblock_d, HIP_R_64F));
+    rocsparse_dnvec_descr vecp_subblock = NULL;
+    rocsparse_create_dnvec_descr(&vecp_subblock, A_subblock.subblock_size, p_subblock_d, rocsparse_datatype_f64_r);
+    rocsparse_dnvec_descr vecAp_subblock = NULL;
+    rocsparse_create_dnvec_descr(&vecAp_subblock, A_subblock.count_subblock_h[A_distributed.rank], Ap_subblock_d, rocsparse_datatype_f64_r);
 
     //begin CG
 
@@ -100,7 +99,8 @@ void conjugate_gradient_jacobi_split_sparse(
         vecAp_local,
         Ap_local_d,
         default_stream,
-        default_cusparseHandle
+        default_cusparseHandle,
+        default_rocsparseHandle
     );
 
 
@@ -149,7 +149,8 @@ void conjugate_gradient_jacobi_split_sparse(
             vecAp_local,
             Ap_local_d,
             default_stream,
-            default_cusparseHandle
+            default_cusparseHandle,
+            default_rocsparseHandle
         );
 
         cublasErrchk(hipblasDdot(default_cublasHandle, A_distributed.rows_this_rank, p_distributed.vec_d[0], 1, Ap_local_d, 1, dot_h));

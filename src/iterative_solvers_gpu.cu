@@ -2235,9 +2235,11 @@ void Assemble_X_sparsity(int Natom, const double *posx, const double *posy, cons
     int *nnz_per_row_h = (int*)malloc(matrix_size * sizeof(int));
     gpuErrchk(hipMemcpy(nnz_per_row_h, nnz_per_row_d, matrix_size * sizeof(int), hipMemcpyDeviceToHost));
     for (int i = 0; i < matrix_size; i++) {
+        std::cout << nnz_per_row_h[i] << " ";
         fout << nnz_per_row_h[i]; 
         fout << ' ';
     } exit(1);
+    std::cout << "wrote nnz to file\n";
     //debug
 
     // debug

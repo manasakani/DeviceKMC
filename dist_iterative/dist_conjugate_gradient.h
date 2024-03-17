@@ -85,14 +85,15 @@ template <void (*distributed_spmv_split_sparse)
     Distributed_matrix &,    
     double *,
     double *,
-    hipsparseDnVecDescr_t &,
+    rocsparse_dnvec_descr &,
     Distributed_vector &,
     double *,
-    hipsparseDnVecDescr_t &,
+    rocsparse_dnvec_descr &,
     hipsparseDnVecDescr_t &,
     double *,
     hipStream_t &,
-    hipsparseHandle_t &)>
+    hipsparseHandle_t &,
+    rocsparse_handle &)>
 void conjugate_gradient_jacobi_split_sparse(
     Distributed_subblock_sparse &A_subblock,
     Distributed_matrix &A_distributed,
@@ -105,4 +106,3 @@ void conjugate_gradient_jacobi_split_sparse(
     MPI_Comm comm);
 
 } // namespace iterative_solver
-

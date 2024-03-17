@@ -11,7 +11,7 @@ CXX = hipcc #-ggdb # SWITCH BACK TO O3 - DEBUG
 CXXFLAGS = --offload-arch=gfx90a --std=c++17 -O3 -I"${MPICH_DIR}/include"  -I"/opt/rocm-5.2.3/include/" #-I"/opt/rocm/include" -I"/opt/rocm/rocprim/include/rocprim" -I"/opt/rocm/hipcub/include/hipcub/"
 CXXFLAGS += -w -fopenmp #-fno-unroll-loops # added -fno-unroll-loops
 CXXFLAGS += -DUSE_CUDA
-LDFLAGS = -L"${MPICH_DIR}/lib" -lmpi -L"/opt/rocm-5.2.3/lib/" -lhipblas -lhipsparse -lhipsolver  -L"/opt/rocm-5.2.3/rocprim/lib" -lrocm_smi64
+LDFLAGS = -L"${MPICH_DIR}/lib" -lmpi -L"/opt/rocm-5.2.3/lib/" -lhipblas -lhipsparse -lhipsolver  -L"/opt/rocm-5.2.3/rocprim/lib" -lrocm_smi64 -lrocsparse -lrocsolver -lrocblas
 
 # ***************************************************
 

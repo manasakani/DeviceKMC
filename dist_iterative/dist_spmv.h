@@ -118,69 +118,74 @@ void spmm_split_sparse1(
     Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    hipsparseDnVecDescr_t &vecp_subblock,
+    rocsparse_dnvec_descr &vecp_subblock,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_subblock,
     hipsparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle);
+    hipsparseHandle_t &default_cusparseHandle,
+    rocsparse_handle &default_rocsparseHandle);
 
 void spmm_split_sparse2(
     Distributed_subblock_sparse &A_subblock,
     Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    hipsparseDnVecDescr_t &vecp_subblock,
+    rocsparse_dnvec_descr &vecp_subblock,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_subblock,
     hipsparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle);
+    hipsparseHandle_t &default_cusparseHandle,
+    rocsparse_handle &default_rocsparseHandle);
 
 void spmm_split_sparse3(
     Distributed_subblock_sparse &A_subblock,
     Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    hipsparseDnVecDescr_t &vecp_subblock,
+    rocsparse_dnvec_descr &vecp_subblock,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_subblock,
     hipsparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle);
+    hipsparseHandle_t &default_cusparseHandle,
+    rocsparse_handle &default_rocsparseHandle);
 
 void spmm_split_sparse4(
     Distributed_subblock_sparse &A_subblock,
     Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    hipsparseDnVecDescr_t &vecp_subblock,
+    rocsparse_dnvec_descr &vecp_subblock,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_subblock,
     hipsparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle);
+    hipsparseHandle_t &default_cusparseHandle,
+    rocsparse_handle &default_rocsparseHandle);
 
 void spmm_split_sparse5(
     Distributed_subblock_sparse &A_subblock,
     Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    hipsparseDnVecDescr_t &vecp_subblock,
+    rocsparse_dnvec_descr &vecp_subblock,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_subblock,
     hipsparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle);
+    hipsparseHandle_t &default_cusparseHandle,
+    rocsparse_handle &default_rocsparseHandle);
 
 } // namespace dspmv_split_sparse

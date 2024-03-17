@@ -7,14 +7,15 @@ void spmm_split_sparse1(
     Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    hipsparseDnVecDescr_t &vecp_subblock,
+    rocsparse_dnvec_descr &vecp_subblock,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_subblock,
     hipsparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle)
+    hipsparseHandle_t &default_cusparseHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     // Isend Irecv subblock
     // sparse part
@@ -65,17 +66,18 @@ void spmm_split_sparse1(
             hipMemcpyHostToDevice, default_stream));
     }
 
-    cusparseErrchk(hipsparseSpMV(
-        default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
-        *A_subblock.descriptor, vecp_subblock,
-        &beta, vecAp_subblock, HIP_R_64F, HIPSPARSE_CSRMV_ALG2, A_subblock.buffer_d));
-
-    // rocsparse_spmv(
-    //     default_cusparseHandle, rocsparse_operation_none, &alpha,
+    // cusparseErrchk(hipsparseSpMV(
+    //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
     //     *A_subblock.descriptor, vecp_subblock,
-    //     &beta, vecAp_subblock, rocsparse_datatype_f64_r, rocsparse_spmv_alg_default, rocsparse_spmv_stage_compute,
-    //     A_subblock.buffersize,
-    //     A_subblock.buffer_roc_d);
+    //     &beta, vecAp_subblock, HIP_R_64F, HIPSPARSE_CSRMV_ALG2, A_subblock.buffer_d));
+
+    rocsparse_spmv(
+        default_rocsparseHandle, rocsparse_operation_none, &alpha,
+        *A_subblock.descriptor, vecp_subblock,
+        &beta, vecAp_subblock, rocsparse_datatype_f64_r,
+        A_subblock.algo,
+        A_subblock.buffersize,
+        A_subblock.buffer_d);
 
 
     // unpack and add it to Ap
@@ -94,14 +96,15 @@ void spmm_split_sparse2(
     Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    hipsparseDnVecDescr_t &vecp_subblock,
+    rocsparse_dnvec_descr &vecp_subblock,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_subblock,
     hipsparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle)
+    hipsparseHandle_t &default_cusparseHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     int rank = A_distributed.rank;
     int size = A_distributed.size;
@@ -212,10 +215,19 @@ void spmm_split_sparse2(
             hipMemcpyHostToDevice, default_stream));
     }
 
-    cusparseErrchk(hipsparseSpMV(
-        default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+    // cusparseErrchk(hipsparseSpMV(
+    //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+    //     *A_subblock.descriptor, vecp_subblock,
+    //     &beta, vecAp_subblock, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_subblock.buffer_d));
+
+    rocsparse_spmv(
+        default_rocsparseHandle, rocsparse_operation_none, &alpha,
         *A_subblock.descriptor, vecp_subblock,
-        &beta, vecAp_subblock, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_subblock.buffer_d));
+        &beta, vecAp_subblock, rocsparse_datatype_f64_r,
+        A_subblock.algo,
+        A_subblock.buffersize,
+        A_subblock.buffer_d);
+
     // unpack and add it to Ap
     unpack_add(
         Ap_local_d,
@@ -232,14 +244,15 @@ void spmm_split_sparse3(
     Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    hipsparseDnVecDescr_t &vecp_subblock,
+    rocsparse_dnvec_descr &vecp_subblock,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_subblock,
     hipsparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle)
+    hipsparseHandle_t &default_cusparseHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     // Isend Irecv subblock
     // sparse part
@@ -277,10 +290,18 @@ void spmm_split_sparse3(
                 p_subblock_h, A_subblock.subblock_size * sizeof(double),
                 hipMemcpyHostToDevice, default_stream));                    
         }
-        cusparseErrchk(hipsparseSpMV(
-            default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+        // cusparseErrchk(hipsparseSpMV(
+        //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+        //     *A_subblock.descriptor, vecp_subblock,
+        //     &beta, vecAp_subblock, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_subblock.buffer_d));
+
+        rocsparse_spmv(
+            default_rocsparseHandle, rocsparse_operation_none, &alpha,
             *A_subblock.descriptor, vecp_subblock,
-            &beta, vecAp_subblock, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_subblock.buffer_d));
+            &beta, vecAp_subblock, rocsparse_datatype_f64_r,
+            A_subblock.algo,
+            A_subblock.buffersize,
+            A_subblock.buffer_d);
     }
     #pragma omp section
     {
@@ -309,14 +330,15 @@ void spmm_split_sparse4(
     Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    hipsparseDnVecDescr_t &vecp_subblock,
+    rocsparse_dnvec_descr &vecp_subblock,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_subblock,
     hipsparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle)
+    hipsparseHandle_t &default_cusparseHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     // Isend Irecv subblock
     // sparse part
@@ -369,11 +391,19 @@ void spmm_split_sparse4(
     }
     }
 
-    cusparseErrchk(hipsparseSpMV(
-        default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
-        *A_subblock.descriptor, vecp_subblock,
-        &beta, vecAp_subblock, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_subblock.buffer_d));
+    // cusparseErrchk(hipsparseSpMV(
+    //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+    //     *A_subblock.descriptor, vecp_subblock,
+    //     &beta, vecAp_subblock, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_subblock.buffer_d));
     
+    rocsparse_spmv(
+        default_rocsparseHandle, rocsparse_operation_none, &alpha,
+        *A_subblock.descriptor, vecp_subblock,
+        &beta, vecAp_subblock, rocsparse_datatype_f64_r,
+        A_subblock.algo,
+        A_subblock.buffersize,
+        A_subblock.buffer_d);
+
     // unpack and add it to Ap
     unpack_add(
         Ap_local_d,
@@ -419,14 +449,15 @@ void spmm_split_sparse5(
     Distributed_matrix &A_distributed,    
     double *p_subblock_d,
     double *p_subblock_h,
-    hipsparseDnVecDescr_t &vecp_subblock,
+    rocsparse_dnvec_descr &vecp_subblock,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_subblock,
     hipsparseDnVecDescr_t &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle)
+    hipsparseHandle_t &default_cusparseHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     // Isend Irecv subblock
     // sparse part
@@ -474,11 +505,18 @@ void spmm_split_sparse5(
         pthread_join(allgatherv_thread, NULL);
     }
 
-    cusparseErrchk(hipsparseSpMV(
-        default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
-        *A_subblock.descriptor, vecp_subblock,
-        &beta, vecAp_subblock, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_subblock.buffer_d));
+    // cusparseErrchk(hipsparseSpMV(
+    //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+    //     *A_subblock.descriptor, vecp_subblock,
+    //     &beta, vecAp_subblock, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_subblock.buffer_d));
 
+    rocsparse_spmv(
+        default_rocsparseHandle, rocsparse_operation_none, &alpha,
+        *A_subblock.descriptor, vecp_subblock,
+        &beta, vecAp_subblock, rocsparse_datatype_f64_r,
+        A_subblock.algo,
+        A_subblock.buffersize,
+        A_subblock.buffer_d);
             
     // unpack and add it to Ap
     unpack_add(

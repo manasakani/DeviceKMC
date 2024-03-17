@@ -4,8 +4,8 @@
 #SBATCH --error=examplejob.err  # Name of stderr error file
 #SBATCH --partition=standard-g  # or ju-standard-g, partition name
 #SBATCH --nodes=1               # Total number of nodes  - 1
-#SBATCH --ntasks-per-node=1     # 8 MPI ranks per node, 8 total (1x8) - 8
-#SBATCH --gpus-per-node=1       # Allocate one gpu per MPI rank - 8
+#SBATCH --ntasks-per-node=6     # 8 MPI ranks per node, 8 total (1x8) - 8
+#SBATCH --gpus-per-node=6       # Allocate one gpu per MPI rank - 8
 #SBATCH --cpus-per-task=7       # 7 cpus per task
 #SBATCH --time=00:05:00         # Run time (d-hh:mm:ss)
 #SBATCH --account=project_465000929
@@ -77,8 +77,8 @@ CPU_BIND="${CPU_BIND},fe00000000,fe0000000000"
 # CPU_BIND="mask_cpu:0x0000000000000000,0x0000000000000000"
 # CPU_BIND="${CPU_BIND},0x000000FE,0x000000FE"
 
-# cd ./structures/single_devices/timing_20nm/ 
-cd ./structures/crossbars/20nm_3x3/ 
+cd ./structures/single_devices/timing_2.5nm/ 
+# cd ./structures/crossbars/40nm_3x3/ 
 # srun --cpu-bind=${CPU_BIND} ../../../bin/runKMC parameters.txt
 srun ../../../bin/runKMC parameters.txt
 
