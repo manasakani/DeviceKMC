@@ -193,7 +193,7 @@ int main(int argc, char **argv)
     if (p.solve_potential || p.solve_current)
     {
         initialize_sparsity_K(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer); // for K
-        initialize_sparsity_T(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer, p.num_atoms_first_layer, p.num_layers_contact);
+        // initialize_sparsity_T(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer, p.num_atoms_first_layer, p.num_layers_contact);
     }
 
     // make layer arrays and copy them to const memory

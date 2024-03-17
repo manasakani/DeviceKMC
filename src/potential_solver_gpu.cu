@@ -23,34 +23,34 @@ __global__ void update_charge(const ELEMENT *element,
     for (int idx = tid; idx < N; idx += blockDim.x * gridDim.x) {
         if (tid < N && element[tid] == VACANCY){
             charge[tid] = 2;    
-            // atomicExch(&charge[tid], 2);        
 
             // iterate over the neighbors
             for (int j = tid * nn; j < (tid + 1) * nn; ++j){
-                if (element[neigh_idx[j]] == VACANCY){
-                    Vnn++;
-                }
-                if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
-                    charge[tid] = 0;
-                    // atomicExch(&charge[tid], 0);
-                }
-                if (Vnn >= 2){
-                    charge[tid] = 0;
-                    // atomicExch(&charge[tid], 0);
+                if (j >= 0)
+                {
+                    if (element[neigh_idx[j]] == VACANCY){
+                        Vnn++;
+                    }
+                    if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
+                        charge[tid] = 0;
+                    }
+                    if (Vnn >= 2){
+                        charge[tid] = 0;
+                    }
                 }
             }
         }
 
         if (tid < N && element[tid] == OXYGEN_DEFECT){
             charge[tid] = -2;
-            // atomicExch(&charge[tid], -2);
 
             // iterate over the neighbors
             for (int j = tid * nn; j < (tid + 1) * nn; ++j){
-                
-                if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
-                    charge[tid] = 0;
-                    // atomicExch(&charge[tid], 0);
+                if (j >= 0)
+                {
+                    if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
+                        charge[tid] = 0;
+                    }
                 }
             }
         }
