@@ -55,7 +55,10 @@ void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::v
 //***************************************************
 
 // Initialize the buffer and the indices of the non-zeros in the matrix which represent neighbor connectivity
-void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact);
+void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact);
+
+// Initialize the sparsity of the T matrix (full)
+void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact);
 
 // check that sparse and dense versions are the same
 void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal);
@@ -310,6 +313,14 @@ __device__ inline double v_solve_gpu(double r_dist, int charge, const double *si
 
     return vterm;
 }
+
+struct is_defect
+{
+    __host__ __device__ bool operator()(const ELEMENT element)
+    {
+        return ((element != DEFECT) && (element != OXYGEN_DEFECT));
+    }
+};
 
 
 // used to be named 'calc_diagonal_A_gpu' - row reduction into the diagonal elements for a sparse matrix

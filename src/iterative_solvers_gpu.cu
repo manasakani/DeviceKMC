@@ -258,7 +258,8 @@ void writeArrayToBinFile(T* array, int numElements, const std::string& filename)
     }
 }
 
-void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact)
+
+void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact)
 {
     
 
@@ -328,6 +329,16 @@ void initialize_sparsity(GPUBuffers &gpubuf, int pbc, const double nn_dist, int 
             neighbor_count++;
         }
     }
+
+    // //print dist_nnz_h:
+    // for (int i = 0; i < size; i++)
+    // {
+    //     std::cout << "K dist_nnz_h[" << i << "] = " << dist_nnz_h[i] << std::endl;
+    // }
+    // exit(1);
+
+    // // print nieghbor count:
+    // std::cout << "K neighbor_count = " << neighbor_count << std::endl;
 
     // get the indices of the neighbours
     int *neighbor_idx = new int[neighbor_count];
@@ -520,6 +531,10 @@ void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices,
     double *h_csrValues = (double *)calloc(nnz, sizeof(double));
     int *h_csrRowPtr = (int *)calloc((m + 1), sizeof(int));
     int *h_csrColIndices = (int *)calloc(nnz, sizeof(int));
+
+    // print nnz and m to console
+    std::cout << "nnz = " << nnz << ", m = " << m << "\n";
+
     gpuErrchk( hipMemcpy(h_csrValues, d_csrValues, nnz * sizeof(double), hipMemcpyDeviceToHost) );
     gpuErrchk( hipMemcpy(h_csrRowPtr, d_csrRowPtr, (m + 1) * sizeof(int), hipMemcpyDeviceToHost) );
     gpuErrchk( hipMemcpy(h_csrColIndices, d_csrColIndices, nnz * sizeof(int), hipMemcpyDeviceToHost) );
@@ -2200,15 +2215,30 @@ void Assemble_X_sparsity(int Natom, const double *posx, const double *posy, cons
     gpuErrchk( hipMalloc((void **)&nnz_per_row_d, matrix_size * sizeof(int)) );
     gpuErrchk( hipMemset(nnz_per_row_d, 0, matrix_size * sizeof(int)) );
 
+    std::cout << "og N_sub: " << Nfull - 1 << "\n";
+
     int threads = 512;
     int blocks = (matrix_size + threads - 1) / threads;
     hipLaunchKernelGGL(calc_nnz_per_row_X_gpu, blocks, threads, 0, 0, posx, posy, posz,
-                         metals, element, atom_charge, atom_CB_edge,
-                         lattice, pbc, nn_dist, tol,
-                         num_source_inj, num_ground_ext, num_layers_contact,
-                         num_metals, matrix_size, nnz_per_row_d);
+                       metals, element, atom_charge, atom_CB_edge,
+                       lattice, pbc, nn_dist, tol,
+                       num_source_inj, num_ground_ext, num_layers_contact,
+                       num_metals, matrix_size, nnz_per_row_d);
     gpuErrchk( hipPeekAtLastError() );
     hipDeviceSynchronize();
+
+    std::cout << "matrix size: " << matrix_size << std::endl;
+
+    //debug
+    // print nnz per row to file
+    std::ofstream fout("nnz_per_row.txt");
+    int *nnz_per_row_h = (int*)malloc(matrix_size * sizeof(int));
+    gpuErrchk(hipMemcpy(nnz_per_row_h, nnz_per_row_d, matrix_size * sizeof(int), hipMemcpyDeviceToHost));
+    for (int i = 0; i < matrix_size; i++) {
+        fout << nnz_per_row_h[i]; 
+        fout << ' ';
+    } exit(1);
+    //debug
 
     // debug
     // int *nnz_per_row_h = new int[matrix_size];

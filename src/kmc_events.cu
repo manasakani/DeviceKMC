@@ -625,7 +625,7 @@ double execute_kmc_step_mpi(
             }
         
             int event_idx = thrust::upper_bound(thrust::device, event_prob_cum_local_d, event_prob_cum_local_d + count[rank] * nn, number) - event_prob_cum_local_d;
-            std::cout << "selected event: " << event_idx << "\n";
+            // std::cout << "selected event: " << event_idx << "\n";
 
             // get attributes of the sites involved:
             // i, j, event_type

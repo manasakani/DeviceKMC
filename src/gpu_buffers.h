@@ -55,6 +55,7 @@ public:
     int N_ = 0;                                     // number of sites in the device
     int nn_ = 0;                                    // maximum number of neighbors in the device
     int N_atom_ = 0;                                // number of atomic sites in the device
+    int N_sub_ = 0;                                // size of the T_matrix (Natom + 1)
     int N_cutoff_ = 0;
 
     // helper variables stored on host:
@@ -75,6 +76,7 @@ public:
     // MPI data split
     MPI_Comm comm;
     int rank, size;
+
     // Distribution of sites without boundaries
     int *count_K_device = nullptr;
     int *displ_K_device = nullptr;
@@ -89,6 +91,12 @@ public:
     int *right_col_indices_d = nullptr; 
     int left_nnz, right_nnz;
 
+    // buffers used for the T matrix:
+    int *count_T_device = nullptr;
+    int *displ_T_device = nullptr;
+    Distributed_matrix *T_distributed = nullptr;    // matrix for the full sparsity of T
+    Distributed_vector *T_p_distributed = nullptr;  // rhs for the T matrix
+
     // constructor allocates nothing (used for CPU-only code):
     GPUBuffers(){};
 
@@ -101,6 +109,7 @@ public:
             
         this->N_ = N;
         this->N_atom_ = N_atom;
+        this->N_sub_ = N_atom + 1;                          // size of matrix T
         this->nn_ = nn;
         this->num_metal_types_ = num_metals_types;
         this->N_cutoff_ = cutoff_idx_in.size()/N_;  
@@ -119,6 +128,7 @@ public:
         MPI_Comm_size(comm, &size);
         this->comm = comm;
 
+        // divide K matrix between ranks and store the distribution
         count_K_device = new int[size];
         displ_K_device = new int[size];
         int rows_per_rank_K_device = (N - 2*N_contact) / size;
@@ -147,6 +157,37 @@ public:
         for (int i = 1; i < size; ++i) {
             displ_sites[i] = displ_sites[i-1] + count_sites[i-1];
         }
+
+        // *** divide T matrix between ranks and store the distribution ***
+        count_T_device = new int[size];
+        displ_T_device = new int[size];
+        int rows_per_rank_T_device = N_sub_ / size;
+        for (int i = 0; i < size; ++i) {
+            if(i < N_sub_ % size){
+                count_T_device[i] = rows_per_rank_T_device+1;
+                displ_T_device[i] = i * (rows_per_rank_T_device+1);
+            } 
+            else {
+                count_T_device[i] = rows_per_rank_T_device;
+                displ_T_device[i] = i * rows_per_rank_T_device + N_sub_ % size;
+            }
+        }
+
+        // print count and displacement for each rank
+        std::cout << "printing things\n";
+        std::cout << "rank " << rank << " count_Tdevice: ";
+        for(int i = 0; i < size; ++i){
+            std::cout << count_T_device[i] << " ";
+        }
+        std::cout << std::endl;
+        std::cout << "rank " << rank << "displ_Tdevice: ";
+        for(int i = 0; i < size; ++i){
+            std::cout << displ_T_device[i] << " ";
+        }
+        std::cout << std::endl;
+            std::cout << "Nsub inside gpubuf: " << N_sub_ << std::endl;
+        // exit(1);
+
         // initialize CUDA library handles:
         // hipsparseCreate(&cusparse_handle);
         // hipsparseSetPointerMode(cusparse_handle, HIPSPARSE_POINTER_MODE_DEVICE);

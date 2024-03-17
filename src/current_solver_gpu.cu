@@ -6,13 +6,13 @@
 const double eV_to_J = 1.60217663e-19;          // [C]
 const double h_bar = 1.054571817e-34;           // [Js]
 
-struct is_defect
-{
-    __host__ __device__ bool operator()(const ELEMENT element)
-    {
-        return ((element != DEFECT) && (element != OXYGEN_DEFECT));
-    }
-};
+// struct is_defect
+// {
+//     __host__ __device__ bool operator()(const ELEMENT element)
+//     {
+//         return ((element != DEFECT) && (element != OXYGEN_DEFECT));
+//     }
+// };
 
 struct is_not_zero
 {
@@ -707,6 +707,8 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverHandle_t handle_cus
     // *************************************************************************************************************************************
     // 5. Populate the dense matrix corresponding to all of the tunnel connections, using tunnel_indices to index the atom attributes arrays
 
+    //populate submatrix as sparse
+
     double *tunnel_matrix_d;
     gpuErrchk(hipMalloc((void **)&tunnel_matrix_d, num_tunnel_points * num_tunnel_points * sizeof(double)));
     gpuErrchk(hipMemset(tunnel_matrix_d, 0, num_tunnel_points * num_tunnel_points * sizeof(double)));
@@ -968,7 +970,7 @@ __global__ void set_ineg_sparse(double *ineg_values, int *ineg_row_ptr, int *ine
 
 
 // full sparse matrix assembly
-void update_power_gpu_sparse(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+void update_power_gpu_sparse_library(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
                              const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
                              const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
                              const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
@@ -1154,7 +1156,212 @@ void update_power_gpu_sparse(hipblasHandle_t handle, hipsolverDnHandle_t handle_
     std::cout << "time to compute current: " << dt4.count() << "\n";
 
     std::cout << "I_macro: " << *imacro * (1e6) << "\n";
-    std::cout << "exiting after I_macro\n"; exit(1);
+    // std::cout << "exiting after I_macro\n"; exit(1);
+
+    hipFree(X_data);
+    hipFree(X_data_copy);
+    hipFree(X_row_ptr);
+    hipFree(X_row_indices);
+    hipFree(X_col_indices);
+    hipFree(gpu_imacro);
+    hipFree(gpu_m);
+    hipFree(gpu_index);
+    hipFree(atom_gpu_index);
+}
+
+
+// full sparse matrix assembly
+void update_power_gpu_sparse(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+                             const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
+                             const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+                             const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
+                             const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp)
+{
+    auto t0 = std::chrono::steady_clock::now();
+
+    // ***************************************************************************************
+    // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
+    int *gpu_index;
+    int *atom_gpu_index;
+    gpuErrchk( hipMalloc((void **)&gpu_index, gpubuf.N_ * sizeof(int)) );                                           // indices of the site array
+    gpuErrchk( hipMalloc((void **)&atom_gpu_index, gpubuf.N_ * sizeof(int)) );                                      // indices of the atom array
+
+    thrust::device_ptr<int> gpu_index_ptr = thrust::device_pointer_cast(gpu_index);
+    thrust::sequence(gpu_index_ptr, gpu_index_ptr + gpubuf.N_, 0);
+
+    double *last_atom = thrust::copy_if(thrust::device, gpubuf.site_x, gpubuf.site_x + gpubuf.N_, gpubuf.site_element, gpubuf.atom_x, is_defect());
+    int N_atom = last_atom - gpubuf.atom_x;
+    thrust::copy_if(thrust::device, gpubuf.site_y, gpubuf.site_y + gpubuf.N_, gpubuf.site_element, gpubuf.atom_y, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + gpubuf.N_, gpubuf.site_element, gpubuf.atom_z, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_charge, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + gpubuf.N_, gpubuf.site_element, gpubuf.atom_element, is_defect());
+    thrust::copy_if(thrust::device, gpubuf.site_CB_edge, gpubuf.site_CB_edge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_CB_edge, is_defect());
+    thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
+
+    auto t1 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt = t1 - t0;
+    std::cout << "time to update atom arrays: " << dt.count() << "\n";
+
+    // ***************************************************************************************
+    // 2. Assemble the transmission matrix (X) with both direct and tunnel connections and the
+    // solution vector (M) which represents the current inflow/outflow
+    // int N_full = N_atom + 2;                                                                               // number of atoms + injection node + extraction node
+    int Nsub = N_atom + 1;                                                                                 // N_full minus the ground node which is cut from the graph
+
+    // compute the index arrays to build the CSR representation of X (from 0 to Nsub):
+    int *X_row_ptr;
+    int *X_col_indices;
+    int X_nnz = 0;
+    Assemble_X_sparsity(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+                        gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
+                        gpubuf.lattice, pbc, nn_dist, tol, 
+                        num_source_inj, num_ground_ext, num_layers_contact,
+                        num_metals, &X_row_ptr, &X_col_indices, &X_nnz);
+    hipDeviceSynchronize();
+
+    // print nnz:
+    std::cout << "X_nnz: " << X_nnz << "\n";
+    std::cout << "Nsub: " << Nsub << "\n";
+
+    // get the row indices for COO
+    int *X_row_indices_h = new int[X_nnz];
+    int *X_row_ptr_h = new int[N_atom + 2];
+
+    gpuErrchk( hipMemcpy(X_row_ptr_h, X_row_ptr, (N_atom + 2) * sizeof(int), hipMemcpyDeviceToHost) );
+    for(int i = 0; i < N_atom + 1; i++){
+        for(int j = X_row_ptr_h[i]; j < X_row_ptr_h[i+1]; j++){
+            X_row_indices_h[j] = i;
+        }
+    }
+    int *X_row_indices;
+    gpuErrchk( hipMalloc((void **)&X_row_indices, X_nnz * sizeof(int)) );
+    gpuErrchk( hipMemcpy(X_row_indices, X_row_indices_h, X_nnz * sizeof(int), hipMemcpyHostToDevice) );
+    free(X_row_indices_h);
+    free(X_row_ptr_h);
+    
+    auto t2 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt1 = t2 - t1;
+    std::cout << "time to assemble X sparsity: " << dt1.count() << "\n";
+
+    // Assemble the nonzero value array of X in CSR (from 0 to Nsub):
+    double *X_data;                                                                                             // [1] Transmission matrix
+    // Assemble_X(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+    //            gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
+    //            gpubuf.lattice, pbc, nn_dist, tol, Vd, m_e, V0, high_G, low_G, loop_G,
+    //            num_source_inj, num_ground_ext, num_layers_contact,
+    //            num_metals, &X_data, &X_row_ptr, &X_col_indices, &X_nnz);
+
+    // double *X_data2;                                                                                          // [1] Transmission matrix
+    Assemble_X2(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+                gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
+                gpubuf.lattice, pbc, nn_dist, tol, Vd, m_e, V0, high_G, low_G, loop_G,
+                num_source_inj, num_ground_ext, num_layers_contact,
+                num_metals, &X_data, &X_row_indices, &X_row_ptr, &X_col_indices, &X_nnz);
+    hipDeviceSynchronize();
+
+    // dump_csr_matrix_txt(Nsub, X_nnz, X_row_ptr, X_col_indices, X_data, 0); // figure out why the vector lengths are wrong according to the python script
+    // std::cout << "dumped sparse matrix\n";
+    // exit(1);
+    
+    // gpuErrchk( hipFree(X_row_indices) );
+    // double *X_data_h = new double[X_nnz];
+    // double *X_data2_h = new double[X_nnz];
+    // gpuErrchk( hipMemcpy(X_data_h, X_data, X_nnz * sizeof(double), hipMemcpyDeviceToHost) );
+    // gpuErrchk( hipMemcpy(X_data2_h, X_data2, X_nnz * sizeof(double), hipMemcpyDeviceToHost) );
+
+    // for (int i = 0; i < X_nnz; i++)
+    // {
+
+    //     // if (X_data_h[i] == X_data2_h[i])
+    //     // {
+    //     //     std::cout << "X_data match at index " << i << " with value " << X_data_h[i] << "\n";
+    //     // }
+    //     if (X_data_h[i] != X_data2_h[i])
+    //     {
+    //         std::cout << "X_data mismatch at index " << i << " with values " << X_data_h[i] << " and " << X_data2_h[i] << "\n";
+    //     }
+    // }
+
+    auto t3 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt2 = t3 - t2;
+    std::cout << "time to assemble X data: " << dt2.count() << "\n";
+
+    double *gpu_imacro, *gpu_m;
+    gpuErrchk( hipMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       // [A] The macroscopic device current
+    gpuErrchk( hipMalloc((void **)&gpu_m, (N_atom + 2) * sizeof(double)) );                                 // [V] Virtual potential vector    
+    hipDeviceSynchronize();
+
+    gpuErrchk( hipMemset(gpu_m, 0, (N_atom + 2) * sizeof(double)) );                                        // initialize the rhs for solving the system                                    
+    thrust::device_ptr<double> m_ptr = thrust::device_pointer_cast(gpu_m);
+    thrust::fill(m_ptr, m_ptr + 1, -loop_G * Vd);                                                            // max Current extraction (ground)                          
+    thrust::fill(m_ptr + 1, m_ptr + 2, loop_G * Vd);                                                         // max Current injection (source)
+    hipDeviceSynchronize();
+
+    // std::cout << "norm of the rhs:\n";
+    // double t;
+    // CheckCublasError( hipblasDdot (handle, Nsub, gpu_m, 1, gpu_m, 1, &t) );
+    // std::cout << t << "\n";
+    // exit(1);
+
+    // ************************************************************
+    // 2. Solve system of linear equations 
+    
+    // the initial guess for the solution is the current site-resolved potential inside the device
+    double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials;                                         // [V] Virtual potential vector  
+    
+    // making a copy so the original version won't be preconditioned inside the iterative solver
+    double *X_data_copy;
+    gpuErrchk( hipMalloc((void **)&X_data_copy, X_nnz * sizeof(double)) );
+    gpuErrchk( hipMemcpyAsync(X_data_copy, X_data, X_nnz * sizeof(double), hipMemcpyDeviceToDevice) ); 
+    gpuErrchk( hipDeviceSynchronize() );
+
+    hipsparseHandle_t cusparseHandle;
+    hipsparseCreate(&cusparseHandle);
+    hipsparseSetPointerMode(cusparseHandle, HIPSPARSE_POINTER_MODE_DEVICE);
+
+    // sparse solver with Jacobi preconditioning:
+    solve_sparse_CG_Jacobi(handle, cusparseHandle, X_data_copy, X_row_ptr, X_col_indices, X_nnz, Nsub, gpu_m, gpu_virtual_potentials);
+    gpuErrchk( hipPeekAtLastError() );
+    gpuErrchk( hipDeviceSynchronize() );
+
+    double check_element;
+    gpuErrchk( hipMemcpy(&check_element, gpu_virtual_potentials + num_source_inj, sizeof(double), hipMemcpyDeviceToHost) );
+    if (std::abs(check_element - Vd) > 0.1)
+    {
+        std::cout << "WARNING: non-negligible potential drop of " << std::abs(check_element - Vd) <<
+                    " across the contact at VD = " << Vd << "\n";
+    }
+
+    auto t4 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt3 = t4 - t3;
+    std::cout << "time to solve linear system: " << dt3.count() << "\n";
+
+    // ****************************************************
+    // 3. Calculate the net current flowing into the device
+
+    // scale the virtual potentials by G0 (conductance quantum) instead of multiplying inside the X matrix
+    thrust::device_ptr<double> gpu_virtual_potentials_ptr = thrust::device_pointer_cast(gpu_virtual_potentials);
+    thrust::transform(gpu_virtual_potentials_ptr, gpu_virtual_potentials_ptr + N_atom + 2, gpu_virtual_potentials_ptr, thrust::placeholders::_1 * G0);
+
+    // macroscopic device current
+    gpuErrchk( hipMemset(gpu_imacro, 0, sizeof(double)) ); 
+    hipDeviceSynchronize();
+
+    // dot product of first row of X[i] times M[0] - M[i]
+    int num_threads = 512;
+    int num_blocks = (N_atom - 1) / num_threads + 1;
+    get_imacro_sparse<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(X_data, X_row_ptr, X_col_indices, gpu_virtual_potentials, gpu_imacro);
+    gpuErrchk( hipPeekAtLastError() );
+    hipDeviceSynchronize();
+
+    gpuErrchk( hipMemcpy(imacro, gpu_imacro, sizeof(double), hipMemcpyDeviceToHost) );
+
+    auto t5 = std::chrono::steady_clock::now();
+    std::chrono::duration<double> dt4 = t5 - t4;
+    std::cout << "time to compute current: " << dt4.count() << "\n";
+
+    std::cout << "I_macro: " << *imacro * (1e6) << "\n";
+    // std::cout << "exiting after I_macro\n"; exit(1);
 
     // **********************************************
     // 4. Calculate the dissipated power at each atom

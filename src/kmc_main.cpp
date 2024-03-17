@@ -66,14 +66,6 @@ int main(int argc, char **argv)
     MPI_Comm_size(MPI_COMM_WORLD, &mpi_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &mpi_rank);
 
-     if (!mpi_rank) 
-            {
-                std::cout << "**************literally the beginning********************\n";
-                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
-                std::cout << rocm_smi_output;
-                std::cout << "**********************************\n";
-            }
-
     //***********************************
     // Setup accelerators (GPU)
     //***********************************
@@ -123,14 +115,6 @@ int main(int argc, char **argv)
     }
 }
 
-     if (!mpi_rank) 
-            {
-                std::cout << "**************pretty much the start********************\n";
-                std::string rocm_smi_output = exec("rocm-smi --showmeminfo all");
-                std::cout << rocm_smi_output;
-                std::cout << "**********************************\n";
-            }
-
     //***************************************
     // Parse inputs and setup output logging
     //***************************************
@@ -171,15 +155,6 @@ int main(int argc, char **argv)
     if (!mpi_rank)
     std::cout << "Constructing device...\n"; 
     Device device(xyz_files, p);                                                    // contains the simulation domain and field solver functions
-
-    
-     if (!mpi_rank) 
-            {
-                std::cout << "**************constructed the device********************\n";
-                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
-                std::cout << rocm_smi_output;
-                std::cout << "**********************************\n";
-            }
     
     if (p.solve_heating_local)                                                      // build the Laplacian to solve for the local temperature distribution
     {
@@ -199,20 +174,12 @@ int main(int argc, char **argv)
     //******************************
     // Initialize the KMC Simulation
     //******************************
+    
     KMCProcess sim(device, p.freq);                                                // stores the division of the device into KMC 'layers' with different EA
-
 
     //*****************************
     // Setup GPU memory management
     //*****************************
-
-    if (!mpi_rank) 
-            {
-                std::cout << "**************Before gpubuffers********************\n";
-                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
-                std::cout << rocm_smi_output;
-                std::cout << "**********************************\n";
-            }
 
 #ifdef USE_CUDA
     GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,                         
@@ -223,27 +190,11 @@ int main(int argc, char **argv)
     gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
 
 
-    if (!mpi_rank) 
-            {
-                std::cout << "*************After gpu buffers*********************\n";
-                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
-                std::cout << rocm_smi_output;
-                std::cout << "**********************************\n";
-            }
-
-
     if (p.solve_potential || p.solve_current)
     {
-        initialize_sparsity(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer);
+        initialize_sparsity_K(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer); // for K
+        initialize_sparsity_T(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer, p.num_atoms_first_layer, p.num_layers_contact);
     }
-
-    if (!mpi_rank) 
-            {
-                std::cout << "*****************After initialize sparsity*****************\n";
-                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
-                std::cout << rocm_smi_output;
-                std::cout << "**********************************\n";
-            }
 
     // make layer arrays and copy them to const memory
     std::vector<double> E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host;
@@ -337,18 +288,18 @@ int main(int argc, char **argv)
                 std::cout << "mpi rank" << mpi_rank << " done updating boundary potential " << std::endl;                        
             }
 
-//             // generate xyz snapshot
-//             if (!(kmc_step_count % p.log_freq))
-//             {
-// #ifdef USE_CUDA
-//         gpubuf.sync_GPUToHost(device);
-// #endif
-//                 if (!mpi_rank){
-//                     std::cout << "making snapshot" << std::endl;
-//                     std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-//                     device.writeSnapshot(file_name, folder_name);
-//                 }
-//             }
+            // generate xyz snapshot
+            if (!(kmc_step_count % p.log_freq))
+            {
+#ifdef USE_CUDA
+        gpubuf.sync_GPUToHost(device);
+#endif
+                if (!mpi_rank){
+                    std::cout << "making snapshot" << std::endl;
+                    std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
+                    device.writeSnapshot(file_name, folder_name);
+                }
+            }
 
             // Execute events and update kmc_time
             std::cout << "mpi rank" << mpi_rank << " is starting kmc events " << std::endl;
@@ -365,21 +316,21 @@ int main(int argc, char **argv)
             }
             std::cout << "mpi rank" << mpi_rank << " is done kmc events " << std::endl;
            
-            // // Update current and joule heating
-            // if (p.solve_current)
-            // {
-            //     std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver,    // update site-resolved dissipated power
-            //                                                                 gpubuf, p, Vd);
-            //     resultMap.insert(powerMap.begin(), powerMap.end());
-            //     I_macro = device.imacro;
+            // Update current and joule heating
+            if (p.solve_current)
+            {
+                std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver,    // update site-resolved dissipated power
+                                                                            gpubuf, p, Vd);
+                resultMap.insert(powerMap.begin(), powerMap.end());
+                I_macro = device.imacro;
 
-            //     // Temperature
-            //     if (p.solve_heating_global || p.solve_heating_local)                                     // update site-resolved heat
-            //     {
-            //         std::map<std::string, double> temperatureMap = device.updateTemperature(gpubuf, p, step_time);
-            //         resultMap.insert(temperatureMap.begin(), temperatureMap.end());
-            //     }
-            // }
+                // Temperature
+                if (p.solve_heating_global || p.solve_heating_local)                                     // update site-resolved heat
+                {
+                    std::map<std::string, double> temperatureMap = device.updateTemperature(gpubuf, p, step_time);
+                    resultMap.insert(temperatureMap.begin(), temperatureMap.end());
+                }
+            }
 
             auto tfield = std::chrono::steady_clock::now();
             std::chrono::duration<double> dt_field = tfield - t0;
