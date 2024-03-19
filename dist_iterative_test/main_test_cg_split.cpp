@@ -116,9 +116,9 @@ void get_solution(
             comm);
         hipDeviceSynchronize();
         time_taken[i] += MPI_Wtime();
-        if(rank == 0){
-            std::cout << "time_taken["<<i<<"] " << time_taken[i] << std::endl;
-        }
+        // if(rank == 0){
+            std::cout << rank << " time_taken["<<i<<"] " << time_taken[i] << std::endl;
+        // }
     }
     //copy solution to host
     cudaErrchk(hipMemcpy(reference_solution + row_start_index,
@@ -368,9 +368,9 @@ void test_preconditioned_split(
 
         hipDeviceSynchronize();
         time_taken[i] += MPI_Wtime();
-        if(rank == 0){
-            std::cout << "time_taken["<<i<<"] " << time_taken[i] << std::endl;
-        }
+        // if(rank == 0){
+            std::cout << rank << " time_taken["<<i<<"] " << time_taken[i] << std::endl;
+        // }
     }
 
 
@@ -586,6 +586,10 @@ void test_preconditioned_split_sparse(
         data_local_h[i] = data_h[i+row_indptr_h[row_start_index]];
     }
 
+    if(rank == 0){
+        std::cout << "Before A" << std::endl;
+    }
+
     // create distributed matrix
     Distributed_matrix A_distributed(
         matrix_size,
@@ -597,6 +601,10 @@ void test_preconditioned_split_sparse(
         data_local_h,
         comm
     );
+    if(rank == 0){
+        std::cout << "After A" << std::endl;
+    }
+
     Distributed_vector p_distributed(
         matrix_size,
         counts,
@@ -605,6 +613,10 @@ void test_preconditioned_split_sparse(
         A_distributed.neighbours,
         comm
     );
+    if(rank == 0){
+        std::cout << "After p" << std::endl;
+    }
+
     double *r_local_d;
     double *x_local_d;
     hipMalloc(&r_local_d, rows_per_rank * sizeof(double));
@@ -844,6 +856,10 @@ void test_preconditioned_split_sparse(
         hipEventCreateWithFlags(&A_subblock.events_recv_subblock[i], hipEventDisableTiming);
     }
 
+    if(rank == 0){
+        std::cout << "Before loop" << std::endl;
+    }
+
     for(int i = 0; i < measurements; i++){
 
         hipMemcpy(r_local_d, r_local_h, rows_per_rank * sizeof(double), hipMemcpyHostToDevice);
@@ -868,9 +884,9 @@ void test_preconditioned_split_sparse(
 
         hipDeviceSynchronize();
         time_taken[i] += MPI_Wtime();
-        if(rank == 0){
-            std::cout << "time_taken["<<i<<"] " << time_taken[i] << std::endl;
-        }
+        // if(rank == 0){
+            std::cout << rank << " time_taken["<<i<<"] " << time_taken[i] << std::endl;
+        // }
     }
 
 
@@ -1024,17 +1040,32 @@ int main(int argc, char **argv) {
     // Init thread multiple
     int provided;
     MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
-    if (provided != MPI_THREAD_MULTIPLE) {
-        std::cout << "MPI_THREAD_MULTIPLE not supported by MPI, aborting" << std::endl;
-        MPI_Abort(MPI_COMM_WORLD, 1);
-    }
+    std::cout << "provided " << provided << std::endl;
+
+    // if (provided != MPI_THREAD_MULTIPLE) {
+    //     std::cout << "MPI_THREAD_MULTIPLE not supported by MPI, aborting" << std::endl;
+    //     MPI_Abort(MPI_COMM_WORLD, 1);
+    // }
 
     int rank, size;
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    hipError_t set_device_error = hipSetDevice(0);
+    char* slurm_localid = getenv("SLURM_LOCALID");
+    int localid = atoi(slurm_localid);
+    int device_id = localid; 
+    std::cout << "rank " << rank << " device_id " << device_id << std::endl;
+
+    hipError_t set_device_error = hipSetDevice(localid);
     std::cout << "rank " << rank << " set_device_error " << set_device_error << std::endl;
+
+    char* rocr_visible_devices = getenv("ROCR_VISIBLE_DEVICES");
+    if (rocr_visible_devices != nullptr) {
+        std::cout << "Rank " << rank << " ROCR_VISIBLE_DEVICES: " << rocr_visible_devices << std::endl;
+    } else {
+        std::cerr << "Rank " << rank << " ROCR_VISIBLE_DEVICES not set" << std::endl;
+        exit(1);
+    }
 
     // std::string data_path = "/usr/scratch/mont-fort23/almaeder/kmc_split/";
 
@@ -1112,15 +1143,7 @@ int main(int argc, char **argv) {
 
     std::string rhs_filename = data_path + "X_rhs.bin";
 
-    load_binary_array<double>(data_sparse_filename, data_sparse, nnz_sparse);
-    load_binary_array<int>(row_ptr_sparse_filename, row_ptr_sparse, matrix_size+1);
-    load_binary_array<int>(col_indices_sparse_filename, col_indices_sparse, nnz_sparse);
 
-    load_binary_array<double>(data_tot_filename, data_tot, nnz_tot);
-    load_binary_array<int>(row_ptr_tot_filename, row_ptr_tot, matrix_size+1);
-    load_binary_array<int>(col_indices_tot_filename, col_indices_tot, nnz_tot);
-
-    load_binary_array<double>(rhs_filename, rhs, matrix_size);
 
     int *dense_subblock_indices = new int[subblock_size];
     double *dense_subblock_data = new double[subblock_size * subblock_size];
@@ -1134,11 +1157,42 @@ int main(int argc, char **argv) {
     std::string row_ptr_subblock_filename = data_path + "tunnel_matrix_row_ptr.bin";
     std::string col_indices_subblock_filename = data_path + "tunnel_matrix_col_indices.bin";
 
-    load_binary_array<int>(dense_subblock_indices_filename, dense_subblock_indices, subblock_size);
-    load_binary_array<double>(dense_subblock_data_filename, dense_subblock_data, subblock_size * subblock_size);
-    load_binary_array<double>(data_subblock_filename, data_subblock, nnz_subblock);
-    load_binary_array<int>(row_ptr_subblock_filename, row_ptr_subblock, subblock_size+1);
-    load_binary_array<int>(col_indices_subblock_filename, col_indices_subblock, nnz_subblock);
+    if(rank == 0){
+
+        load_binary_array<double>(data_sparse_filename, data_sparse, nnz_sparse);
+        load_binary_array<int>(row_ptr_sparse_filename, row_ptr_sparse, matrix_size+1);
+        load_binary_array<int>(col_indices_sparse_filename, col_indices_sparse, nnz_sparse);
+
+        load_binary_array<double>(data_tot_filename, data_tot, nnz_tot);
+        load_binary_array<int>(row_ptr_tot_filename, row_ptr_tot, matrix_size+1);
+        load_binary_array<int>(col_indices_tot_filename, col_indices_tot, nnz_tot);
+
+        load_binary_array<double>(rhs_filename, rhs, matrix_size);
+
+        load_binary_array<int>(dense_subblock_indices_filename, dense_subblock_indices, subblock_size);
+        load_binary_array<double>(dense_subblock_data_filename, dense_subblock_data, subblock_size * subblock_size);
+        load_binary_array<double>(data_subblock_filename, data_subblock, nnz_subblock);
+        load_binary_array<int>(row_ptr_subblock_filename, row_ptr_subblock, subblock_size+1);
+        load_binary_array<int>(col_indices_subblock_filename, col_indices_subblock, nnz_subblock);
+    }
+    // broadcast data
+    std::cout << "broadcasting data" << std::endl;
+    MPI_Bcast(data_sparse, nnz_sparse, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(row_ptr_sparse, matrix_size+1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(col_indices_sparse, nnz_sparse, MPI_INT, 0, MPI_COMM_WORLD);
+
+    MPI_Bcast(data_tot, nnz_tot, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(row_ptr_tot, matrix_size+1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(col_indices_tot, nnz_tot, MPI_INT, 0, MPI_COMM_WORLD);
+    
+    MPI_Bcast(rhs, matrix_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+    MPI_Bcast(dense_subblock_indices, subblock_size, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(dense_subblock_data, subblock_size * subblock_size, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(data_subblock, nnz_subblock, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(row_ptr_subblock, subblock_size+1, MPI_INT, 0, MPI_COMM_WORLD);
+    MPI_Bcast(col_indices_subblock, nnz_subblock, MPI_INT, 0, MPI_COMM_WORLD);
+
 
     std::cout << "loaded data" << std::endl;
 
@@ -1235,8 +1289,8 @@ int main(int argc, char **argv) {
     hipMemcpy(diag_inv_d, diag_inv_h, matrix_size * sizeof(double), hipMemcpyHostToDevice);
 
 
-    int start_up_measurements = 0;
-    int true_number_of_measurements = 1;
+    int start_up_measurements = 1;
+    int true_number_of_measurements = 0;
     int number_of_measurements = start_up_measurements + true_number_of_measurements;
     double time_tot[number_of_measurements];
     double time_split1[number_of_measurements];
@@ -1276,187 +1330,189 @@ int main(int argc, char **argv) {
 
 
     double *test_solution_split = new double[matrix_size];
-    // test_preconditioned_split<dspmv_split::spmm_split1>(
-    //         data_sparse,
-    //         col_indices_sparse,
-    //         row_ptr_sparse,
-    //         dense_subblock_indices,
-    //         dense_subblock_data,
-    //         subblock_size,
-    //         rhs,
-    //         test_solution_split,
-    //         starting_guess,
-    //         matrix_size,
-    //         relative_tolerance,
-    //         max_iterations,
-    //         MPI_COMM_WORLD,
-    //         time_split1,
-    //         number_of_measurements
-    // );
-
-
     double sum = 0.0;
     double diff_split = 0.0;
-    // #pragma omp parallel for reduction(+:sum, diff_split)
-    // for (int i = 0; i < matrix_size; ++i) {
-    //     sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
-    //     diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
-    // }
-    // if(rank == 0){
-    //     std::cout << " relative error split 1 " << std::sqrt(diff_split / sum) << std::endl; 
-    // }
+
+    test_preconditioned_split<dspmv_split::spmm_split1>(
+            data_sparse,
+            col_indices_sparse,
+            row_ptr_sparse,
+            dense_subblock_indices,
+            dense_subblock_data,
+            subblock_size,
+            rhs,
+            test_solution_split,
+            starting_guess,
+            matrix_size,
+            relative_tolerance,
+            max_iterations,
+            MPI_COMM_WORLD,
+            time_split1,
+            number_of_measurements
+    );
+
+
+
+    #pragma omp parallel for reduction(+:sum, diff_split)
+    for (int i = 0; i < matrix_size; ++i) {
+        sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
+        diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
+    }
+    if(rank == 0){
+        std::cout << " relative error split 1 " << std::sqrt(diff_split / sum) << std::endl; 
+    }
     
-    // test_preconditioned_split<dspmv_split::spmm_split2>(
-    //         data_sparse,
-    //         col_indices_sparse,
-    //         row_ptr_sparse,
-    //         dense_subblock_indices,
-    //         dense_subblock_data,
-    //         subblock_size,
-    //         rhs,
-    //         test_solution_split,
-    //         starting_guess,
-    //         matrix_size,
-    //         relative_tolerance,
-    //         max_iterations,
-    //         MPI_COMM_WORLD,
-    //         time_split2,
-    //         number_of_measurements
-    // );
+    test_preconditioned_split<dspmv_split::spmm_split2>(
+            data_sparse,
+            col_indices_sparse,
+            row_ptr_sparse,
+            dense_subblock_indices,
+            dense_subblock_data,
+            subblock_size,
+            rhs,
+            test_solution_split,
+            starting_guess,
+            matrix_size,
+            relative_tolerance,
+            max_iterations,
+            MPI_COMM_WORLD,
+            time_split2,
+            number_of_measurements
+    );
 
 
-    // sum = 0.0;
-    // diff_split = 0.0;
-    // #pragma omp parallel for reduction(+:sum, diff_split)
-    // for (int i = 0; i < matrix_size; ++i) {
-    //     sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
-    //     diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
-    // }
-    // if(rank == 0){
-    //     std::cout << " relative error split 2 " << std::sqrt(diff_split / sum) << std::endl; 
-    // }
+    sum = 0.0;
+    diff_split = 0.0;
+    #pragma omp parallel for reduction(+:sum, diff_split)
+    for (int i = 0; i < matrix_size; ++i) {
+        sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
+        diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
+    }
+    if(rank == 0){
+        std::cout << " relative error split 2 " << std::sqrt(diff_split / sum) << std::endl; 
+    }
     
-    // test_preconditioned_split<dspmv_split::spmm_split3>(
-    //         data_sparse,
-    //         col_indices_sparse,
-    //         row_ptr_sparse,
-    //         dense_subblock_indices,
-    //         dense_subblock_data,
-    //         subblock_size,
-    //         rhs,
-    //         test_solution_split,
-    //         starting_guess,
-    //         matrix_size,
-    //         relative_tolerance,
-    //         max_iterations,
-    //         MPI_COMM_WORLD,
-    //         time_split3,
-    //         number_of_measurements
-    // );
+    test_preconditioned_split<dspmv_split::spmm_split3>(
+            data_sparse,
+            col_indices_sparse,
+            row_ptr_sparse,
+            dense_subblock_indices,
+            dense_subblock_data,
+            subblock_size,
+            rhs,
+            test_solution_split,
+            starting_guess,
+            matrix_size,
+            relative_tolerance,
+            max_iterations,
+            MPI_COMM_WORLD,
+            time_split3,
+            number_of_measurements
+    );
 
 
-    // sum = 0.0;
-    // diff_split = 0.0;
-    // #pragma omp parallel for reduction(+:sum, diff_split)
-    // for (int i = 0; i < matrix_size; ++i) {
-    //     sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
-    //     diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
-    // }
-    // if(rank == 0){
-    //     std::cout << " relative error split 3 " << std::sqrt(diff_split / sum) << std::endl; 
-    // }
+    sum = 0.0;
+    diff_split = 0.0;
+    #pragma omp parallel for reduction(+:sum, diff_split)
+    for (int i = 0; i < matrix_size; ++i) {
+        sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
+        diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
+    }
+    if(rank == 0){
+        std::cout << " relative error split 3 " << std::sqrt(diff_split / sum) << std::endl; 
+    }
     
-    // test_preconditioned_split<dspmv_split::spmm_split4>(
-    //         data_sparse,
-    //         col_indices_sparse,
-    //         row_ptr_sparse,
-    //         dense_subblock_indices,
-    //         dense_subblock_data,
-    //         subblock_size,
-    //         rhs,
-    //         test_solution_split,
-    //         starting_guess,
-    //         matrix_size,
-    //         relative_tolerance,
-    //         max_iterations,
-    //         MPI_COMM_WORLD,
-    //         time_split4,
-    //         number_of_measurements
-    // );
+    test_preconditioned_split<dspmv_split::spmm_split4>(
+            data_sparse,
+            col_indices_sparse,
+            row_ptr_sparse,
+            dense_subblock_indices,
+            dense_subblock_data,
+            subblock_size,
+            rhs,
+            test_solution_split,
+            starting_guess,
+            matrix_size,
+            relative_tolerance,
+            max_iterations,
+            MPI_COMM_WORLD,
+            time_split4,
+            number_of_measurements
+    );
 
 
-    // sum = 0.0;
-    // diff_split = 0.0;
-    // #pragma omp parallel for reduction(+:sum, diff_split)
-    // for (int i = 0; i < matrix_size; ++i) {
-    //     sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
-    //     diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
-    // }
-    // if(rank == 0){
-    //     std::cout << " relative error split 4 " << std::sqrt(diff_split / sum) << std::endl; 
-    // }
+    sum = 0.0;
+    diff_split = 0.0;
+    #pragma omp parallel for reduction(+:sum, diff_split)
+    for (int i = 0; i < matrix_size; ++i) {
+        sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
+        diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
+    }
+    if(rank == 0){
+        std::cout << " relative error split 4 " << std::sqrt(diff_split / sum) << std::endl; 
+    }
     
 
-    // test_preconditioned_split<dspmv_split::spmm_split5>(
-    //         data_sparse,
-    //         col_indices_sparse,
-    //         row_ptr_sparse,
-    //         dense_subblock_indices,
-    //         dense_subblock_data,
-    //         subblock_size,
-    //         rhs,
-    //         test_solution_split,
-    //         starting_guess,
-    //         matrix_size,
-    //         relative_tolerance,
-    //         max_iterations,
-    //         MPI_COMM_WORLD,
-    //         time_split5,
-    //         number_of_measurements
-    // );
+    test_preconditioned_split<dspmv_split::spmm_split5>(
+            data_sparse,
+            col_indices_sparse,
+            row_ptr_sparse,
+            dense_subblock_indices,
+            dense_subblock_data,
+            subblock_size,
+            rhs,
+            test_solution_split,
+            starting_guess,
+            matrix_size,
+            relative_tolerance,
+            max_iterations,
+            MPI_COMM_WORLD,
+            time_split5,
+            number_of_measurements
+    );
 
 
-    // sum = 0.0;
-    // diff_split = 0.0;
-    // #pragma omp parallel for reduction(+:sum, diff_split)
-    // for (int i = 0; i < matrix_size; ++i) {
-    //     sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
-    //     diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
-    // }
-    // if(rank == 0){
-    //     std::cout << " relative error split 5 " << std::sqrt(diff_split / sum) << std::endl; 
-    // }
+    sum = 0.0;
+    diff_split = 0.0;
+    #pragma omp parallel for reduction(+:sum, diff_split)
+    for (int i = 0; i < matrix_size; ++i) {
+        sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
+        diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
+    }
+    if(rank == 0){
+        std::cout << " relative error split 5 " << std::sqrt(diff_split / sum) << std::endl; 
+    }
     
     
-    // test_preconditioned_split<dspmv_split::spmm_split6>(
-    //         data_sparse,
-    //         col_indices_sparse,
-    //         row_ptr_sparse,
-    //         dense_subblock_indices,
-    //         dense_subblock_data,
-    //         subblock_size,
-    //         rhs,
-    //         test_solution_split,
-    //         starting_guess,
-    //         matrix_size,
-    //         relative_tolerance,
-    //         max_iterations,
-    //         MPI_COMM_WORLD,
-    //         time_split6,
-    //         number_of_measurements
-    // );
+    test_preconditioned_split<dspmv_split::spmm_split6>(
+            data_sparse,
+            col_indices_sparse,
+            row_ptr_sparse,
+            dense_subblock_indices,
+            dense_subblock_data,
+            subblock_size,
+            rhs,
+            test_solution_split,
+            starting_guess,
+            matrix_size,
+            relative_tolerance,
+            max_iterations,
+            MPI_COMM_WORLD,
+            time_split6,
+            number_of_measurements
+    );
 
 
-    // sum = 0.0;
-    // diff_split = 0.0;
-    // #pragma omp parallel for reduction(+:sum, diff_split)
-    // for (int i = 0; i < matrix_size; ++i) {
-    //     sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
-    //     diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
-    // }
-    // if(rank == 0){
-    //     std::cout << " relative error split 6 " << std::sqrt(diff_split / sum) << std::endl; 
-    // }
+    sum = 0.0;
+    diff_split = 0.0;
+    #pragma omp parallel for reduction(+:sum, diff_split)
+    for (int i = 0; i < matrix_size; ++i) {
+        sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
+        diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
+    }
+    if(rank == 0){
+        std::cout << " relative error split 6 " << std::sqrt(diff_split / sum) << std::endl; 
+    }
     
     
     test_preconditioned_split_sparse<dspmv_split_sparse::spmm_split_sparse1>(
@@ -1492,136 +1548,136 @@ int main(int argc, char **argv) {
     }
     
     
-    // test_preconditioned_split_sparse<dspmv_split_sparse::spmm_split_sparse2>(
-    //         data_sparse,
-    //         col_indices_sparse,
-    //         row_ptr_sparse,
-    //         dense_subblock_indices,
-    //         data_subblock,
-    //         col_indices_subblock,
-    //         row_ptr_subblock,
-    //         subblock_size,
-    //         rhs,
-    //         test_solution_split,
-    //         starting_guess,
-    //         matrix_size,
-    //         relative_tolerance,
-    //         max_iterations,
-    //         MPI_COMM_WORLD,
-    //         time_split_sparse2,
-    //         number_of_measurements
-    // );
+    test_preconditioned_split_sparse<dspmv_split_sparse::spmm_split_sparse2>(
+            data_sparse,
+            col_indices_sparse,
+            row_ptr_sparse,
+            dense_subblock_indices,
+            data_subblock,
+            col_indices_subblock,
+            row_ptr_subblock,
+            subblock_size,
+            rhs,
+            test_solution_split,
+            starting_guess,
+            matrix_size,
+            relative_tolerance,
+            max_iterations,
+            MPI_COMM_WORLD,
+            time_split_sparse2,
+            number_of_measurements
+    );
 
 
-    // sum = 0.0;
-    // diff_split = 0.0;
-    // #pragma omp parallel for reduction(+:sum, diff_split)
-    // for (int i = 0; i < matrix_size; ++i) {
-    //     sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
-    //     diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
-    // }
-    // if(rank == 0){
-    //     std::cout << " relative error split sparse2 " << std::sqrt(diff_split / sum) << std::endl; 
-    // }
+    sum = 0.0;
+    diff_split = 0.0;
+    #pragma omp parallel for reduction(+:sum, diff_split)
+    for (int i = 0; i < matrix_size; ++i) {
+        sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
+        diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
+    }
+    if(rank == 0){
+        std::cout << " relative error split sparse2 " << std::sqrt(diff_split / sum) << std::endl; 
+    }
     
 
-    // test_preconditioned_split_sparse<dspmv_split_sparse::spmm_split_sparse3>(
-    //         data_sparse,
-    //         col_indices_sparse,
-    //         row_ptr_sparse,
-    //         dense_subblock_indices,
-    //         data_subblock,
-    //         col_indices_subblock,
-    //         row_ptr_subblock,
-    //         subblock_size,
-    //         rhs,
-    //         test_solution_split,
-    //         starting_guess,
-    //         matrix_size,
-    //         relative_tolerance,
-    //         max_iterations,
-    //         MPI_COMM_WORLD,
-    //         time_split_sparse3,
-    //         number_of_measurements
-    // );
+    test_preconditioned_split_sparse<dspmv_split_sparse::spmm_split_sparse3>(
+            data_sparse,
+            col_indices_sparse,
+            row_ptr_sparse,
+            dense_subblock_indices,
+            data_subblock,
+            col_indices_subblock,
+            row_ptr_subblock,
+            subblock_size,
+            rhs,
+            test_solution_split,
+            starting_guess,
+            matrix_size,
+            relative_tolerance,
+            max_iterations,
+            MPI_COMM_WORLD,
+            time_split_sparse3,
+            number_of_measurements
+    );
 
 
-    // sum = 0.0;
-    // diff_split = 0.0;
-    // #pragma omp parallel for reduction(+:sum, diff_split)
-    // for (int i = 0; i < matrix_size; ++i) {
-    //     sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
-    //     diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
-    // }
-    // if(rank == 0){
-    //     std::cout << " relative error split sparse3 " << std::sqrt(diff_split / sum) << std::endl; 
-    // }
+    sum = 0.0;
+    diff_split = 0.0;
+    #pragma omp parallel for reduction(+:sum, diff_split)
+    for (int i = 0; i < matrix_size; ++i) {
+        sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
+        diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
+    }
+    if(rank == 0){
+        std::cout << " relative error split sparse3 " << std::sqrt(diff_split / sum) << std::endl; 
+    }
     
 
-    // test_preconditioned_split_sparse<dspmv_split_sparse::spmm_split_sparse4>(
-    //         data_sparse,
-    //         col_indices_sparse,
-    //         row_ptr_sparse,
-    //         dense_subblock_indices,
-    //         data_subblock,
-    //         col_indices_subblock,
-    //         row_ptr_subblock,
-    //         subblock_size,
-    //         rhs,
-    //         test_solution_split,
-    //         starting_guess,
-    //         matrix_size,
-    //         relative_tolerance,
-    //         max_iterations,
-    //         MPI_COMM_WORLD,
-    //         time_split_sparse4,
-    //         number_of_measurements
-    // );
+    test_preconditioned_split_sparse<dspmv_split_sparse::spmm_split_sparse4>(
+            data_sparse,
+            col_indices_sparse,
+            row_ptr_sparse,
+            dense_subblock_indices,
+            data_subblock,
+            col_indices_subblock,
+            row_ptr_subblock,
+            subblock_size,
+            rhs,
+            test_solution_split,
+            starting_guess,
+            matrix_size,
+            relative_tolerance,
+            max_iterations,
+            MPI_COMM_WORLD,
+            time_split_sparse4,
+            number_of_measurements
+    );
 
 
-    // sum = 0.0;
-    // diff_split = 0.0;
-    // #pragma omp parallel for reduction(+:sum, diff_split)
-    // for (int i = 0; i < matrix_size; ++i) {
-    //     sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
-    //     diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
-    // }
-    // if(rank == 0){
-    //     std::cout << " relative error split sparse4 " << std::sqrt(diff_split / sum) << std::endl; 
-    // }
+    sum = 0.0;
+    diff_split = 0.0;
+    #pragma omp parallel for reduction(+:sum, diff_split)
+    for (int i = 0; i < matrix_size; ++i) {
+        sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
+        diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
+    }
+    if(rank == 0){
+        std::cout << " relative error split sparse4 " << std::sqrt(diff_split / sum) << std::endl; 
+    }
     
 
-    // test_preconditioned_split_sparse<dspmv_split_sparse::spmm_split_sparse5>(
-    //         data_sparse,
-    //         col_indices_sparse,
-    //         row_ptr_sparse,
-    //         dense_subblock_indices,
-    //         data_subblock,
-    //         col_indices_subblock,
-    //         row_ptr_subblock,
-    //         subblock_size,
-    //         rhs,
-    //         test_solution_split,
-    //         starting_guess,
-    //         matrix_size,
-    //         relative_tolerance,
-    //         max_iterations,
-    //         MPI_COMM_WORLD,
-    //         time_split_sparse5,
-    //         number_of_measurements
-    // );
+    test_preconditioned_split_sparse<dspmv_split_sparse::spmm_split_sparse5>(
+            data_sparse,
+            col_indices_sparse,
+            row_ptr_sparse,
+            dense_subblock_indices,
+            data_subblock,
+            col_indices_subblock,
+            row_ptr_subblock,
+            subblock_size,
+            rhs,
+            test_solution_split,
+            starting_guess,
+            matrix_size,
+            relative_tolerance,
+            max_iterations,
+            MPI_COMM_WORLD,
+            time_split_sparse5,
+            number_of_measurements
+    );
 
 
-    // sum = 0.0;
-    // diff_split = 0.0;
-    // #pragma omp parallel for reduction(+:sum, diff_split)
-    // for (int i = 0; i < matrix_size; ++i) {
-    //     sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
-    //     diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
-    // }
-    // if(rank == 0){
-    //     std::cout << " relative error split sparse5 " << std::sqrt(diff_split / sum) << std::endl; 
-    // }
+    sum = 0.0;
+    diff_split = 0.0;
+    #pragma omp parallel for reduction(+:sum, diff_split)
+    for (int i = 0; i < matrix_size; ++i) {
+        sum += std::abs(reference_solution[i]) * std::abs(reference_solution[i]);
+        diff_split += std::abs(reference_solution[i] - test_solution_split[i]) * std::abs(reference_solution[i] - test_solution_split[i]);
+    }
+    if(rank == 0){
+        std::cout << " relative error split sparse5 " << std::sqrt(diff_split / sum) << std::endl; 
+    }
     
 
     // // rank zero should print average time
@@ -1682,29 +1738,29 @@ int main(int argc, char **argv) {
     // delete[] diag;
     // // delete[] dense_tot;
     // // delete[] dense_split;
-    // std::string save_path = "/scratch/project_465000929/maederal/measurement_100_split/";
-    // std::string path_solve_tot = get_filename(save_path, "solve_tot", 0, size, rank);
-    // std::string path_solve_split1 = get_filename(save_path, "solve_split1", 0, size, rank);
-    // std::string path_solve_split2 = get_filename(save_path, "solve_split2", 0, size, rank);
-    // std::string path_solve_split3 = get_filename(save_path, "solve_split3", 0, size, rank);
-    // std::string path_solve_split4 = get_filename(save_path, "solve_split4", 0, size, rank);
-    // std::string path_solve_split5 = get_filename(save_path, "solve_split5", 0, size, rank);
-    // std::string path_solve_split6 = get_filename(save_path, "solve_split6", 0, size, rank);
-    // std::string path_solve_split_sparse1 = get_filename(save_path, "solve_split_sparse1", 0, size, rank);
-    // std::string path_solve_split_sparse2 = get_filename(save_path, "solve_split_sparse2", 0, size, rank);
-    // std::string path_solve_split_sparse3 = get_filename(save_path, "solve_split_sparse3", 0, size, rank);
-    // std::string path_solve_split_sparse4 = get_filename(save_path, "solve_split_sparse4", 0, size, rank);
-    // std::string path_solve_split_sparse5 = get_filename(save_path, "solve_split_sparse5", 0, size, rank);
+    std::string save_path = "/scratch/project_465000929/maederal/measurement_100_split/";
+    std::string path_solve_tot = get_filename(save_path, "solve_tot", 0, size, rank);
+    std::string path_solve_split1 = get_filename(save_path, "solve_split1", 0, size, rank);
+    std::string path_solve_split2 = get_filename(save_path, "solve_split2", 0, size, rank);
+    std::string path_solve_split3 = get_filename(save_path, "solve_split3", 0, size, rank);
+    std::string path_solve_split4 = get_filename(save_path, "solve_split4", 0, size, rank);
+    std::string path_solve_split5 = get_filename(save_path, "solve_split5", 0, size, rank);
+    std::string path_solve_split6 = get_filename(save_path, "solve_split6", 0, size, rank);
+    std::string path_solve_split_sparse1 = get_filename(save_path, "solve_split_sparse1", 0, size, rank);
+    std::string path_solve_split_sparse2 = get_filename(save_path, "solve_split_sparse2", 0, size, rank);
+    std::string path_solve_split_sparse3 = get_filename(save_path, "solve_split_sparse3", 0, size, rank);
+    std::string path_solve_split_sparse4 = get_filename(save_path, "solve_split_sparse4", 0, size, rank);
+    std::string path_solve_split_sparse5 = get_filename(save_path, "solve_split_sparse5", 0, size, rank);
 
-    // save_measurements(path_solve_tot,
-    //     time_tot + start_up_measurements,
-    //     true_number_of_measurements, true);
+    save_measurements(path_solve_tot,
+        time_tot + start_up_measurements,
+        true_number_of_measurements, true);
     // save_measurements(path_solve_split1,
     //     time_split1 + start_up_measurements,
     //     true_number_of_measurements, true);
-    // save_measurements(path_solve_split2,
-    //     time_split2 + start_up_measurements,
-    //     true_number_of_measurements, true);
+    save_measurements(path_solve_split2,
+        time_split2 + start_up_measurements,
+        true_number_of_measurements, true);
     // save_measurements(path_solve_split3,
     //     time_split3 + start_up_measurements,
     //     true_number_of_measurements, true);
@@ -1720,9 +1776,9 @@ int main(int argc, char **argv) {
     // save_measurements(path_solve_split_sparse1,
     //     time_split_sparse1 + start_up_measurements,
     //     true_number_of_measurements, true);
-    // save_measurements(path_solve_split_sparse2,
-    //     time_split_sparse2 + start_up_measurements,
-    //     true_number_of_measurements, true);
+    save_measurements(path_solve_split_sparse2,
+        time_split_sparse2 + start_up_measurements,
+        true_number_of_measurements, true);
     // save_measurements(path_solve_split_sparse3,
     //     time_split_sparse3 + start_up_measurements,
     //     true_number_of_measurements, true);

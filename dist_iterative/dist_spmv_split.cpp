@@ -33,22 +33,19 @@ void spmm_split1(
         default_stream);
 
     if(size > 1){
-        cudaErrchk(hipMemcpy(p_subblock_h + A_subblock.displ_subblock_h[rank],
-            p_subblock_d + A_subblock.displ_subblock_h[rank],
-            A_subblock.count_subblock_h[rank] * sizeof(double), hipMemcpyDeviceToHost));
         for(int i = 0; i < size-1; i++){
             int dest = (rank + 1 + i) % size;
-            MPI_Isend(p_subblock_h + A_subblock.displ_subblock_h[rank], A_subblock.count_subblock_h[rank],
+            MPI_Isend(p_subblock_d + A_subblock.displ_subblock_h[rank], A_subblock.count_subblock_h[rank],
                 MPI_DOUBLE, dest, dest, A_distributed.comm, &A_subblock.send_subblock_requests[i]);
         }
         for(int i = 0; i < size-1; i++){
             int source = (rank + 1 + i) % size;
-            MPI_Irecv(p_subblock_h + A_subblock.displ_subblock_h[source], A_subblock.count_subblock_h[source],
+            MPI_Irecv(p_subblock_d + A_subblock.displ_subblock_h[source], A_subblock.count_subblock_h[source],
                 MPI_DOUBLE, source, rank, A_distributed.comm, &A_subblock.recv_subblock_requests[i]);
         }
     }
 
-    dspmv::gpu_packing(
+    dspmv::gpu_packing_cam(
         A_distributed,
         p_distributed,
         vecAp_local,
@@ -58,30 +55,27 @@ void spmm_split1(
     if(size > 1){
         MPI_Waitall(size-1, A_subblock.recv_subblock_requests, MPI_STATUSES_IGNORE);
         MPI_Waitall(size-1, A_subblock.send_subblock_requests, MPI_STATUSES_IGNORE);
-        // recv whole vector
-        cudaErrchk(hipMemcpyAsync(p_subblock_d,
-            p_subblock_h, A_subblock.subblock_size * sizeof(double),
-            hipMemcpyHostToDevice, default_stream));
     }
-
-    cublasErrchk(hipblasDgemv(
-        default_cublasHandle,
-        HIPBLAS_OP_N,
-        A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
-        &alpha,
-        A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
-        p_subblock_d, 1,
-        &beta,
-        Ap_subblock_d, 1
-    ));
-    // unpack and add it to Ap
-    unpack_add(
-        Ap_local_d,
-        Ap_subblock_d,
-        A_subblock.subblock_indices_local_d,
-        A_subblock.count_subblock_h[rank],
-        default_stream
-    );
+    if(A_subblock.count_subblock_h[rank] > 0){
+        cublasErrchk(hipblasDgemv(
+            default_cublasHandle,
+            HIPBLAS_OP_N,
+            A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
+            &alpha,
+            A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
+            p_subblock_d, 1,
+            &beta,
+            Ap_subblock_d, 1
+        ));   
+        // unpack and add it to Ap
+        unpack_add(
+            Ap_local_d,
+            Ap_subblock_d,
+            A_subblock.subblock_indices_local_d,
+            A_subblock.count_subblock_h[rank],
+            default_stream
+        );             
+    }
 }
 
 
@@ -113,47 +107,36 @@ void spmm_split2(
         A_subblock.count_subblock_h[rank],
         default_stream);
 
-    if(size > 1){
-        cudaErrchk(hipMemcpyAsync(p_subblock_h + A_subblock.displ_subblock_h[rank],
-            p_subblock_d + A_subblock.displ_subblock_h[rank],
-            A_subblock.count_subblock_h[rank] * sizeof(double), hipMemcpyDeviceToHost, default_stream));
-    }
-
     // post all send requests
     for(int i = 1; i < A_distributed.number_of_neighbours; i++){
         cudaErrchk(hipStreamWaitEvent(A_distributed.streams_send[i], A_distributed.event_default_finished, 0));
         pack_gpu(A_distributed.send_buffer_d[i], p_distributed.vec_d[0],
             A_distributed.rows_per_neighbour_d[i], A_distributed.nnz_rows_per_neighbour[i], A_distributed.streams_send[i]);
 
-        cudaErrchk(hipMemcpyAsync(A_distributed.send_buffer_h[i], A_distributed.send_buffer_d[i],
-            A_distributed.nnz_rows_per_neighbour[i] * sizeof(double), hipMemcpyDeviceToHost, A_distributed.streams_send[i]));
-    
         cudaErrchk(hipEventRecord(A_distributed.events_send[i], A_distributed.streams_send[i]));
     }
 
     if(size > 1){
-        cudaErrchk(hipStreamSynchronize(default_stream));
+        // cudaErrchk(hipStreamSynchronize(default_stream));
         for(int i = 0; i < size-1; i++){
             int dest = (rank + 1 + i) % size;
-            MPI_Isend(p_subblock_h + A_subblock.displ_subblock_h[rank], A_subblock.count_subblock_h[rank],
+            MPI_Isend(p_subblock_d + A_subblock.displ_subblock_h[rank], A_subblock.count_subblock_h[rank],
                 MPI_DOUBLE, dest, dest, A_distributed.comm, &A_subblock.send_subblock_requests[i]);
         }
         for(int i = 0; i < size-1; i++){
             int source = (rank + 1 + i) % size;
-            MPI_Irecv(p_subblock_h + A_subblock.displ_subblock_h[source], A_subblock.count_subblock_h[source],
+            MPI_Irecv(p_subblock_d + A_subblock.displ_subblock_h[source], A_subblock.count_subblock_h[source],
                 MPI_DOUBLE, source, rank, A_distributed.comm, &A_subblock.recv_subblock_requests[i]);
         }
     }
 
-
-    
     for(int i = 1; i < A_distributed.number_of_neighbours; i++){
         int send_idx = p_distributed.neighbours[i];
         int send_tag = std::abs(send_idx-A_distributed.rank);
 
         cudaErrchk(hipEventSynchronize(A_distributed.events_send[i]));
 
-        MPI_Isend(A_distributed.send_buffer_h[i], A_distributed.nnz_rows_per_neighbour[i],
+        MPI_Isend(A_distributed.send_buffer_d[i], A_distributed.nnz_rows_per_neighbour[i],
             MPI_DOUBLE, send_idx, send_tag, A_distributed.comm, &A_distributed.send_requests[i]);
     }
 
@@ -162,7 +145,7 @@ void spmm_split2(
         if(i < A_distributed.number_of_neighbours-1){
             int recv_idx = p_distributed.neighbours[i+1];
             int recv_tag = std::abs(recv_idx-A_distributed.rank);
-            MPI_Irecv(A_distributed.recv_buffer_h[i+1], A_distributed.nnz_cols_per_neighbour[i+1],
+            MPI_Irecv(A_distributed.recv_buffer_d[i+1], A_distributed.nnz_cols_per_neighbour[i+1],
                 MPI_DOUBLE, recv_idx, recv_tag, A_distributed.comm, &A_distributed.recv_requests[i+1]);
         }
 
@@ -186,9 +169,6 @@ void spmm_split2(
         if(i < A_distributed.number_of_neighbours-1){
             MPI_Wait(&A_distributed.recv_requests[i+1], MPI_STATUS_IGNORE);
 
-            cudaErrchk(hipMemcpyAsync(A_distributed.recv_buffer_d[i+1], A_distributed.recv_buffer_h[i+1],
-                A_distributed.nnz_cols_per_neighbour[i+1] * sizeof(double), hipMemcpyHostToDevice, A_distributed.streams_recv[i+1]));
-
             unpack_gpu(p_distributed.vec_d[i+1], A_distributed.recv_buffer_d[i+1],
                 A_distributed.cols_per_neighbour_d[i+1], A_distributed.nnz_cols_per_neighbour[i+1], A_distributed.streams_recv[i+1]);
             cudaErrchk(hipEventRecord(A_distributed.events_recv[i+1], A_distributed.streams_recv[i+1]));
@@ -201,30 +181,28 @@ void spmm_split2(
         MPI_Waitall(A_distributed.number_of_neighbours-1, &A_distributed.send_requests[1], MPI_STATUSES_IGNORE);
         MPI_Waitall(size-1, A_subblock.recv_subblock_requests, MPI_STATUSES_IGNORE);
         MPI_Waitall(size-1, A_subblock.send_subblock_requests, MPI_STATUSES_IGNORE);
-        // recv whole vector
-        cudaErrchk(hipMemcpyAsync(p_subblock_d,
-            p_subblock_h, A_subblock.subblock_size * sizeof(double),
-            hipMemcpyHostToDevice, default_stream));
+    }
+    if(A_subblock.count_subblock_h[rank] > 0){
+        cublasErrchk(hipblasDgemv(
+            default_cublasHandle,
+            HIPBLAS_OP_N,
+            A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
+            &alpha,
+            A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
+            p_subblock_d, 1,
+            &beta,
+            Ap_subblock_d, 1
+        ));
+        // unpack and add it to Ap
+        unpack_add(
+            Ap_local_d,
+            Ap_subblock_d,
+            A_subblock.subblock_indices_local_d,
+            A_subblock.count_subblock_h[rank],
+            default_stream
+        );
     }
 
-    cublasErrchk(hipblasDgemv(
-        default_cublasHandle,
-        HIPBLAS_OP_N,
-        A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
-        &alpha,
-        A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
-        p_subblock_d, 1,
-        &beta,
-        Ap_subblock_d, 1
-    ));
-    // unpack and add it to Ap
-    unpack_add(
-        Ap_local_d,
-        Ap_subblock_d,
-        A_subblock.subblock_indices_local_d,
-        A_subblock.count_subblock_h[rank],
-        default_stream
-    );
 }
 
 
@@ -256,20 +234,12 @@ void spmm_split3(
         A_subblock.count_subblock_h[rank],
         default_stream);
 
-    if(size > 1){
-        cudaErrchk(hipMemcpyAsync(p_subblock_h + A_subblock.displ_subblock_h[rank],
-            p_subblock_d + A_subblock.displ_subblock_h[rank],
-            A_subblock.count_subblock_h[rank] * sizeof(double), hipMemcpyDeviceToHost, default_stream));
-    }
 
     // post all send requests
     for(int i = 1; i < A_distributed.number_of_neighbours; i++){
         cudaErrchk(hipStreamWaitEvent(A_distributed.streams_send[i], A_distributed.event_default_finished, 0));
         pack_gpu(A_distributed.send_buffer_d[i], p_distributed.vec_d[0],
             A_distributed.rows_per_neighbour_d[i], A_distributed.nnz_rows_per_neighbour[i], A_distributed.streams_send[i]);
-
-        cudaErrchk(hipMemcpyAsync(A_distributed.send_buffer_h[i], A_distributed.send_buffer_d[i],
-            A_distributed.nnz_rows_per_neighbour[i] * sizeof(double), hipMemcpyDeviceToHost, A_distributed.streams_send[i]));
     
         cudaErrchk(hipEventRecord(A_distributed.events_send[i], A_distributed.streams_send[i]));
     }
@@ -278,12 +248,12 @@ void spmm_split3(
         cudaErrchk(hipStreamSynchronize(default_stream));
         for(int i = 0; i < size-1; i++){
             int dest = (rank + 1 + i) % size;
-            MPI_Isend(p_subblock_h + A_subblock.displ_subblock_h[rank], A_subblock.count_subblock_h[rank],
+            MPI_Isend(p_subblock_d + A_subblock.displ_subblock_h[rank], A_subblock.count_subblock_h[rank],
                 MPI_DOUBLE, dest, dest, A_distributed.comm, &A_subblock.send_subblock_requests[i]);
         }
         for(int i = 0; i < size-1; i++){
             int source = (rank + 1 + i) % size;
-            MPI_Irecv(p_subblock_h + A_subblock.displ_subblock_h[source], A_subblock.count_subblock_h[source],
+            MPI_Irecv(p_subblock_d + A_subblock.displ_subblock_h[source], A_subblock.count_subblock_h[source],
                 MPI_DOUBLE, source, rank, A_distributed.comm, &A_subblock.recv_subblock_requests[i]);
         }
     }
@@ -296,7 +266,7 @@ void spmm_split3(
 
         cudaErrchk(hipEventSynchronize(A_distributed.events_send[i]));
 
-        MPI_Isend(A_distributed.send_buffer_h[i], A_distributed.nnz_rows_per_neighbour[i],
+        MPI_Isend(A_distributed.send_buffer_d[i], A_distributed.nnz_rows_per_neighbour[i],
             MPI_DOUBLE, send_idx, send_tag, A_distributed.comm, &A_distributed.send_requests[i]);
     }
 
@@ -305,7 +275,7 @@ void spmm_split3(
         if(i < A_distributed.number_of_neighbours-1){
             int recv_idx = p_distributed.neighbours[i+1];
             int recv_tag = std::abs(recv_idx-A_distributed.rank);
-            MPI_Irecv(A_distributed.recv_buffer_h[i+1], A_distributed.nnz_cols_per_neighbour[i+1],
+            MPI_Irecv(A_distributed.recv_buffer_d[i+1], A_distributed.nnz_cols_per_neighbour[i+1],
                 MPI_DOUBLE, recv_idx, recv_tag, A_distributed.comm, &A_distributed.recv_requests[i+1]);
         }
 
@@ -329,9 +299,6 @@ void spmm_split3(
         if(i < A_distributed.number_of_neighbours-1){
             MPI_Wait(&A_distributed.recv_requests[i+1], MPI_STATUS_IGNORE);
 
-            cudaErrchk(hipMemcpyAsync(A_distributed.recv_buffer_d[i+1], A_distributed.recv_buffer_h[i+1],
-                A_distributed.nnz_cols_per_neighbour[i+1] * sizeof(double), hipMemcpyHostToDevice, A_distributed.streams_recv[i+1]));
-
             unpack_gpu(p_distributed.vec_d[i+1], A_distributed.recv_buffer_d[i+1],
                 A_distributed.cols_per_neighbour_d[i+1], A_distributed.nnz_cols_per_neighbour[i+1], A_distributed.streams_recv[i+1]);
             cudaErrchk(hipEventRecord(A_distributed.events_recv[i+1], A_distributed.streams_recv[i+1]));
@@ -343,51 +310,38 @@ void spmm_split3(
     for(int i = 0; i < size; i++){
         int source = (rank + i) % size;
 
-        if(i > 0){
-            cudaErrchk(hipStreamWaitEvent(default_stream, A_subblock.events_recv_subblock[i-1], 0));
+        if(A_subblock.count_subblock_h[rank] > 0 && A_subblock.count_subblock_h[source] > 0){
+            if(i > 0){
+                cublasErrchk(hipblasDgemv(
+                    default_cublasHandle,
+                    HIPBLAS_OP_N,
+                    A_subblock.count_subblock_h[rank], A_subblock.count_subblock_h[source],
+                    &alpha,
+                    A_subblock.A_subblock_local_d + A_subblock.count_subblock_h[rank] * A_subblock.displ_subblock_h[source],
+                    A_subblock.count_subblock_h[rank],
+                    p_subblock_d + A_subblock.displ_subblock_h[source], 1,
+                    &alpha,
+                    Ap_subblock_d, 1
+                ));
+            }
+            else{
+                cublasErrchk(hipblasDgemv(
+                    default_cublasHandle,
+                    HIPBLAS_OP_N,
+                    A_subblock.count_subblock_h[rank], A_subblock.count_subblock_h[source],
+                    &alpha,
+                    A_subblock.A_subblock_local_d + A_subblock.count_subblock_h[rank] * A_subblock.displ_subblock_h[source],
+                    A_subblock.count_subblock_h[rank],
+                    p_subblock_d + A_subblock.displ_subblock_h[source], 1,
+                    &beta,
+                    Ap_subblock_d, 1
+                ));
+            }
         }
-        if(i > 0){
-            cublasErrchk(hipblasDgemv(
-                default_cublasHandle,
-                HIPBLAS_OP_N,
-                A_subblock.count_subblock_h[rank], A_subblock.count_subblock_h[source],
-                &alpha,
-                A_subblock.A_subblock_local_d + A_subblock.count_subblock_h[rank] * A_subblock.displ_subblock_h[source],
-                A_subblock.count_subblock_h[rank],
-                p_subblock_d + A_subblock.displ_subblock_h[source], 1,
-                &alpha,
-                Ap_subblock_d, 1
-            ));
-        }
-        else{
-            cublasErrchk(hipblasDgemv(
-                default_cublasHandle,
-                HIPBLAS_OP_N,
-                A_subblock.count_subblock_h[rank], A_subblock.count_subblock_h[source],
-                &alpha,
-                A_subblock.A_subblock_local_d + A_subblock.count_subblock_h[rank] * A_subblock.displ_subblock_h[source],
-                A_subblock.count_subblock_h[rank],
-                p_subblock_d + A_subblock.displ_subblock_h[source], 1,
-                &beta,
-                Ap_subblock_d, 1
-            ));
-        }
-
         if(i < size-1){
-
             int next_source = (rank + i + 1) % size;
-
             // TODO subblock indices recv start at zero for first other rank
             MPI_Wait(&A_subblock.recv_subblock_requests[i], MPI_STATUS_IGNORE);
-
-            cudaErrchk(hipMemcpyAsync(
-                p_subblock_d + A_subblock.displ_subblock_h[next_source],
-                p_subblock_h + A_subblock.displ_subblock_h[next_source],
-                A_subblock.count_subblock_h[next_source] * sizeof(double),
-                hipMemcpyHostToDevice, A_subblock.streams_recv_subblock[i]));
-
-            cudaErrchk(hipEventRecord(A_subblock.events_recv_subblock[i],
-                A_subblock.streams_recv_subblock[i]));
         }
 
     }
@@ -441,35 +395,30 @@ void spmm_split4(
     #pragma omp section
     {
         if(size > 1){
-            cudaErrchk(hipMemcpy(p_subblock_h + A_subblock.displ_subblock_h[rank],
-                p_subblock_d + A_subblock.displ_subblock_h[rank],
-                A_subblock.count_subblock_h[rank] * sizeof(double), hipMemcpyDeviceToHost));
-
+            hipStreamSynchronize(default_stream);
             MPI_Allgatherv(MPI_IN_PLACE, A_subblock.count_subblock_h[rank],
                 MPI_DOUBLE,
-                p_subblock_h,
+                p_subblock_d,
                 A_subblock.count_subblock_h,
                 A_subblock.displ_subblock_h,
                 MPI_DOUBLE, A_distributed.comm);
-            // recv whole vector
-            cudaErrchk(hipMemcpyAsync(p_subblock_d,
-                p_subblock_h, A_subblock.subblock_size * sizeof(double),
-                hipMemcpyHostToDevice, default_stream));                    
         }
-        cublasErrchk(hipblasDgemv(
-            default_cublasHandle,
-            HIPBLAS_OP_N,
-            A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
-            &alpha,
-            A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
-            p_subblock_d, 1,
-            &beta,
-            Ap_subblock_d, 1
-        ));
+        if(A_subblock.count_subblock_h[rank] > 0){
+            cublasErrchk(hipblasDgemv(
+                default_cublasHandle,
+                HIPBLAS_OP_N,
+                A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
+                &alpha,
+                A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
+                p_subblock_d, 1,
+                &beta,
+                Ap_subblock_d, 1
+            ));
+        }
     }
     #pragma omp section
     {
-        dspmv::gpu_packing(
+        dspmv::gpu_packing_cam(
             A_distributed,
             p_distributed,
             vecAp_local,
@@ -517,33 +466,25 @@ void spmm_split5(
         A_subblock.subblock_indices_local_d,
         A_subblock.count_subblock_h[rank],
         default_stream);
-    if(size > 1){
-        cudaErrchk(hipMemcpy(p_subblock_h + A_subblock.displ_subblock_h[rank],
-            p_subblock_d + A_subblock.displ_subblock_h[rank],
-            A_subblock.count_subblock_h[rank] * sizeof(double), hipMemcpyDeviceToHost));
-    }
 
     #pragma omp parallel sections num_threads(2)
     {
     #pragma omp section
     {
         if(size > 1){
+            hipStreamSynchronize(default_stream);
             MPI_Allgatherv(MPI_IN_PLACE, A_subblock.count_subblock_h[rank],
                 MPI_DOUBLE,
-                p_subblock_h,
+                p_subblock_d,
                 A_subblock.count_subblock_h,
                 A_subblock.displ_subblock_h,
                 MPI_DOUBLE, A_distributed.comm);
-            // recv whole vector
-            cudaErrchk(hipMemcpyAsync(p_subblock_d,
-                p_subblock_h, A_subblock.subblock_size * sizeof(double),
-                hipMemcpyHostToDevice, default_stream));                    
         }
 
     }
     #pragma omp section
     {
-        dspmv::gpu_packing(
+        dspmv::gpu_packing_cam(
             A_distributed,
             p_distributed,
             vecAp_local,
@@ -552,17 +493,18 @@ void spmm_split5(
         );        
     }
     }
-
-    cublasErrchk(hipblasDgemv(
-        default_cublasHandle,
-        HIPBLAS_OP_N,
-        A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
-        &alpha,
-        A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
-        p_subblock_d, 1,
-        &beta,
-        Ap_subblock_d, 1
-    ));
+    if(A_subblock.count_subblock_h[rank] > 0){
+        cublasErrchk(hipblasDgemv(
+            default_cublasHandle,
+            HIPBLAS_OP_N,
+            A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
+            &alpha,
+            A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
+            p_subblock_d, 1,
+            &beta,
+            Ap_subblock_d, 1
+        ));
+    }
     
     // unpack and add it to Ap
     unpack_add(
@@ -586,21 +528,14 @@ struct thread_input{
 
 void *thread_fnc(void *arg){
     thread_input *input = (thread_input *)arg;
-    cudaErrchk(hipMemcpy(input->p_subblock_h + input->A_subblock->displ_subblock_h[input->rank],
-        input->p_subblock_d + input->A_subblock->displ_subblock_h[input->rank],
-        input->A_subblock->count_subblock_h[input->rank] * sizeof(double), hipMemcpyDeviceToHost));
-
+    hipStreamSynchronize(*input->default_stream);
     MPI_Allgatherv(MPI_IN_PLACE, input->A_subblock->count_subblock_h[input->rank],
         MPI_DOUBLE,
-        input->p_subblock_h,
+        input->p_subblock_d,
         input->A_subblock->count_subblock_h,
         input->A_subblock->displ_subblock_h,
         MPI_DOUBLE, *input->comm);
     
-    cudaErrchk(hipMemcpyAsync(input->p_subblock_d,
-        input->p_subblock_h, input->A_subblock->subblock_size * sizeof(double),
-        hipMemcpyHostToDevice, *input->default_stream));
-
     pthread_exit(NULL);
 }
 
@@ -651,7 +586,7 @@ void spmm_split6(
     }
 
 
-    dspmv::gpu_packing(
+    dspmv::gpu_packing_cam(
         A_distributed,
         p_distributed,
         vecAp_local,
@@ -662,18 +597,18 @@ void spmm_split6(
     if(size > 1){
         pthread_join(allgatherv_thread, NULL);
     }
-
-    cublasErrchk(hipblasDgemv(
-        default_cublasHandle,
-        HIPBLAS_OP_N,
-        A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
-        &alpha,
-        A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
-        p_subblock_d, 1,
-        &beta,
-        Ap_subblock_d, 1
-    ));
-
+    if(A_subblock.count_subblock_h[rank] > 0){
+        cublasErrchk(hipblasDgemv(
+            default_cublasHandle,
+            HIPBLAS_OP_N,
+            A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
+            &alpha,
+            A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
+            p_subblock_d, 1,
+            &beta,
+            Ap_subblock_d, 1
+        ));
+    }
             
     // unpack and add it to Ap
     unpack_add(
