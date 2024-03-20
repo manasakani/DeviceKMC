@@ -11,10 +11,9 @@ template <void (*distributed_spmv_split_sparse)
     Distributed_vector &,
     double *,
     rocsparse_dnvec_descr &,
-    hipsparseDnVecDescr_t &,
+    rocsparse_dnvec_descr &,
     double *,
     hipStream_t &,
-    hipsparseHandle_t &,
     rocsparse_handle &)>
 void conjugate_gradient_jacobi_split_sparse(
     Distributed_subblock_sparse &A_subblock,
@@ -57,10 +56,13 @@ void conjugate_gradient_jacobi_split_sparse(
         p_distributed.counts[A_distributed.rank] * sizeof(double), hipMemcpyDeviceToDevice));
 
     double *Ap_local_d = NULL;
-    hipsparseDnVecDescr_t vecAp_local = NULL;
     cudaErrchk(hipMalloc((void **)&Ap_local_d, A_distributed.rows_this_rank * sizeof(double)));
     cudaErrchk(hipMemset(Ap_local_d, 0, A_distributed.rows_this_rank * sizeof(double)));
-    cusparseErrchk(hipsparseCreateDnVec(&vecAp_local, A_distributed.rows_this_rank, Ap_local_d, HIP_R_64F));
+    rocsparse_dnvec_descr vecAp_local = NULL;
+    rocsparse_create_dnvec_descr(&vecAp_local,
+                                A_distributed.rows_this_rank,
+                                Ap_local_d,
+                                rocsparse_datatype_f64_r);
     
     double *z_local_d = NULL;
     cudaErrchk(hipMalloc((void **)&z_local_d, A_distributed.rows_this_rank * sizeof(double)));
@@ -99,7 +101,6 @@ void conjugate_gradient_jacobi_split_sparse(
         vecAp_local,
         Ap_local_d,
         default_stream,
-        default_cusparseHandle,
         default_rocsparseHandle
     );
 
@@ -149,7 +150,6 @@ void conjugate_gradient_jacobi_split_sparse(
             vecAp_local,
             Ap_local_d,
             default_stream,
-            default_cusparseHandle,
             default_rocsparseHandle
         );
 
@@ -191,7 +191,7 @@ void conjugate_gradient_jacobi_split_sparse(
     cusparseErrchk(hipsparseDestroy(default_cusparseHandle));
     cublasErrchk(hipblasDestroy(default_cublasHandle));
     cudaErrchk(hipStreamDestroy(default_stream));
-    cusparseErrchk(hipsparseDestroyDnVec(vecAp_local));
+    rocsparse_destroy_dnvec_descr(vecAp_local);
     cudaErrchk(hipFree(Ap_local_d));
     cudaErrchk(hipFree(z_local_d));
 

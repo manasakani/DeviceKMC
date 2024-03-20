@@ -1,7 +1,7 @@
 #!/bin/bash -l
-#SBATCH --job-name=dog_roc         # Job name
+#SBATCH --job-name=cor_god         # Job name
 #SBATCH --partition=standard-g  # or ju-standard-g, partition name
-#SBATCH --nodes=1               # Total number of nodes  - 1
+#SBATCH --nodes=2               # Total number of nodes  - 1
 #SBATCH --ntasks-per-node=8     # 8 MPI ranks per node, 8 total (1x8) - 8
 #SBATCH --gpus-per-node=8       # Allocate one gpu per MPI rank - 8
 #SBATCH --cpus-per-task=7       # 7 cpus per tasl
@@ -15,7 +15,7 @@
 export HIPCC_COMPILE_FLAGS_APPEND="--offload-arch=gfx90a $(CC --cray-print-opts=cflags)"      # GPU Transfer Library - allows hipcc to behave like {CC}
 export HIPCC_LINK_FLAGS_APPEND=$(CC --cray-print-opts=libs)                                   # GPU Transfer Library - allows hipcc to behave like {CC}
 
-# export MPICH_MAX_THREAD_SAFETY=multiple                                                       # Enable multiple OMP threads to communicate using MPI
+export MPICH_MAX_THREAD_SAFETY=multiple                                                       # Enable multiple OMP threads to communicate using MPI
 
 export MPICH_GPU_SUPPORT_ENABLED=1                                                            # Enable GPU-aware MPI  
 export GMX_FORCE_GPU_AWARE_MPI=1
@@ -89,7 +89,7 @@ else
     exit 1
 fi
 
-# srun ./wrapper.sh --hip-trace --hsa-trace  ./main
+# srun ./wrapper.sh --hip-trace  ./main
 srun --cpu-bind=${CPU_BIND} ./select_gpu ./main
 # srun ./select_gpu ./main
 

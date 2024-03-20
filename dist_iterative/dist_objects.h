@@ -22,7 +22,7 @@ class Distributed_vector{
 
         double **vec_h;
         double **vec_d;
-        hipsparseDnVecDescr_t *descriptors;
+        rocsparse_dnvec_descr *descriptors;
 
     Distributed_vector(
         int matrix_size,
@@ -98,7 +98,8 @@ class Distributed_matrix{
         double **data_d;
         int **col_indices_d;
         int **row_ptr_d;
-        hipsparseSpMatDescr_t *descriptors;
+        rocsparse_spmat_descr *descriptors;
+        rocsparse_spmv_alg algo;
 
         // Data types for MPI
         // assumes symmetric matrix
@@ -147,6 +148,7 @@ class Distributed_matrix{
         int *col_indices_in,
         int *row_ptr_in,
         double *data_in,
+        rocsparse_spmv_alg algo,
         MPI_Comm comm);
 
     // construct the distributed matrix
@@ -161,6 +163,7 @@ class Distributed_matrix{
         int **col_indices_in_d,
         int **row_ptr_in_d,
         int *nnz_per_neighbour_in,
+        rocsparse_spmv_alg algo,
         MPI_Comm comm);
 
 
@@ -204,6 +207,8 @@ class Distributed_matrix{
 
         void create_host_memory();
 
-        void create_device_memory(hipsparseHandle_t &cusparseHandle);
+        void create_device_memory();
+
+        void prepare_spmv();
 
 };

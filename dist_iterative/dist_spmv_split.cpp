@@ -9,11 +9,11 @@ void spmm_split1(
     double *p_subblock_h,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_local,
+    rocsparse_dnvec_descr &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle,
-    hipblasHandle_t &default_cublasHandle)
+    rocblas_handle &default_rocblasHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     // Isend Irecv subblock
     // sparse part
@@ -50,16 +50,16 @@ void spmm_split1(
         p_distributed,
         vecAp_local,
         default_stream,
-        default_cusparseHandle
+        default_rocsparseHandle
     );
     if(size > 1){
         MPI_Waitall(size-1, A_subblock.recv_subblock_requests, MPI_STATUSES_IGNORE);
         MPI_Waitall(size-1, A_subblock.send_subblock_requests, MPI_STATUSES_IGNORE);
     }
     if(A_subblock.count_subblock_h[rank] > 0){
-        cublasErrchk(hipblasDgemv(
-            default_cublasHandle,
-            HIPBLAS_OP_N,
+        rocblasErrchk(rocblas_dgemv(
+            default_rocblasHandle,
+            rocblas_operation_none,
             A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
             &alpha,
             A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
@@ -86,11 +86,11 @@ void spmm_split2(
     double *p_subblock_h,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_local,
+    rocsparse_dnvec_descr &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle,
-    hipblasHandle_t &default_cublasHandle)
+    rocblas_handle &default_rocblasHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     int rank = A_distributed.rank;
     int size = A_distributed.size;
@@ -154,17 +154,24 @@ void spmm_split2(
             cudaErrchk(hipStreamWaitEvent(default_stream, A_distributed.events_recv[i], 0));
         }
         if(i > 0){
-            cusparseErrchk(hipsparseSpMV(
-                default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            rocsparse_spmv(
+                default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
-                &alpha, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+                &alpha, vecAp_local, rocsparse_datatype_f64_r,
+                A_distributed.algo,
+                &A_distributed.buffer_size[i],
+                A_distributed.buffer_d[i]);
         }
         else{
-            cusparseErrchk(hipsparseSpMV(
-                default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            rocsparse_spmv(
+                default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
-                &beta, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+                &beta, vecAp_local, rocsparse_datatype_f64_r,
+                A_distributed.algo,
+                &A_distributed.buffer_size[i],
+                A_distributed.buffer_d[i]);
         }
+
 
         if(i < A_distributed.number_of_neighbours-1){
             MPI_Wait(&A_distributed.recv_requests[i+1], MPI_STATUS_IGNORE);
@@ -183,9 +190,9 @@ void spmm_split2(
         MPI_Waitall(size-1, A_subblock.send_subblock_requests, MPI_STATUSES_IGNORE);
     }
     if(A_subblock.count_subblock_h[rank] > 0){
-        cublasErrchk(hipblasDgemv(
-            default_cublasHandle,
-            HIPBLAS_OP_N,
+        rocblasErrchk(rocblas_dgemv(
+            default_rocblasHandle,
+            rocblas_operation_none,
             A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
             &alpha,
             A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
@@ -213,11 +220,11 @@ void spmm_split3(
     double *p_subblock_h,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_local,
+    rocsparse_dnvec_descr &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle,
-    hipblasHandle_t &default_cublasHandle)
+    rocblas_handle &default_rocblasHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     int rank = A_distributed.rank;
     int size = A_distributed.size;
@@ -284,17 +291,25 @@ void spmm_split3(
             cudaErrchk(hipStreamWaitEvent(default_stream, A_distributed.events_recv[i], 0));
         }
         if(i > 0){
-            cusparseErrchk(hipsparseSpMV(
-                default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            rocsparse_spmv(
+                default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
-                &alpha, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+                &alpha, vecAp_local, rocsparse_datatype_f64_r,
+                A_distributed.algo,
+                &A_distributed.buffer_size[i],
+                A_distributed.buffer_d[i]);
         }
         else{
-            cusparseErrchk(hipsparseSpMV(
-                default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            rocsparse_spmv(
+                default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
-                &beta, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+                &beta, vecAp_local, rocsparse_datatype_f64_r,
+                A_distributed.algo,
+                &A_distributed.buffer_size[i],
+                A_distributed.buffer_d[i]);
         }
+
+
 
         if(i < A_distributed.number_of_neighbours-1){
             MPI_Wait(&A_distributed.recv_requests[i+1], MPI_STATUS_IGNORE);
@@ -312,9 +327,9 @@ void spmm_split3(
 
         if(A_subblock.count_subblock_h[rank] > 0 && A_subblock.count_subblock_h[source] > 0){
             if(i > 0){
-                cublasErrchk(hipblasDgemv(
-                    default_cublasHandle,
-                    HIPBLAS_OP_N,
+                rocblasErrchk(rocblas_dgemv(
+                    default_rocblasHandle,
+                    rocblas_operation_none,
                     A_subblock.count_subblock_h[rank], A_subblock.count_subblock_h[source],
                     &alpha,
                     A_subblock.A_subblock_local_d + A_subblock.count_subblock_h[rank] * A_subblock.displ_subblock_h[source],
@@ -325,9 +340,9 @@ void spmm_split3(
                 ));
             }
             else{
-                cublasErrchk(hipblasDgemv(
-                    default_cublasHandle,
-                    HIPBLAS_OP_N,
+                rocblasErrchk(rocblas_dgemv(
+                    default_rocblasHandle,
+                    rocblas_operation_none,
                     A_subblock.count_subblock_h[rank], A_subblock.count_subblock_h[source],
                     &alpha,
                     A_subblock.A_subblock_local_d + A_subblock.count_subblock_h[rank] * A_subblock.displ_subblock_h[source],
@@ -368,11 +383,11 @@ void spmm_split4(
     double *p_subblock_h,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_local,
+    rocsparse_dnvec_descr &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle,
-    hipblasHandle_t &default_cublasHandle)
+    rocblas_handle &default_rocblasHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     // Isend Irecv subblock
     // sparse part
@@ -404,9 +419,9 @@ void spmm_split4(
                 MPI_DOUBLE, A_distributed.comm);
         }
         if(A_subblock.count_subblock_h[rank] > 0){
-            cublasErrchk(hipblasDgemv(
-                default_cublasHandle,
-                HIPBLAS_OP_N,
+            rocblasErrchk(rocblas_dgemv(
+                default_rocblasHandle,
+                rocblas_operation_none,
                 A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
                 &alpha,
                 A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
@@ -423,7 +438,7 @@ void spmm_split4(
             p_distributed,
             vecAp_local,
             default_stream,
-            default_cusparseHandle
+            default_rocsparseHandle
         );        
     }
     }
@@ -445,11 +460,11 @@ void spmm_split5(
     double *p_subblock_h,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_local,
+    rocsparse_dnvec_descr &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle,
-    hipblasHandle_t &default_cublasHandle)
+    rocblas_handle &default_rocblasHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     // Isend Irecv subblock
     // sparse part
@@ -489,14 +504,14 @@ void spmm_split5(
             p_distributed,
             vecAp_local,
             default_stream,
-            default_cusparseHandle
+            default_rocsparseHandle
         );        
     }
     }
     if(A_subblock.count_subblock_h[rank] > 0){
-        cublasErrchk(hipblasDgemv(
-            default_cublasHandle,
-            HIPBLAS_OP_N,
+        rocblasErrchk(rocblas_dgemv(
+            default_rocblasHandle,
+            rocblas_operation_none,
             A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
             &alpha,
             A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],
@@ -546,11 +561,11 @@ void spmm_split6(
     double *p_subblock_h,
     Distributed_vector &p_distributed,
     double *Ap_subblock_d,
-    hipsparseDnVecDescr_t &vecAp_local,
+    rocsparse_dnvec_descr &vecAp_local,
     double *Ap_local_d,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle,
-    hipblasHandle_t &default_cublasHandle)
+    rocblas_handle &default_rocblasHandle,
+    rocsparse_handle &default_rocsparseHandle)
 {
     // Isend Irecv subblock
     // sparse part
@@ -591,16 +606,16 @@ void spmm_split6(
         p_distributed,
         vecAp_local,
         default_stream,
-        default_cusparseHandle
+        default_rocsparseHandle
     ); 
 
     if(size > 1){
         pthread_join(allgatherv_thread, NULL);
     }
     if(A_subblock.count_subblock_h[rank] > 0){
-        cublasErrchk(hipblasDgemv(
-            default_cublasHandle,
-            HIPBLAS_OP_N,
+        rocblasErrchk(rocblas_dgemv(
+            default_rocblasHandle,
+            rocblas_operation_none,
             A_subblock.count_subblock_h[rank], A_subblock.subblock_size,
             &alpha,
             A_subblock.A_subblock_local_d, A_subblock.count_subblock_h[rank],

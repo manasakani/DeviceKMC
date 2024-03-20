@@ -26,7 +26,7 @@ Distributed_vector::Distributed_vector(
     }
     vec_h = new double*[number_of_neighbours];
     vec_d = new double*[number_of_neighbours];
-    descriptors = new hipsparseDnVecDescr_t[number_of_neighbours];
+    descriptors = new rocsparse_dnvec_descr[number_of_neighbours];
     for(int k = 0; k < number_of_neighbours; k++){
         int neighbour_idx = neighbours[k];
         cudaErrchk(hipHostMalloc(&vec_h[k], counts[neighbour_idx]*sizeof(double)));
@@ -35,7 +35,8 @@ Distributed_vector::Distributed_vector(
         }
         cudaErrchk(hipMalloc(&vec_d[k], counts[neighbour_idx]*sizeof(double)));
         cudaErrchk(hipMemset(vec_d[k], 0, counts[neighbour_idx]*sizeof(double)));
-        cusparseErrchk(hipsparseCreateDnVec(&descriptors[k], counts[neighbour_idx], vec_d[k], HIP_R_64F));
+        rocsparse_create_dnvec_descr(
+            &descriptors[k], counts[neighbour_idx], vec_d[k], rocsparse_datatype_f64_r);
 
     }
 }
@@ -47,7 +48,7 @@ Distributed_vector::~Distributed_vector(){
     for(int k = 0; k < number_of_neighbours; k++){
         cudaErrchk(hipHostFree(vec_h[k]));
         cudaErrchk(hipFree(vec_d[k]));
-        cusparseErrchk(hipsparseDestroyDnVec(descriptors[k]));
+        rocsparse_destroy_dnvec_descr(descriptors[k]);
     }
     delete[] vec_h;
     delete[] vec_d;

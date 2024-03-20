@@ -1,8 +1,19 @@
 #include "dist_conjugate_gradient.h"
 #include "dist_spmv.h"
+
+#include <cfloat>
+#include <cmath>
+#include <iostream>
+#include <limits>
+
 namespace iterative_solver{
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, hipsparseDnVecDescr_t&, hipStream_t&, hipsparseHandle_t&)>
+template <void (*distributed_spmv)(
+    Distributed_matrix&,
+    Distributed_vector&,
+    rocsparse_dnvec_descr&,
+    hipStream_t&,
+    rocsparse_handle&)>
 void conjugate_gradient(
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
@@ -20,9 +31,13 @@ void conjugate_gradient(
     hipsparseHandle_t default_cusparseHandle = 0;
     cusparseErrchk(hipsparseCreate(&default_cusparseHandle));    
 
+    rocsparse_handle default_rocsparseHandle;
+    rocsparse_create_handle(&default_rocsparseHandle);
+
     cudaErrchk(hipStreamCreate(&default_stream));
     cusparseErrchk(hipsparseSetStream(default_cusparseHandle, default_stream));
     cublasErrchk(hipblasSetStream(default_cublasHandle, default_stream));
+    rocsparse_set_stream(default_rocsparseHandle, default_stream);
 
     double a, b, na;
     double alpha, alpham1, r0;
@@ -43,10 +58,13 @@ void conjugate_gradient(
         p_distributed.counts[A_distributed.rank] * sizeof(double), hipMemcpyDeviceToDevice));
 
     double *Ap_local_d = NULL;
-    hipsparseDnVecDescr_t vecAp_local = NULL;
     cudaErrchk(hipMalloc((void **)&Ap_local_d, A_distributed.rows_this_rank * sizeof(double)));
     cudaErrchk(hipMemset(Ap_local_d, 0, A_distributed.rows_this_rank * sizeof(double)));
-    cusparseErrchk(hipsparseCreateDnVec(&vecAp_local, A_distributed.rows_this_rank, Ap_local_d, HIP_R_64F));
+    rocsparse_dnvec_descr vecAp_local = NULL;
+    rocsparse_create_dnvec_descr(&vecAp_local,
+                                A_distributed.rows_this_rank,
+                                Ap_local_d,
+                                rocsparse_datatype_f64_r);
 
     //begin CG
 
@@ -61,7 +79,7 @@ void conjugate_gradient(
         p_distributed,
         vecAp_local,
         default_stream,
-        default_cusparseHandle
+        default_rocsparseHandle
     );
 
     // cal residual r0 = b - A*x0
@@ -92,7 +110,7 @@ void conjugate_gradient(
             p_distributed,
             vecAp_local,
             default_stream,
-            default_cusparseHandle
+            default_rocsparseHandle
         );
 
         cublasErrchk(hipblasDdot(default_cublasHandle, A_distributed.rows_this_rank, p_distributed.vec_d[0], 1, Ap_local_d, 1, dot_h));
@@ -120,10 +138,11 @@ void conjugate_gradient(
         std::cout << "iteration = " << k << ", relative residual = " << sqrt(r_norm2_h[0]/norm2_rhs) << std::endl;
     }
 
+    rocsparse_destroy_handle(default_rocsparseHandle);
     cusparseErrchk(hipsparseDestroy(default_cusparseHandle));
     cublasErrchk(hipblasDestroy(default_cublasHandle));
     cudaErrchk(hipStreamDestroy(default_stream));
-    cusparseErrchk(hipsparseDestroyDnVec(vecAp_local));
+    rocsparse_destroy_dnvec_descr(vecAp_local);
     cudaErrchk(hipFree(Ap_local_d));
     
     // cudaErrchk(hipHostFree(r_norm2_h));
@@ -151,7 +170,12 @@ void conjugate_gradient<dspmv::gpu_packing_cam>(
 
 
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, hipsparseDnVecDescr_t&, hipStream_t&, hipsparseHandle_t&)>
+template <void (*distributed_spmv)(
+    Distributed_matrix&,
+    Distributed_vector&,
+    rocsparse_dnvec_descr&,
+    hipStream_t&,
+    rocsparse_handle&)>
 void conjugate_gradient_jacobi(
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
@@ -171,9 +195,13 @@ void conjugate_gradient_jacobi(
     hipsparseHandle_t default_cusparseHandle = 0;
     cusparseErrchk(hipsparseCreate(&default_cusparseHandle));    
 
+    rocsparse_handle default_rocsparseHandle;
+    rocsparse_create_handle(&default_rocsparseHandle);
+
     cudaErrchk(hipStreamCreate(&default_stream));
     cusparseErrchk(hipsparseSetStream(default_cusparseHandle, default_stream));
     cublasErrchk(hipblasSetStream(default_cublasHandle, default_stream));
+    rocsparse_set_stream(default_rocsparseHandle, default_stream);
 
     double a, b, na;
     double alpha, alpham1, r0;
@@ -194,10 +222,13 @@ void conjugate_gradient_jacobi(
         p_distributed.counts[A_distributed.rank] * sizeof(double), hipMemcpyDeviceToDevice));
 
     double *Ap_local_d = NULL;
-    hipsparseDnVecDescr_t vecAp_local = NULL;
     cudaErrchk(hipMalloc((void **)&Ap_local_d, A_distributed.rows_this_rank * sizeof(double)));
     cudaErrchk(hipMemset(Ap_local_d, 0, A_distributed.rows_this_rank * sizeof(double)));
-    cusparseErrchk(hipsparseCreateDnVec(&vecAp_local, A_distributed.rows_this_rank, Ap_local_d, HIP_R_64F));
+    rocsparse_dnvec_descr vecAp_local = NULL;
+    rocsparse_create_dnvec_descr(&vecAp_local,
+                                A_distributed.rows_this_rank,
+                                Ap_local_d,
+                                rocsparse_datatype_f64_r);
     
     double *z_local_d = NULL;
     cudaErrchk(hipMalloc((void **)&z_local_d, A_distributed.rows_this_rank * sizeof(double)));
@@ -215,7 +246,7 @@ void conjugate_gradient_jacobi(
         p_distributed,
         vecAp_local,
         default_stream,
-        default_cusparseHandle
+        default_rocsparseHandle
     );
 
     // cal residual r0 = b - A*x0
@@ -256,7 +287,7 @@ void conjugate_gradient_jacobi(
             p_distributed,
             vecAp_local,
             default_stream,
-            default_cusparseHandle
+            default_rocsparseHandle
         );
 
         cublasErrchk(hipblasDdot(default_cublasHandle, A_distributed.rows_this_rank, p_distributed.vec_d[0], 1, Ap_local_d, 1, dot_h));
@@ -294,10 +325,11 @@ void conjugate_gradient_jacobi(
         std::cout << "iteration = " << k << ", relative residual = " << sqrt(r_norm2_h[0]/norm2_rhs) << std::endl;
     }
 
+    rocsparse_destroy_handle(default_rocsparseHandle);
     cusparseErrchk(hipsparseDestroy(default_cusparseHandle));
     cublasErrchk(hipblasDestroy(default_cublasHandle));
     cudaErrchk(hipStreamDestroy(default_stream));
-    cusparseErrchk(hipsparseDestroyDnVec(vecAp_local));
+    rocsparse_destroy_dnvec_descr(vecAp_local);
     cudaErrchk(hipFree(Ap_local_d));
     cudaErrchk(hipFree(z_local_d));
 

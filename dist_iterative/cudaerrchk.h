@@ -6,6 +6,8 @@
 #include <hipblas.h>
 #include <hipsparse.h>
 #include <cstdio>
+#include <rocsparse.h>
+#include <rocblas.h>
 
 #define cudaErrchk(ans) { cudaAssert((ans), __FILE__, __LINE__); }
 inline void cudaAssert(hipError_t code, const char *file, int line, bool abort=true)
@@ -51,3 +53,32 @@ inline void cusparseAssert(hipsparseStatus_t code, const char *file, int line, b
         if (abort) exit(code);
    }
 }
+
+#define rocsparseErrchk(condition)                                                               \
+    {                                                                                            \
+        const rocsparse_status status = (condition);                                               \
+        if(status != rocsparse_status_success)                                                   \
+        {                                                                                        \
+            std::cerr << "rocSPARSE error encountered: \"" << "at " << __FILE__ << ':' << __LINE__ << std::endl;                   \
+            exit(0);                                                          \
+        }                                                                                        \
+    }
+
+#define rocblasErrchk(condition)                                                             \
+    {                                                                                        \
+        const rocblas_status status = condition;                                             \
+        if(status != rocblas_status_success)                                                 \
+        {                                                                                    \
+            std::cerr << "rocBLAS error encountered: \"" << "\" at " << __FILE__ << ':' << __LINE__ << std::endl;               \
+            std::exit(0);                                                      \
+        }                                                                                    \
+    }
+
+// TODO use struct to pass handles
+struct handles{
+      hipblasHandle_t hipblas_handle;
+      hipsparseHandle_t hipsparse_handle;
+      rocblas_handle rocblas_handle;
+      rocsparse_handle rocsparse_handle;
+      hipStream_t stream;
+};

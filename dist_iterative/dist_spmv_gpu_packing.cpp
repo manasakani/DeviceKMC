@@ -7,9 +7,9 @@ namespace dspmv{
 void gpu_packing(
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
-    hipsparseDnVecDescr_t &vecAp_local,
+    rocsparse_dnvec_descr &vecAp_local,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle)
+    rocsparse_handle &default_rocsparseHandle)
 {
 
     double alpha = 1.0;
@@ -56,16 +56,33 @@ void gpu_packing(
             cudaErrchk(hipStreamWaitEvent(default_stream, A_distributed.events_recv[i], 0));
         }
         if(i > 0){
-            cusparseErrchk(hipsparseSpMV(
-                default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            // cusparseErrchk(hipsparseSpMV(
+            //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            //     A_distributed.descriptors[i], p_distributed.descriptors[i],
+            //     &alpha, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+
+            rocsparse_spmv(
+                default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
-                &alpha, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+                &alpha, vecAp_local, rocsparse_datatype_f64_r,
+                A_distributed.algo,
+                &A_distributed.buffer_size[i],
+                A_distributed.buffer_d[i]);
+
         }
         else{
-            cusparseErrchk(hipsparseSpMV(
-                default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            // cusparseErrchk(hipsparseSpMV(
+            //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            //     A_distributed.descriptors[i], p_distributed.descriptors[i],
+            //     &beta, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+
+            rocsparse_spmv(
+                default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
-                &beta, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+                &beta, vecAp_local, rocsparse_datatype_f64_r,
+                A_distributed.algo,
+                &A_distributed.buffer_size[i],
+                A_distributed.buffer_d[i]);
         }
 
         if(i < A_distributed.number_of_neighbours-1){
@@ -89,9 +106,9 @@ void gpu_packing(
 void gpu_packing_cam(
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
-    hipsparseDnVecDescr_t &vecAp_local,
+    rocsparse_dnvec_descr &vecAp_local,
     hipStream_t &default_stream,
-    hipsparseHandle_t &default_cusparseHandle)
+    rocsparse_handle &default_rocsparseHandle)
 {
 
     double alpha = 1.0;
@@ -137,16 +154,34 @@ void gpu_packing_cam(
             cudaErrchk(hipStreamWaitEvent(default_stream, A_distributed.events_recv[i], 0));
         }
         if(i > 0){
-            cusparseErrchk(hipsparseSpMV(
-                default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            // cusparseErrchk(hipsparseSpMV(
+            //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            //     A_distributed.descriptors[i], p_distributed.descriptors[i],
+            //     &alpha, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+
+            rocsparse_spmv(
+                default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
-                &alpha, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+                &alpha, vecAp_local, rocsparse_datatype_f64_r,
+                A_distributed.algo,
+                &A_distributed.buffer_size[i],
+                A_distributed.buffer_d[i]);
+
         }
         else{
-            cusparseErrchk(hipsparseSpMV(
-                default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            // cusparseErrchk(hipsparseSpMV(
+            //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
+            //     A_distributed.descriptors[i], p_distributed.descriptors[i],
+            //     &beta, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+
+            rocsparse_spmv(
+                default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
-                &beta, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
+                &beta, vecAp_local, rocsparse_datatype_f64_r,
+                A_distributed.algo,
+                &A_distributed.buffer_size[i],
+                A_distributed.buffer_d[i]);
+
         }
 
         if(i < A_distributed.number_of_neighbours-1){

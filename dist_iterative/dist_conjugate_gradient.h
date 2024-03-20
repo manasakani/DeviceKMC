@@ -11,10 +11,16 @@
 #include "cudaerrchk.h"
 #include "dist_objects.h"
 #include <unistd.h>  
+#include "rocsparse.h"
 
 namespace iterative_solver{
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, hipsparseDnVecDescr_t&, hipStream_t&, hipsparseHandle_t&)>
+template <void (*distributed_spmv)(
+    Distributed_matrix&,
+    Distributed_vector&,
+    rocsparse_dnvec_descr&,
+    hipStream_t&,
+    rocsparse_handle&)>
 void conjugate_gradient(
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
@@ -24,7 +30,12 @@ void conjugate_gradient(
     int max_iterations,
     MPI_Comm comm);
 
-template <void (*distributed_spmv)(Distributed_matrix&, Distributed_vector&, hipsparseDnVecDescr_t&, hipStream_t&, hipsparseHandle_t&)>
+template <void (*distributed_spmv)(
+    Distributed_matrix&,
+    Distributed_vector&,
+    rocsparse_dnvec_descr&,
+    hipStream_t&,
+    rocsparse_handle&)>
 void conjugate_gradient_jacobi(
     Distributed_matrix &A_distributed,
     Distributed_vector &p_distributed,
@@ -42,11 +53,12 @@ template <void (*distributed_spmv_split)
     double *,
     Distributed_vector &,
     double *,
-    hipsparseDnVecDescr_t &,
+    rocsparse_dnvec_descr &,
     double *,
     hipStream_t &,
     hipsparseHandle_t &,
-    hipblasHandle_t &)>
+    hipblasHandle_t &,
+    rocsparse_handle&)>
 void conjugate_gradient_split(
     Distributed_subblock &A_subblock,
     Distributed_matrix &A_distributed,
@@ -64,11 +76,11 @@ template <void (*distributed_spmv_split)
     double *,
     Distributed_vector &,
     double *,
-    hipsparseDnVecDescr_t &,
+    rocsparse_dnvec_descr &,
     double *,
     hipStream_t &,
-    hipsparseHandle_t &,
-    hipblasHandle_t &)>
+    rocblas_handle &,
+    rocsparse_handle&)>
 void conjugate_gradient_jacobi_split(
     Distributed_subblock &A_subblock,
     Distributed_matrix &A_distributed,
@@ -89,10 +101,9 @@ template <void (*distributed_spmv_split_sparse)
     Distributed_vector &,
     double *,
     rocsparse_dnvec_descr &,
-    hipsparseDnVecDescr_t &,
+    rocsparse_dnvec_descr &,
     double *,
     hipStream_t &,
-    hipsparseHandle_t &,
     rocsparse_handle &)>
 void conjugate_gradient_jacobi_split_sparse(
     Distributed_subblock_sparse &A_subblock,
