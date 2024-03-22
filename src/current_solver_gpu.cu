@@ -14,13 +14,13 @@ const double h_bar = 1.054571817e-34;           // [Js]
 //     }
 // };
 
-struct is_not_zero
-{
-    __host__ __device__ bool operator()(const int integer)
-    {
-        return (integer != 0);
-    }
-};
+// struct is_not_zero
+// {
+//     __host__ __device__ bool operator()(const int integer)
+//     {
+//         return (integer != 0);
+//     }
+// };
 
 // Collect the indices of the contacts and the vacancies
 __global__ void get_is_tunnel(int *is_tunnel, int *tunnel_indices, const ELEMENT *element, 
@@ -707,8 +707,6 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverHandle_t handle_cus
     // *************************************************************************************************************************************
     // 5. Populate the dense matrix corresponding to all of the tunnel connections, using tunnel_indices to index the atom attributes arrays
 
-    //populate submatrix as sparse
-
     double *tunnel_matrix_d;
     gpuErrchk(hipMalloc((void **)&tunnel_matrix_d, num_tunnel_points * num_tunnel_points * sizeof(double)));
     gpuErrchk(hipMemset(tunnel_matrix_d, 0, num_tunnel_points * num_tunnel_points * sizeof(double)));
@@ -726,7 +724,6 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverHandle_t handle_cus
     auto txx2 = std::chrono::steady_clock::now();
     std::chrono::duration<double> dtxx2 = txx2 - txx1;
     std::cout << "--> time to populate the tunnel matrix (included): " << dtxx2.count() << "\n";
-    
 
     // **************************************************************************
     // 6. Reduce the diagonals
@@ -815,19 +812,20 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverHandle_t handle_cus
     // std::cout << "dumped sparse neighbor matrix\n";
 
     // debug
-    // double *cpu_T = new double[num_tunnel_points * num_tunnel_points];
-    // hipMemcpy(cpu_T, tunnel_matrix_d, sizeof(double) * num_tunnel_points * num_tunnel_points, hipMemcpyDeviceToHost);
-    // std::cout << "printing tunnel matrix\n";
-    // std::ofstream fout2("T.txt");
-    // int row, col;
-    // for (row = 0; row < num_tunnel_points; row++) {
-    // for (col = 0; col < num_tunnel_points; col++) {
-    //     fout2 << cpu_T[row * num_tunnel_points + col] << ' ';
-    // }
-    // fout2 << '\n';
-    // }
-    // fout2.close(); 
+    double *cpu_T = new double[num_tunnel_points * num_tunnel_points];
+    hipMemcpy(cpu_T, tunnel_matrix_d, sizeof(double) * num_tunnel_points * num_tunnel_points, hipMemcpyDeviceToHost);
+    std::cout << "printing tunnel matrix\n";
+    std::ofstream fout2("T.txt");
+    int row, col;
+    for (row = 0; row < num_tunnel_points; row++) {
+    for (col = 0; col < num_tunnel_points; col++) {
+        fout2 << cpu_T[row * num_tunnel_points + col] << ' ';
+    }
+    fout2 << '\n';
+    }
+    fout2.close(); 
     // debug end
+    exit(1);
 
     //debug
     // int *check_tunnel_inds = new int[num_tunnel_points];
@@ -969,17 +967,505 @@ __global__ void set_ineg_sparse(double *ineg_values, int *ineg_row_ptr, int *ine
 }
 
 
-// full sparse matrix assembly
-void update_power_gpu_sparse_library(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
-                             const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
-                             const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
-                             const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
-                             const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp)
+// assemble the data for the X matrix - 1D distribution over rows
+__global__ void populate_T_dist(const double *posx_d, const double *posy_d, const double *posz_d,
+                                const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_CB_edge,
+                                double nn_dist, const double tol,
+                                const double high_G, const double low_G, const double loop_G, 
+                                const double Vd, const double m_e, const double V0,
+                                int num_source_inj, int num_ground_ext, const int num_layers_contact,
+                                int num_metals, int matrix_size, int *col_indices_d, int *row_ptr_d, double *data_d,
+                                int size_i, int size_j, int start_i, int start_j)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int Nsub = matrix_size;
+    int N_atom = matrix_size - 1;
+    
+    for(int id = idx; id < size_i; id += blockDim.x * gridDim.x){
+        for( int jd = row_ptr_d[id]; jd < row_ptr_d[id+1]; jd++ )
+        {
+            int i = start_i + id;
+            int j = start_j + col_indices_d[jd];
+
+            // col_indices_d[j] is the index of j in the matrix. j is the index of the data vector
+            // if dealing with a diagonal element, we add the positive value from i = i and j = N_full to include the ground node
+
+            // extraction boundary (row)
+            if(i == 0)
+            {
+                // diagonal element (0, 0) --> add the value from (0, N_full)
+                if (j == 0)
+                {
+                    data_d[jd] = +high_G;
+                }
+                // loop connection (0, 1)
+                else if (j == 1)
+                {
+                    data_d[jd] = -loop_G;
+                }
+                // extraction connections from the device
+                else
+                {
+                    data_d[jd] = -high_G;
+                }  
+            }
+
+            // injection boundary (row)
+            if(i == 1)
+            {
+                // loop connection (1, 0)
+                if (j == 0)
+                {
+                    data_d[jd] = -loop_G;
+                }
+                // injection connections to the device
+                else
+                {
+                    data_d[jd] = -high_G;
+                } 
+            }
+
+            // inner matrix terms
+            if (i >= 2)
+            {
+                // diagonal elements --> add the value from (i - 2, N_full - 2) if site i - 2 neighbors the ground node
+                if (i == j)
+                {
+                    double dist_angstrom = site_dist_gpu(posx_d[i - 2], posy_d[i - 2], posz_d[i - 2],
+                                                         posx_d[N_atom-1], posy_d[N_atom-1], posz_d[N_atom-1]);                                   
+                    bool neighboring_ground = (dist_angstrom < nn_dist);
+                    
+                    if (neighboring_ground) 
+                    {
+                        data_d[jd] = +high_G;     // assuming all the connections to ground come from the right contact
+                    } 
+                }
+
+                // extraction boundary (column)
+                if ( (j == 0) && (i > (Nsub+1) - num_ground_ext) )
+                {
+                    data_d[jd] = -high_G;
+                }
+
+                // injection boundary (column)
+                if ( (j == 1) && (i > 1) && (i < num_source_inj + 2) )
+                {
+                    data_d[jd] = -high_G;
+                }
+
+                // off-diagonal inner matrix elements
+                if ( (j >= 2) && (j != i)) 
+                {
+
+                    double dist_angstrom = site_dist_gpu(posx_d[i - 2], posy_d[i - 2], posz_d[i - 2],
+                                                         posx_d[j - 2], posy_d[j - 2], posz_d[j - 2]);                                       
+                        
+                    bool neighbor = (dist_angstrom < nn_dist);                                                      
+
+                    // non-neighbor connections
+                    if (!neighbor)
+                    {
+                        bool any_vacancy1 = element[i - 2] == VACANCY;
+                        bool any_vacancy2 = element[j - 2] == VACANCY;
+
+                        // contacts, excluding the last layer 
+                        bool metal1p = is_in_array_gpu(metals, element[i-2], num_metals) 
+                                                        && (i-2 > ((num_layers_contact - 1)*num_source_inj))
+                                                        && (i-2 < (N_atom - (num_layers_contact - 1)*num_ground_ext)); 
+
+                        bool metal2p = is_in_array_gpu(metals, element[j-2], num_metals)
+                                                        && (j-2 > ((num_layers_contact - 1)*num_source_inj))
+                                                        && (j-2 < (N_atom - (num_layers_contact - 1)*num_ground_ext));  
+
+                        // types of tunnelling conditions considered
+                        bool trap_to_trap = (any_vacancy1 && any_vacancy2);
+                        bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
+                        bool contact_to_contact = (metal1p && metal2p);
+
+                        double local_E_drop = atom_CB_edge[i - 2] - atom_CB_edge[j - 2];                // [eV] difference in energy between the two atoms
+
+                        // compute the WKB tunneling coefficients for all the tunnelling conditions
+                        if ((trap_to_trap || contact_to_trap || contact_to_contact)  && (fabs(local_E_drop) > tol))
+                        {
+                                
+                            double prefac = -(sqrt( 2 * m_e ) / h_bar) * (2.0 / 3.0);           // [s/(kg^1/2 * m^2)] coefficient inside the exponential
+                            double dist = (1e-10)*dist_angstrom;                                // [m] 3D distance between atoms i and j
+
+                            if (contact_to_trap)
+                            {
+                                double energy_window = fabs(local_E_drop);                      // [eV] energy window for tunneling from the contacts
+                                double dV = 0.01;                                               // [V] energy spacing for numerical integration
+                                // double dE = eV_to_J * dV;                                       // [eV] energy spacing for numerical integration
+                                double dE = eV_to_J * dV * 10; // NOTE: @Manasa this is a temporary fix to avoid MPI issues!
+
+
+                                // integrate over all the occupied energy levels in the contact
+                                double T = 0.0;
+                                for (double iv = 0; iv < energy_window; iv += dE)
+                                {
+                                    double E1 = eV_to_J * V0 + iv;                                  // [J] Energy distance to CB before tunnelling
+                                    double E2 = E1 - fabs(local_E_drop);                            // [J] Energy distance to CB after tunnelling
+
+                                    if (E2 > 0)                                                     // trapezoidal potential barrier (low field)                 
+                                    {                                                           
+                                        T += exp(prefac * (dist / fabs(local_E_drop)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
+                                    }
+
+                                    if (E2 < 0)                                                      // triangular potential barrier (high field)                               
+                                    {
+                                        T += exp(prefac * (dist / fabs(local_E_drop)) * ( pow(E1, 1.5) )); 
+                                    } 
+                                }
+                                data_d[jd] = -T;
+                            } 
+                            else 
+                            {
+                                double E1 = eV_to_J * V0;                                        // [J] Energy distance to CB before tunnelling
+                                double E2 = E1 - fabs(local_E_drop);                             // [J] Energy distance to CB after tunnelling
+                                        
+                                if (E2 > 0)                                                      // trapezoidal potential barrier (low field)
+                                {                                                           
+                                    double T = exp(prefac * (dist / fabs(E1 - E2)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
+                                    data_d[jd] = -T;
+                                }
+
+                                if (E2 < 0)                                                        // triangular potential barrier (high field)
+                                {
+                                    double T = exp(prefac * (dist / fabs(E1 - E2)) * ( pow(E1, 1.5) ));
+                                    data_d[jd] = -T;
+                                }
+                            }
+                        }
+                    }
+
+                    // direct terms
+                    if ( neighbor )
+                    {
+                        // contacts
+                        bool metal1 = is_in_array_gpu<ELEMENT>(metals, element[i - 2], num_metals);
+                        bool metal2 = is_in_array_gpu<ELEMENT>(metals, element[j - 2], num_metals);
+
+                        // conductive vacancy sites
+                        bool cvacancy1 = (element[i - 2] == VACANCY) && (atom_charge[i - 2] == 0);
+                        bool cvacancy2 = (element[j - 2] == VACANCY) && (atom_charge[j - 2] == 0);
+                        
+                        if ((metal1 && metal2) || (cvacancy1 && cvacancy2))
+                        {
+                            data_d[jd] = -high_G;
+                        }
+                        else
+                        {
+                            data_d[jd] = -low_G;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+__global__ void calc_diagonal_X_gpu( 
+    int *col_indices,
+    int *row_ptr,
+    double *data,
+    double *inv_diag,
+    int matrix_size
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){ 
+        //reduce the elements in the row
+        double tmp = 0.0;
+        for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+            if(i != col_indices[j]){
+                tmp += data[j];
+            }
+        }
+
+        //write the sum of the off-diagonals onto the existing diagonal element
+        for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+            if(i == col_indices[j]){
+                data[j] += -tmp;
+                inv_diag[i] = 1/data[j];
+            }
+        }
+    }
+}
+
+
+__global__ void calc_diagonal_T( 
+    int *col_indices,
+    int *row_ptr,
+    double *data,
+    double *diag,
+    int matrix_size
+)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){ 
+        //reduce the elements in the row
+        double tmp = 0.0;
+        for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+            if(i != col_indices[j]){
+                tmp += data[j];
+            }
+        }
+
+        //write the sum of the off-diagonals onto the existing diagonal element
+        for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
+            if(i == col_indices[j]){
+                data[j] += -tmp;
+                diag[i] = data[j];
+            }
+        }
+    }
+}
+
+// __global__ void pack_tunnel_data(const int *tunnel_indices, double *posx_packed, double *posy_packed, double *posz_packed,
+//                                  double *atom_CB_edge_packed, ELEMENT *element_packed, int *atom_charge_packed, 
+//                                  const double *posx, const double *posy, const double *posz,
+//                                  const double *atom_CB_edge, const ELEMENT *element, const int *atom_charge,
+//                                  int num_tunnel_points)
+// {
+//     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
+//     int num_threads_total = blockDim.x * gridDim.x;
+
+//     int N = num_tunnel_points;
+
+//     for (auto idx = tid_total; idx < N; idx += num_threads_total)
+//     {    
+//         posx_packed[idx] = posx[tunnel_indices[idx]];
+//         posy_packed[idx] = posy[tunnel_indices[idx]];
+//         posz_packed[idx] = posz[tunnel_indices[idx]];
+//         atom_CB_edge_packed[idx] = atom_CB_edge[tunnel_indices[idx]];
+//         element_packed[idx] = element[tunnel_indices[idx]];
+//         atom_charge_packed[idx] = atom_charge[tunnel_indices[idx]];
+//     }
+// }
+
+
+// // full split matrix assembly
+// void update_power_gpu_split_dist(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+//                                  const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
+//                                  const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+//                                  const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
+//                                  const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp)
+// {
+//     auto t0 = std::chrono::steady_clock::now();
+//     // ***************************************************************************************
+//     // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
+
+//     std::cout << "updating atom arrays\n";
+
+//     int *gpu_index;
+//     int *atom_gpu_index;
+//     gpuErrchk( hipMalloc((void **)&gpu_index, gpubuf.N_ * sizeof(int)) );                                           // indices of the site array
+//     gpuErrchk( hipMalloc((void **)&atom_gpu_index, gpubuf.N_ * sizeof(int)) );                                      // indices of the atom array
+
+//     thrust::device_ptr<int> gpu_index_ptr = thrust::device_pointer_cast(gpu_index);
+//     thrust::sequence(gpu_index_ptr, gpu_index_ptr + gpubuf.N_, 0);
+
+//     double *last_atom = thrust::copy_if(thrust::device, gpubuf.site_x, gpubuf.site_x + gpubuf.N_, gpubuf.site_element, gpubuf.atom_x, is_defect());
+//     int N_atom = last_atom - gpubuf.atom_x;
+//     thrust::copy_if(thrust::device, gpubuf.site_y, gpubuf.site_y + gpubuf.N_, gpubuf.site_element, gpubuf.atom_y, is_defect());
+//     thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + gpubuf.N_, gpubuf.site_element, gpubuf.atom_z, is_defect());
+//     thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_charge, is_defect());
+//     thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + gpubuf.N_, gpubuf.site_element, gpubuf.atom_element, is_defect());
+//     thrust::copy_if(thrust::device, gpubuf.site_CB_edge, gpubuf.site_CB_edge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_CB_edge, is_defect());
+//     thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
+
+//     auto t1 = std::chrono::steady_clock::now();
+//     std::chrono::duration<double> dt = t1 - t0;
+//     std::cout << "time to update atom arrays: " << dt.count() << "\n";
+
+//     // ***************************************************************************************
+//     // 2. Assemble the transmission matrix (X) with direct connections
+
+//     std::cout << "making the neighbor matrix\n";
+//     int Nsub = N_atom + 1;                                                                                 // N_full minus the ground node which is cut from the graph
+
+//     Distributed_matrix *T_distributed = gpubuf.T_distributed;
+//     int rows_this_rank = T_distributed->rows_this_rank;
+//     int disp_this_rank = T_distributed->displacements[T_distributed->rank];
+
+//     int threads = 1024;
+//     int blocks = (T_distributed->rows_this_rank + threads - 1) / threads;   
+ 
+//     for(int i = 0; i < T_distributed->number_of_neighbours; i++){
+
+//         int rows_neighbour = T_distributed->counts[T_distributed->neighbours[i]];
+//         int disp_neighbour = T_distributed->displacements[T_distributed->neighbours[i]];
+
+//         //maybe remove it
+//         gpuErrchk(hipMemset(T_distributed->data_d[i], 0,
+//                             T_distributed->nnz_per_neighbour[i] * sizeof(double)) );
+
+//         // the T matrix has the additional terms coming from the last column!
+//         hipLaunchKernelGGL(populate_T_dist, blocks, threads, 0, 0, 
+//             gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+//             gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
+//             nn_dist, tol, high_G, low_G, loop_G,
+//             Vd, m_e, V0,
+//             num_source_inj, num_ground_ext, num_layers_contact, num_metals, Nsub,
+//             T_distributed->col_indices_d[i],
+//             T_distributed->row_ptr_d[i],
+//             T_distributed->data_d[i], 
+//             rows_this_rank,
+//             rows_neighbour,
+//             disp_this_rank,
+//             disp_neighbour);
+//     }
+//     hipDeviceSynchronize();
+
+//     // collect the local pieces of the diagonal
+//     double *inv_diagonal_local_d;
+//     gpuErrchk( hipMalloc((void **)&inv_diagonal_local_d, T_distributed->rows_this_rank* sizeof(double)) );
+//     gpuErrchk( hipMemset(inv_diagonal_local_d, 0, T_distributed->rows_this_rank * sizeof(double)) );
+
+//     // update the diagonal (do not set it, the populate-kernel updated the diagonal elements with the last column already)
+//     for(int i = 0; i < T_distributed->number_of_neighbours; i++){
+//         hipLaunchKernelGGL(calc_diagonal_X_gpu, blocks, threads, 0, 0, 
+//                             T_distributed->col_indices_d[i], 
+//                             T_distributed->row_ptr_d[i],
+//                             T_distributed->data_d[i], inv_diagonal_local_d, Nsub);
+//     }
+//     gpuErrchk( hipPeekAtLastError() );
+//     gpuErrchk( hipDeviceSynchronize() );
+
+//     // std::cout << "T_distributed->nnz: " << T_distributed->nnz << "\n";
+//     // dump_csr_matrix_txt(Nsub, T_distributed->nnz, T_distributed->row_ptr_d[0], T_distributed->col_indices_d[0], T_distributed->data_d[0], 0);
+//     // std::cout << "dumped new sparse split T matrix\n";
+//     // exit(1); 
+
+//     auto t3 = std::chrono::steady_clock::now();
+//     std::chrono::duration<double> dt2 = t3 - t1;
+//     std::cout << "time to assemble X data: " << dt2.count() << "\n";
+
+
+//     // ***************************************************************************************
+//     // 3. Assemble the sparsity and populate the tunnel submatrix
+
+//     Distributed_subblock_sparse *T_tunnel_distributed = nullptr;                                        // submatrix of T
+//     assemble_sparse_T_submatrix(gpubuf, N_atom, nn_dist, num_source_inj, num_ground_ext, num_layers_contact,
+//                                 high_G, low_G, loop_G, Vd, m_e, V0, T_tunnel_distributed);
+
+//     // ***************************************************************************************
+//     // 3. Assemble the solution vector (M) which represents the current inflow/outflow
+
+//     // prepare the rhs vector
+//     double *gpu_imacro, *gpu_m;
+//     gpuErrchk( hipMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       // [A] The macroscopic device current
+//     gpuErrchk( hipMalloc((void **)&gpu_m, (N_atom + 2) * sizeof(double)) );                                 // [V] Virtual potential vector    
+//     hipDeviceSynchronize();
+
+//     gpuErrchk( hipMemset(gpu_m, 0, (N_atom + 2) * sizeof(double)) );                                        // initialize the rhs for solving the system                                    
+//     thrust::device_ptr<double> m_ptr = thrust::device_pointer_cast(gpu_m);
+//     thrust::fill(m_ptr, m_ptr + 1, -loop_G * Vd);                                                           // max Current extraction (ground)                          
+//     thrust::fill(m_ptr + 1, m_ptr + 2, loop_G * Vd);                                                        // max Current injection (source)
+//     hipDeviceSynchronize();
+
+
+//     // *** collect the inverse diagonal for each of them ***
+
+//     // ************************************************************
+//     // 4. Solve system of linear equations 
+
+//     // the initial guess for the solution is the current site-resolved potential inside the device
+//     double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials;                                         // [V] Virtual potential vector  
+    
+//     // TODO: remove the MPI barrier inside
+//     double relative_tolerance = 1e-17 * N_atom;
+//     int max_iterations = 50000;
+//     iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing>(
+//         *gpubuf.T_distributed,
+//         *gpubuf.T_p_distributed, // fix
+//         gpu_m,
+//         gpu_virtual_potentials,
+//         inv_diagonal_local_d,
+//         relative_tolerance,
+//         max_iterations,
+//         T_distributed->comm);
+
+    
+//     // // making a copy so the original version won't be preconditioned inside the iterative solver
+//     // double *X_data_copy;
+//     // gpuErrchk( hipMalloc((void **)&X_data_copy, X_nnz * sizeof(double)) );
+//     // gpuErrchk( hipMemcpyAsync(X_data_copy, X_data, X_nnz * sizeof(double), hipMemcpyDeviceToDevice) ); 
+//     // gpuErrchk( hipDeviceSynchronize() );
+
+//     // copy back and print gpu_virtual_potentials
+//     std::cout << "printing gpu_virtual_potentials\n";
+//     double *virtual_potentials_h = (double *)calloc(N_atom + 2, sizeof(double));
+//     gpuErrchk( hipMemcpy(virtual_potentials_h, gpu_virtual_potentials, (N_atom + 2) * sizeof(double), hipMemcpyDeviceToHost) );
+//     for (int i = 0; i < N_atom + 2; i++){
+//         std::cout << virtual_potentials_h[i] << " ";
+//     }
+//     exit(1);
+
+//     // sanity check that the potential does not drop across the contacts
+//     // double check_element;
+//     // gpuErrchk( hipMemcpy(&check_element, gpu_virtual_potentials + num_source_inj, sizeof(double), hipMemcpyDeviceToHost) );
+//     // if (std::abs(check_element - Vd) > 0.1)
+//     // {
+//     //     std::cout << "WARNING: non-negligible potential drop of " << std::abs(check_element - Vd) <<
+//     //                 " across the contact at VD = " << Vd << ". Exiting.\n";
+//     //     exit(1);
+//     // }
+
+//     auto t4 = std::chrono::steady_clock::now();
+//     std::chrono::duration<double> dt3 = t4 - t3;
+//     std::cout << "time to solve linear system: " << dt3.count() << "\n";
+//     exit(1);
+
+//     // // ****************************************************
+//     // // 3. Calculate the net current flowing into the device
+
+//     // scale the virtual potentials by G0 (conductance quantum) instead of multiplying inside the T matrix
+//     thrust::device_ptr<double> gpu_virtual_potentials_ptr = thrust::device_pointer_cast(gpu_virtual_potentials);
+//     thrust::transform(gpu_virtual_potentials_ptr, gpu_virtual_potentials_ptr + N_atom + 2, gpu_virtual_potentials_ptr, thrust::placeholders::_1 * G0);
+
+//     // macroscopic device current
+//     gpuErrchk( hipMemset(gpu_imacro, 0, sizeof(double)) ); 
+//     hipDeviceSynchronize();
+
+//     // dot product of first row of X[i] times M[0] - M[i]
+//     int num_threads = 512;
+//     int num_blocks = (N_atom - 1) / num_threads + 1;
+//     get_imacro_sparse<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(T_distributed->data_d[0], T_distributed->row_ptr_d[0], T_distributed->col_indices_d[0], gpu_virtual_potentials, gpu_imacro);
+//     gpuErrchk( hipPeekAtLastError() );
+//     hipDeviceSynchronize();
+
+//     gpuErrchk( hipMemcpy(imacro, gpu_imacro, sizeof(double), hipMemcpyDeviceToHost) );
+
+//     auto t5 = std::chrono::steady_clock::now();
+//     std::chrono::duration<double> dt4 = t5 - t4;
+//     std::cout << "time to compute current: " << dt4.count() << "\n";
+
+//     std::cout << "I_macro: " << *imacro * (1e6) << "\n";
+//     // std::cout << "exiting after I_macro\n"; exit(1);
+
+//     hipFree(gpu_imacro);
+//     hipFree(gpu_m);
+//     // hipFree(gpu_index);
+//     // hipFree(atom_gpu_index);
+//     hipFree(inv_diagonal_local_d);
+    
+// }
+
+__global__ void assemble_preconditioner(double *diagonal_local_d, double *diagonal_tunnel_local_d, int *tunnel_indices_local_d, int rows_this_rank)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    for(int i = idx; i < rows_this_rank; i += blockDim.x * gridDim.x){ 
+        // this thread gets an element in diagonal_tunnel_local_d and adds it to diagonal_local_d[tunnel_indices_local_d]:
+        diagonal_local_d[tunnel_indices_local_d[i]] += diagonal_tunnel_local_d[i];
+    }
+}
+    
+// updates the atom arrays by filtering the sites:
+void update_atom_arrays(GPUBuffers &gpubuf)
 {
     auto t0 = std::chrono::steady_clock::now();
-
-    // ***************************************************************************************
-    // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
     int *gpu_index;
     int *atom_gpu_index;
     gpuErrchk( hipMalloc((void **)&gpu_index, gpubuf.N_ * sizeof(int)) );                                           // indices of the site array
@@ -988,8 +1474,11 @@ void update_power_gpu_sparse_library(hipblasHandle_t handle, hipsolverDnHandle_t
     thrust::device_ptr<int> gpu_index_ptr = thrust::device_pointer_cast(gpu_index);
     thrust::sequence(gpu_index_ptr, gpu_index_ptr + gpubuf.N_, 0);
 
+    std::cout << "updating atom arrays\n";
+
     double *last_atom = thrust::copy_if(thrust::device, gpubuf.site_x, gpubuf.site_x + gpubuf.N_, gpubuf.site_element, gpubuf.atom_x, is_defect());
     int N_atom = last_atom - gpubuf.atom_x;
+    gpubuf.N_atom_ = N_atom;
     thrust::copy_if(thrust::device, gpubuf.site_y, gpubuf.site_y + gpubuf.N_, gpubuf.site_element, gpubuf.atom_y, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_z, gpubuf.site_z + gpubuf.N_, gpubuf.site_element, gpubuf.atom_z, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_charge, gpubuf.site_charge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_charge, is_defect());
@@ -1001,172 +1490,217 @@ void update_power_gpu_sparse_library(hipblasHandle_t handle, hipsolverDnHandle_t
     std::chrono::duration<double> dt = t1 - t0;
     std::cout << "time to update atom arrays: " << dt.count() << "\n";
 
-    // ***************************************************************************************
-    // 2. Assemble the transmission matrix (X) with both direct and tunnel connections and the
-    // solution vector (M) which represents the current inflow/outflow
-    // int N_full = N_atom + 2;                                                                               // number of atoms + injection node + extraction node
-    int Nsub = N_atom + 1;                                                                                 // N_full minus the ground node which is cut from the graph
+    hipFree(gpu_index);
+    hipFree(atom_gpu_index);
+}
 
-    // compute the index arrays to build the CSR representation of X (from 0 to Nsub):
-    int *X_row_ptr;
-    int *X_col_indices;
-    int X_nnz = 0;
-    Assemble_X_sparsity(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
-                        gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
-                        gpubuf.lattice, pbc, nn_dist, tol, 
-                        num_source_inj, num_ground_ext, num_layers_contact,
-                        num_metals, &X_row_ptr, &X_col_indices, &X_nnz);
-    hipDeviceSynchronize();
+void populate_data_T_neighbor(GPUBuffers &gpubuf, const double nn_dist, const double tol, const double high_G, const double low_G, const double loop_G, 
+                              const double Vd, const double m_e, const double V0, int num_source_inj, int num_ground_ext, int num_layers_contact, int num_metals, int Nsub)
+{
+    Distributed_matrix *T_distributed = gpubuf.T_distributed;
+    int rows_this_rank = T_distributed->rows_this_rank;
+    int disp_this_rank = T_distributed->displacements[T_distributed->rank];
 
-    // get the row indices for COO
-    int *X_row_indices_h = new int[X_nnz];
-    int *X_row_ptr_h = new int[N_atom + 2];
+    int threads = 1024;
+    int blocks = (T_distributed->rows_this_rank + threads - 1) / threads;   
 
-    gpuErrchk( hipMemcpy(X_row_ptr_h, X_row_ptr, (N_atom + 2) * sizeof(int), hipMemcpyDeviceToHost) );
-    for(int i = 0; i < N_atom + 1; i++){
-        for(int j = X_row_ptr_h[i]; j < X_row_ptr_h[i+1]; j++){
-            X_row_indices_h[j] = i;
-        }
+    for(int i = 0; i < T_distributed->number_of_neighbours; i++){
+
+        int rows_neighbour = T_distributed->counts[T_distributed->neighbours[i]];
+        int disp_neighbour = T_distributed->displacements[T_distributed->neighbours[i]];
+
+        //check if this memset is needed
+        gpuErrchk(hipMemset(T_distributed->data_d[i], 0,
+                            T_distributed->nnz_per_neighbour[i] * sizeof(double)) );
+
+        // the T matrix has the additional terms coming from the last column!
+        hipLaunchKernelGGL(populate_T_dist, blocks, threads, 0, 0, 
+            gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+            gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
+            nn_dist, tol, high_G, low_G, loop_G,
+            Vd, m_e, V0,
+            num_source_inj, num_ground_ext, num_layers_contact, num_metals, Nsub,
+            T_distributed->col_indices_d[i],
+            T_distributed->row_ptr_d[i],
+            T_distributed->data_d[i], 
+            rows_this_rank,
+            rows_neighbour,
+            disp_this_rank,
+            disp_neighbour);
+
     }
-    int *X_row_indices;
-    gpuErrchk( hipMalloc((void **)&X_row_indices, X_nnz * sizeof(int)) );
-    gpuErrchk( hipMemcpy(X_row_indices, X_row_indices_h, X_nnz * sizeof(int), hipMemcpyHostToDevice) );
-    free(X_row_indices_h);
-    free(X_row_ptr_h);
-    
-    auto t2 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt1 = t2 - t1;
-    std::cout << "time to assemble X sparsity: " << dt1.count() << "\n";
 
-    // Assemble the nonzero value array of X in CSR (from 0 to Nsub):
-    double *X_data;                                                                                             // [1] Transmission matrix
-    // Assemble_X(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
-    //            gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
-    //            gpubuf.lattice, pbc, nn_dist, tol, Vd, m_e, V0, high_G, low_G, loop_G,
-    //            num_source_inj, num_ground_ext, num_layers_contact,
-    //            num_metals, &X_data, &X_row_ptr, &X_col_indices, &X_nnz);
-
-    // double *X_data2;                                                                                          // [1] Transmission matrix
-    Assemble_X2(N_atom, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
-                gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
-                gpubuf.lattice, pbc, nn_dist, tol, Vd, m_e, V0, high_G, low_G, loop_G,
-                num_source_inj, num_ground_ext, num_layers_contact,
-                num_metals, &X_data, &X_row_indices, &X_row_ptr, &X_col_indices, &X_nnz);
     hipDeviceSynchronize();
-
-    // dump_csr_matrix_txt(Nsub, X_nnz, X_row_ptr, X_col_indices, X_data, 0); // figure out why the vector lengths are wrong according to the python script
-    // std::cout << "dumped sparse matrix\n";
-    // exit(1);
     
-    // gpuErrchk( hipFree(X_row_indices) );
-    // double *X_data_h = new double[X_nnz];
-    // double *X_data2_h = new double[X_nnz];
-    // gpuErrchk( hipMemcpy(X_data_h, X_data, X_nnz * sizeof(double), hipMemcpyDeviceToHost) );
-    // gpuErrchk( hipMemcpy(X_data2_h, X_data2, X_nnz * sizeof(double), hipMemcpyDeviceToHost) );
+}
 
-    // for (int i = 0; i < X_nnz; i++)
-    // {
+// reduces the rows of the input sparse matrix into the diagonals, and collects the resulting diagonal vector to be used for preconditioning
+void update_diagonal_sparse(GPUBuffers &gpubuf, double *diagonal_local_d, int Nsub)
+{
+    Distributed_matrix *T_distributed = gpubuf.T_distributed;
 
-    //     // if (X_data_h[i] == X_data2_h[i])
-    //     // {
-    //     //     std::cout << "X_data match at index " << i << " with value " << X_data_h[i] << "\n";
-    //     // }
-    //     if (X_data_h[i] != X_data2_h[i])
-    //     {
-    //         std::cout << "X_data mismatch at index " << i << " with values " << X_data_h[i] << " and " << X_data2_h[i] << "\n";
-    //     }
-    // }
+    int threads = 1024;
+    int blocks = (T_distributed->rows_this_rank + threads - 1) / threads;   
 
-    auto t3 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt2 = t3 - t2;
-    std::cout << "time to assemble X data: " << dt2.count() << "\n";
+    for(int i = 0; i < T_distributed->number_of_neighbours; i++){
+        // (do not set it, the populate-kernel updated the diagonal elements with the last column already)
+        hipLaunchKernelGGL(calc_diagonal_T, blocks, threads, 0, 0,                             //calc_diagonal_X_gpu
+                           T_distributed->col_indices_d[i], 
+                           T_distributed->row_ptr_d[i],
+                           T_distributed->data_d[i], diagonal_local_d, T_distributed->rows_this_rank);
+    }
+    gpuErrchk( hipPeekAtLastError() );
+}
 
+
+// full sparse matrix assembly
+void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+                                  const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
+                                  const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+                                  const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
+                                  const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp)
+{
+    int N_atom = gpubuf.N_atom_;
+    int Nsub = N_atom + 1;            
+    Distributed_matrix *T_distributed = gpubuf.T_distributed;
+    int rows_this_rank = T_distributed->rows_this_rank;
+    int disp_this_rank = T_distributed->displacements[T_distributed->rank];
+
+    // ***************************************************************************************
+    // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
+    update_atom_arrays(gpubuf);
+
+    // ***************************************************************************************
+    // 2. Populate the sparse neighbor matrix of T:                                                                     // N_full minus the ground node which is cut from the graph
+    populate_data_T_neighbor(gpubuf, nn_dist, tol, high_G, low_G, loop_G, Vd, m_e, V0, num_source_inj, num_ground_ext, num_layers_contact, num_metals, Nsub);
+
+    // ***************************************************************************************
+    // 3. Update the diagonal for the sparse neighbor matrix and collect the preconditioner
+    double *diagonal_local_d;
+    gpuErrchk( hipMalloc((void **)&diagonal_local_d, rows_this_rank* sizeof(double)) );
+    gpuErrchk( hipMemset(diagonal_local_d, 0, rows_this_rank * sizeof(double)) );
+    update_diagonal_sparse(gpubuf, diagonal_local_d, Nsub);
+    gpuErrchk( hipDeviceSynchronize() );    // remove synchronization later
+
+    // dump_csr_matrix_txt(Nsub, T_distributed->nnz, T_distributed->row_ptr_d[0], T_distributed->col_indices_d[0], T_distributed->data_d[0], 0);
+    // exit(1); 
+
+    // ***************************************************************************************
+    // 3. Assemble the sparsity for and populate the tunnel submatrix
+
+    Distributed_subblock_sparse T_tunnel_distributed;
+    double *diagonal_tunnel_local_d;
+    int *tunnel_indices_local_d; // [1, 4...] after shift by 2
+    int rows_this_rank_tunnel = assemble_sparse_T_submatrix(gpubuf, N_atom, nn_dist, num_source_inj, num_ground_ext, num_layers_contact,
+                                                            high_G, low_G, loop_G, Vd, m_e, V0,
+                                                            T_tunnel_distributed, T_distributed, diagonal_tunnel_local_d, tunnel_indices_local_d);
+
+    std::cout << "rank: " << gpubuf.rank << "rows_this_rank_tunnel: " << rows_this_rank_tunnel << "\n";
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    // ***************************************************************************************
+    // 4. Collect the preconditioner (diagonal of the full system)
+
+    // diagonal_local_d is the diagonal of the sparse neighbor matrix
+    // diagonal_tunnel_local_d is the diagonal of the sparse neighbor matrix
+    // tunnel_indices_local_d are where this rank inserts its diag into diagonal_local_d for the preconditioning
+
+    int* count_subblock_h_host;
+    hipMallocHost((void**)&count_subblock_h_host, sizeof(int));
+    hipMemcpy(count_subblock_h_host, T_tunnel_distributed.count_subblock_h+gpubuf.rank, gpubuf.size*sizeof(int), hipMemcpyDeviceToHost);
+    std::cout << "this rank's num rows subblock: " << *count_subblock_h_host << "\n";    
+
+    int threads = 1024;
+    int blocks = (T_tunnel_distributed.count_subblock_h[gpubuf.rank] + threads - 1) / threads;
+    hipLaunchKernelGGL(assemble_preconditioner, blocks, threads, 0, 0, 
+                       diagonal_local_d, diagonal_tunnel_local_d, tunnel_indices_local_d, count_subblock_h_host[0]);
+
+    std::cout << "rank " << gpubuf.rank <<  "done assembling preconditioner "  << std::endl;
+    MPI_Barrier(MPI_COMM_WORLD);
+    exit(1);
+
+    // diag_inv_local_d should contain the diag of the full matrix (sparse + sparse)
+
+    // ***************************************************************************************
+    // 5. Make the rhs (M) which represents the current inflow/outflow
     double *gpu_imacro, *gpu_m;
     gpuErrchk( hipMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       // [A] The macroscopic device current
     gpuErrchk( hipMalloc((void **)&gpu_m, (N_atom + 2) * sizeof(double)) );                                 // [V] Virtual potential vector    
     hipDeviceSynchronize();
 
+    // DISTRIBUTE THE M VECTOR (?) 
     gpuErrchk( hipMemset(gpu_m, 0, (N_atom + 2) * sizeof(double)) );                                        // initialize the rhs for solving the system                                    
     thrust::device_ptr<double> m_ptr = thrust::device_pointer_cast(gpu_m);
-    thrust::fill(m_ptr, m_ptr + 1, -loop_G * Vd);                                                            // max Current extraction (ground)                          
-    thrust::fill(m_ptr + 1, m_ptr + 2, loop_G * Vd);                                                         // max Current injection (source)
+    thrust::fill(m_ptr, m_ptr + 1, -loop_G * Vd);                                                           // max Current extraction (ground)                          
+    thrust::fill(m_ptr + 1, m_ptr + 2, loop_G * Vd);                                                        // max Current injection (source)
     hipDeviceSynchronize();
-
-    // std::cout << "norm of the rhs:\n";
-    // double t;
-    // CheckCublasError( hipblasDdot (handle, Nsub, gpu_m, 1, gpu_m, 1, &t) );
-    // std::cout << t << "\n";
-    // exit(1);
 
     // ************************************************************
     // 2. Solve system of linear equations 
-    
+    // remove the tunneling terms from the neighbor matrix!
+
     // the initial guess for the solution is the current site-resolved potential inside the device
-    double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials;                                         // [V] Virtual potential vector  
+    double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials + disp_this_rank;                                       // [V] Virtual potential vector  
     
-    // making a copy so the original version won't be preconditioned inside the iterative solver
-    double *X_data_copy;
-    gpuErrchk( hipMalloc((void **)&X_data_copy, X_nnz * sizeof(double)) );
-    gpuErrchk( hipMemcpyAsync(X_data_copy, X_data, X_nnz * sizeof(double), hipMemcpyDeviceToDevice) ); 
-    gpuErrchk( hipDeviceSynchronize() );
+    // TODO: remove the MPI barrier inside
+    // double relative_tolerance = 1e-17 * N_atom;
+    // int max_iterations = 50000;
+    // iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing>(
+    //     *gpubuf.T_distributed,
+    //     *gpubuf.T_p_distributed,
+    //     gpu_m,
+    //     gpu_virtual_potentials,
+    //     inv_diagonal_local_d,
+    //     relative_tolerance,
+    //     max_iterations,
+    //     T_distributed->comm);
 
-    hipsparseHandle_t cusparseHandle;
-    hipsparseCreate(&cusparseHandle);
-    hipsparseSetPointerMode(cusparseHandle, HIPSPARSE_POINTER_MODE_DEVICE);
-
-    // sparse solver with Jacobi preconditioning:
-    solve_sparse_CG_Jacobi(handle, cusparseHandle, X_data_copy, X_row_ptr, X_col_indices, X_nnz, Nsub, gpu_m, gpu_virtual_potentials);
-    gpuErrchk( hipPeekAtLastError() );
-    gpuErrchk( hipDeviceSynchronize() );
-
-    double check_element;
-    gpuErrchk( hipMemcpy(&check_element, gpu_virtual_potentials + num_source_inj, sizeof(double), hipMemcpyDeviceToHost) );
-    if (std::abs(check_element - Vd) > 0.1)
-    {
-        std::cout << "WARNING: non-negligible potential drop of " << std::abs(check_element - Vd) <<
-                    " across the contact at VD = " << Vd << "\n";
+    // copy back and print the solution vector gpu_virtual_potentials out to a file;
+    double *virtual_potentials_h = (double *)calloc(N_atom + 2, sizeof(double));
+    gpuErrchk( hipMemcpy(virtual_potentials_h, gpu_virtual_potentials, (N_atom + 2) * sizeof(double), hipMemcpyDeviceToHost) );
+    std::ofstream file("gpu_virtual_potentials.txt");
+    for (int i = 0; i < N_atom + 2; i++){
+        file << virtual_potentials_h[i] << " ";
     }
+    file.close();
+    std::cout << "dumped the solution vector from sparse_dist version\n";
+    exit(1);    
 
-    auto t4 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt3 = t4 - t3;
-    std::cout << "time to solve linear system: " << dt3.count() << "\n";
+    // auto t4 = std::chrono::steady_clock::now();
+    // std::chrono::duration<double> dt3 = t4 - t3;
+    // std::cout << "time to solve linear system: " << dt3.count() << "\n";
 
-    // ****************************************************
-    // 3. Calculate the net current flowing into the device
+    // // ****************************************************
+    // // 3. Calculate the net current flowing into the device
 
-    // scale the virtual potentials by G0 (conductance quantum) instead of multiplying inside the X matrix
-    thrust::device_ptr<double> gpu_virtual_potentials_ptr = thrust::device_pointer_cast(gpu_virtual_potentials);
-    thrust::transform(gpu_virtual_potentials_ptr, gpu_virtual_potentials_ptr + N_atom + 2, gpu_virtual_potentials_ptr, thrust::placeholders::_1 * G0);
+    // // scale the virtual potentials by G0 (conductance quantum) instead of multiplying inside the X matrix
+    // thrust::device_ptr<double> gpu_virtual_potentials_ptr = thrust::device_pointer_cast(gpu_virtual_potentials);
+    // thrust::transform(gpu_virtual_potentials_ptr, gpu_virtual_potentials_ptr + N_atom + 2, gpu_virtual_potentials_ptr, thrust::placeholders::_1 * G0);
 
-    // macroscopic device current
-    gpuErrchk( hipMemset(gpu_imacro, 0, sizeof(double)) ); 
-    hipDeviceSynchronize();
+    // // macroscopic device current
+    // gpuErrchk( hipMemset(gpu_imacro, 0, sizeof(double)) ); 
+    // hipDeviceSynchronize();
 
-    // dot product of first row of X[i] times M[0] - M[i]
-    int num_threads = 512;
-    int num_blocks = (N_atom - 1) / num_threads + 1;
-    get_imacro_sparse<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(X_data, X_row_ptr, X_col_indices, gpu_virtual_potentials, gpu_imacro);
-    gpuErrchk( hipPeekAtLastError() );
-    hipDeviceSynchronize();
+    // // dot product of first row of X[i] times M[0] - M[i]
+    // int num_threads = 512;
+    // int num_blocks = (N_atom - 1) / num_threads + 1;
+    // get_imacro_sparse<NUM_THREADS><<<num_blocks, num_threads, NUM_THREADS * sizeof(double)>>>(T_distributed->data_d[0], T_distributed->row_ptr_d[0], T_distributed->col_indices_d[0], gpu_virtual_potentials, gpu_imacro);
+    // gpuErrchk( hipPeekAtLastError() );
+    // hipDeviceSynchronize();
 
-    gpuErrchk( hipMemcpy(imacro, gpu_imacro, sizeof(double), hipMemcpyDeviceToHost) );
+    // gpuErrchk( hipMemcpy(imacro, gpu_imacro, sizeof(double), hipMemcpyDeviceToHost) );
 
-    auto t5 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt4 = t5 - t4;
-    std::cout << "time to compute current: " << dt4.count() << "\n";
+    // // auto t5 = std::chrono::steady_clock::now();
+    // // std::chrono::duration<double> dt4 = t5 - t4;
+    // // std::cout << "time to compute current: " << dt4.count() << "\n";
 
-    std::cout << "I_macro: " << *imacro * (1e6) << "\n";
+    // std::cout << "I_macro: " << *imacro * (1e6) << "\n";
     // std::cout << "exiting after I_macro\n"; exit(1);
 
-    hipFree(X_data);
-    hipFree(X_data_copy);
-    hipFree(X_row_ptr);
-    hipFree(X_row_indices);
-    hipFree(X_col_indices);
     hipFree(gpu_imacro);
     hipFree(gpu_m);
-    hipFree(gpu_index);
-    hipFree(atom_gpu_index);
+    // hipFree(inv_diagonal_local_d);
+    
 }
 
 
@@ -1220,8 +1754,9 @@ void update_power_gpu_sparse(hipblasHandle_t handle, hipsolverDnHandle_t handle_
     hipDeviceSynchronize();
 
     // print nnz:
-    std::cout << "X_nnz: " << X_nnz << "\n";
-    std::cout << "Nsub: " << Nsub << "\n";
+    // std::cout << "X_nnz: " << X_nnz << "\n";
+    // std::cout << "Nsub: " << Nsub << "\n";
+    // exit(1);
 
     // get the row indices for COO
     int *X_row_indices_h = new int[X_nnz];
@@ -1259,8 +1794,8 @@ void update_power_gpu_sparse(hipblasHandle_t handle, hipsolverDnHandle_t handle_
                 num_metals, &X_data, &X_row_indices, &X_row_ptr, &X_col_indices, &X_nnz);
     hipDeviceSynchronize();
 
-    // dump_csr_matrix_txt(Nsub, X_nnz, X_row_ptr, X_col_indices, X_data, 0); // figure out why the vector lengths are wrong according to the python script
-    // std::cout << "dumped sparse matrix\n";
+    dump_csr_matrix_txt(Nsub, X_nnz, X_row_ptr, X_col_indices, X_data, 0); // figure out why the vector lengths are wrong according to the python script
+    std::cout << "dumped original sparse T matrix\n";
     // exit(1);
     
     // gpuErrchk( hipFree(X_row_indices) );
@@ -1335,6 +1870,15 @@ void update_power_gpu_sparse(hipblasHandle_t handle, hipsolverDnHandle_t handle_
     auto t4 = std::chrono::steady_clock::now();
     std::chrono::duration<double> dt3 = t4 - t3;
     std::cout << "time to solve linear system: " << dt3.count() << "\n";
+
+    // dump solution vector to file:
+    double *virtual_potentials_h = (double *)calloc(N_atom + 2, sizeof(double));
+    gpuErrchk( hipMemcpy(virtual_potentials_h, gpu_virtual_potentials, (N_atom + 2) * sizeof(double), hipMemcpyDeviceToHost) );
+    std::ofstream file("gpu_virtual_potentials_og.txt");
+    for (int i = 0; i < N_atom + 2; i++){
+        file << virtual_potentials_h[i] << " ";
+    }
+    exit(1);
 
     // ****************************************************
     // 3. Calculate the net current flowing into the device
