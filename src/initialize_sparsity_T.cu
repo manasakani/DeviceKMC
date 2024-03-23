@@ -67,32 +67,32 @@ __global__ void calc_nnz_per_row_T( const double *posx_d, const double *posy_d, 
                     nnz_row++;
                 }
 
-                // tunneling terms 
-                if ( i != j && dist > nn_dist )
-                { 
-                    bool any_vacancy1 = element[i-2] == VACANCY;
-                    bool any_vacancy2 = element[j-2] == VACANCY;
+                // // tunneling terms 
+                // if ( i != j && dist > nn_dist )
+                // { 
+                //     bool any_vacancy1 = element[i-2] == VACANCY;
+                //     bool any_vacancy2 = element[j-2] == VACANCY;
 
-                    // contacts, excluding the last layer 
-                    bool metal1p = is_in_array_gpu(metals, element[i-2], num_metals) 
-                                                    && (i-2 > ((num_layers_contact - 1)*num_source_inj))
-                                                    && (i-2 < (Natom - (num_layers_contact - 1)*num_ground_ext)); 
+                //     // contacts, excluding the last layer 
+                //     bool metal1p = is_in_array_gpu(metals, element[i-2], num_metals) 
+                //                                     && (i-2 > ((num_layers_contact - 1)*num_source_inj))
+                //                                     && (i-2 < (Natom - (num_layers_contact - 1)*num_ground_ext)); 
 
-                    bool metal2p = is_in_array_gpu(metals, element[j-2], num_metals)
-                                                    && (j-2 > ((num_layers_contact - 1)*num_source_inj))
-                                                    && (j-2 < (Natom - (num_layers_contact - 1)*num_ground_ext));  
+                //     bool metal2p = is_in_array_gpu(metals, element[j-2], num_metals)
+                //                                     && (j-2 > ((num_layers_contact - 1)*num_source_inj))
+                //                                     && (j-2 < (Natom - (num_layers_contact - 1)*num_ground_ext));  
 
-                    // types of tunnelling conditions considered
-                    bool trap_to_trap = (any_vacancy1 && any_vacancy2);
-                    bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
-                    bool contact_to_contact = (metal1p && metal2p);
-                    double local_E_drop = atom_CB_edge[i-2] - atom_CB_edge[j-2];                
+                //     // types of tunnelling conditions considered
+                //     bool trap_to_trap = (any_vacancy1 && any_vacancy2);
+                //     bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
+                //     bool contact_to_contact = (metal1p && metal2p);
+                //     double local_E_drop = atom_CB_edge[i-2] - atom_CB_edge[j-2];                
 
-                    if ((trap_to_trap || contact_to_trap || contact_to_contact)  && (fabs(local_E_drop) > tol))
-                    {
-                        nnz_row++;
-                    }
-                }
+                //     if ((trap_to_trap || contact_to_trap || contact_to_contact)  && (fabs(local_E_drop) > tol))
+                //     {
+                //         nnz_row++;
+                //     }
+                // }
             }
         }
         __syncthreads();
@@ -168,32 +168,32 @@ __global__ void assemble_T_col_indices(const double *posx_d, const double *posy_
                 }
 
                 // tunneling terms 
-                if ( i != j && dist > nn_dist )
-                { 
-                    bool any_vacancy1 = element[i-2] == VACANCY;
-                    bool any_vacancy2 = element[j-2] == VACANCY;
+                // if ( i != j && dist > nn_dist )
+                // { 
+                //     bool any_vacancy1 = element[i-2] == VACANCY;
+                //     bool any_vacancy2 = element[j-2] == VACANCY;
 
-                    // contacts, excluding the last layer 
-                    bool metal1p = is_in_array_gpu(metals, element[i-2], num_metals) 
-                                                    && (i-2 > ((num_layers_contact - 1)*num_source_inj))
-                                                    && (i-2 < (Natom - (num_layers_contact - 1)*num_ground_ext)); 
+                //     // contacts, excluding the last layer 
+                //     bool metal1p = is_in_array_gpu(metals, element[i-2], num_metals) 
+                //                                     && (i-2 > ((num_layers_contact - 1)*num_source_inj))
+                //                                     && (i-2 < (Natom - (num_layers_contact - 1)*num_ground_ext)); 
 
-                    bool metal2p = is_in_array_gpu(metals, element[j-2], num_metals)
-                                                    && (j-2 > ((num_layers_contact - 1)*num_source_inj))
-                                                    && (j-2 < (Natom - (num_layers_contact - 1)*num_ground_ext));  
+                //     bool metal2p = is_in_array_gpu(metals, element[j-2], num_metals)
+                //                                     && (j-2 > ((num_layers_contact - 1)*num_source_inj))
+                //                                     && (j-2 < (Natom - (num_layers_contact - 1)*num_ground_ext));  
 
-                    // types of tunnelling conditions considered
-                    bool trap_to_trap = (any_vacancy1 && any_vacancy2);
-                    bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
-                    bool contact_to_contact = (metal1p && metal2p);
-                    double local_E_drop = atom_CB_edge[i-2] - atom_CB_edge[j-2];                
+                //     // types of tunnelling conditions considered
+                //     bool trap_to_trap = (any_vacancy1 && any_vacancy2);
+                //     bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
+                //     bool contact_to_contact = (metal1p && metal2p);
+                //     double local_E_drop = atom_CB_edge[i-2] - atom_CB_edge[j-2];                
 
-                    if ((trap_to_trap || contact_to_trap || contact_to_contact)  && (fabs(local_E_drop) > tol))
-                    {
-                        col_indices_d[row_ptr_d[row] + nnz_row] = col;
-                        nnz_row++;
-                    }
-                }
+                //     if ((trap_to_trap || contact_to_trap || contact_to_contact)  && (fabs(local_E_drop) > tol))
+                //     {
+                //         col_indices_d[row_ptr_d[row] + nnz_row] = col;
+                //         nnz_row++;
+                //     }
+                // }
             }
         }
     }
@@ -529,20 +529,20 @@ __global__ void shift_vector_by_constant(int *vec, int constant, int N)
 }
 
 
-__global__ void calc_diagonal_T_tunnel( int *col_indices, int *row_ptr, double *data, int matrix_size, double *diagonal)
+__global__ void calc_diagonal_T_tunnel( int *col_indices, int *row_ptr, double *data, int matrix_size, int displacement, double *diagonal)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){ 
         //reduce the elements in the row
         double tmp = 0.0;
         for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
-            if(i != col_indices[j]){
+            if(i + displacement != col_indices[j]){
                 tmp += data[j];
             }
         }
         //write the sum of the off-diagonals onto the existing diagonal element
         for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
-            if(i == col_indices[j]){
+            if(i + displacement == col_indices[j]){
                 data[j] = -tmp;
                 diagonal[i] = data[j];
             }
@@ -553,7 +553,8 @@ __global__ void calc_diagonal_T_tunnel( int *col_indices, int *row_ptr, double *
 
 int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact, 
                                  const double high_G, const double low_G, const double loop_G, const double Vd, const double m_e, const double V0,
-                                 Distributed_subblock_sparse &T_tunnel, Distributed_matrix *T_neighbor, double *diag_tunnel_local, int *tunnel_indices_local_d)
+                                 Distributed_subblock_sparse &T_tunnel, Distributed_matrix *T_neighbor, double *&diag_tunnel_local,
+                                 int *&tunnel_indices_local_d)
 {
     // The tunnel submatrix has size num_tunnel_points x num_tunnel_points
     // it is distributed over rows, NOT over blocks
@@ -588,7 +589,7 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     // allreduce num_tunnel_points_local
     int num_tunnel_points_global;
     MPI_Allreduce(&num_tunnel_points_local, &num_tunnel_points_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-    std::cout << "size of tunneling submatrix: " << num_tunnel_points_global << "\n";
+    // std::cout << "size of tunneling submatrix: " << num_tunnel_points_global << "\n";
 
     // allgather the num_tunnel_points_local for every rank
     int *counts_subblock = new int[size];
@@ -618,7 +619,7 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     for(int i = 0; i < num_tunnel_points_global; i++){
         sum_indices += tunnel_indices_global_h[i];
     }
-    std::cout << "rank: " << rank << " sum_indices: " << sum_indices << std::endl;
+    // std::cout << "rank: " << rank << " sum_indices: " << sum_indices << std::endl;
 
     // make the nnz vector for each rank:    
     // loop over the size to determine neighbours
@@ -649,14 +650,27 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
                         dist_nnz_per_row_d);
     gpuErrchk( hipPeekAtLastError() );
 
-    int *dist_nnz_per_row_global_d;
-    gpuErrchk( hipMalloc((void **)&dist_nnz_per_row_global_d, num_tunnel_points_global * sizeof(int)) );
-    std::cout << counts_subblock[rank] << std::endl;
-    std::cout << displ_subblock[rank] << std::endl;
+    // int *dist_nnz_per_row_global_d;
+    // gpuErrchk( hipMalloc((void **)&dist_nnz_per_row_global_d, num_tunnel_points_global * sizeof(int)) );
+    // std::cout << counts_subblock[rank] << std::endl;
+    // std::cout << displ_subblock[rank] << std::endl;
 
-    hipDeviceSynchronize();
-    MPI_Allgatherv(dist_nnz_per_row_d, counts_subblock[rank], MPI_INT, dist_nnz_per_row_global_d, counts_subblock, displ_subblock, MPI_INT, MPI_COMM_WORLD);
+    // hipDeviceSynchronize();
+    // MPI_Allgatherv(dist_nnz_per_row_d, counts_subblock[rank], MPI_INT, dist_nnz_per_row_global_d, counts_subblock, displ_subblock, MPI_INT, MPI_COMM_WORLD);
 
+    // if(rank == 0){
+    //     int *dist_nnz_per_row_global_h = new int[num_tunnel_points_global];
+    //     gpuErrchk( hipMemcpy(dist_nnz_per_row_global_h, dist_nnz_per_row_global_d, num_tunnel_points_global * sizeof(int), hipMemcpyDeviceToHost) );
+    //     std::string name3 = "dist_nnz_per_row_global_h_" + std::to_string(size) + ".txt";
+    //     std::ofstream file3(name3);
+    //     for (int i = 0; i < num_tunnel_points_global; i++){
+    //         file3 << dist_nnz_per_row_global_d[i] << " ";
+    //     }
+    //     file3.close();
+    // }
+
+
+    MPI_Barrier(MPI_COMM_WORLD);
     // ** Verified that the nnz_per_row is correct for 1 rank and 3 ranks
 
     int *row_ptr_subblock_d;
@@ -682,7 +696,7 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     int nnz_subblock[1];
     hipDeviceSynchronize();
     MPI_Allreduce(&nnz_subblock_local, nnz_subblock, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-    std::cout << "rank: " << rank << " nnz_subblock: " << nnz_subblock[0] << std::endl;
+    // std::cout << "rank: " << rank << " nnz_subblock: " << nnz_subblock[0] << std::endl;
 
     MPI_Barrier(MPI_COMM_WORLD);        // remove
 
@@ -711,32 +725,6 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     gpuErrchk( hipPeekAtLastError() );
     hipDeviceSynchronize();
 
-    // //debug
-    // // copy back col inds to host
-    // int *col_indices_subblock_h1 = new int[nnz_subblock_local];
-    // gpuErrchk( hipMemcpy(col_indices_subblock_h1, col_indices_subblock_d, (nnz_subblock_local) * sizeof(int), hipMemcpyDeviceToHost) );
-    // // copy back row ptrs to host
-    // int *row_ptr_subblock_h = new int[counts_subblock[rank] + 1];
-    // gpuErrchk( hipMemcpy(row_ptr_subblock_h, row_ptr_subblock_d, (counts_subblock[rank] + 1) * sizeof(int), hipMemcpyDeviceToHost) );
-
-    // //debug
-    // int *col_indices_subblock_h = new int[nnz_subblock_local];
-    // gpuErrchk( hipMemcpy(col_indices_subblock_h, col_indices_subblock_d, (nnz_subblock_local) * sizeof(int), hipMemcpyDeviceToHost) );
-
-    // //write to 
-    // std::ofstream outfile1;
-    // std::string name = "col_indices" + std::to_string(size + rank) + ".txt";
-    // outfile1.open(name);
-    // for(int i = 0; i < nnz_subblock_local; i++){
-    //     outfile1 << col_indices_subblock_h[i] << std::endl;
-    // }
-    // outfile1.close();   
-
-    //     std::cout << "made col inds" << std::endl;
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // exit(0);
-
-
     // make the values (remmember the x10 for numerical stability)
     double *data_d;
     gpuErrchk( hipMalloc((void **)&data_d, nnz_subblock_local * sizeof(double)) );
@@ -754,38 +742,25 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     hipLaunchKernelGGL(shift_vector_by_constant, blocks, threads, 0, 0, tunnel_indices_local_d,
         2-disp_this_rank, counts_subblock[rank]);
 
-    std::cout << "shifted tunnel indices" << std::endl;
+    // // dump the tunnel_indices_local_d to file 
+    // int *tunnel_indices_local_h = (int *)calloc(counts_subblock[rank], sizeof(int));
+    // gpuErrchk( hipMemcpy(tunnel_indices_local_h, tunnel_indices_local_d, counts_subblock[rank] * sizeof(int), hipMemcpyDeviceToHost) );
+    // std::string name2 = "tunnel_indices_local_d_" + std::to_string(gpubuf.rank) + ".txt";
+    // std::ofstream file2(name2);
+    // for (int i = 0; i < counts_subblock[rank]; i++){
+    //     file2 << tunnel_indices_local_h[i] << " ";
+    // }
+    // file2.close();
+
+    // MPI_Barrier(MPI_COMM_WORLD);
+    // exit(1);
 
     // row reduce the diagonals - diag_tunnel_local is passed in
     gpuErrchk( hipMalloc((void **)&diag_tunnel_local, counts_subblock[rank] * sizeof(double)) );
     hipLaunchKernelGGL(calc_diagonal_T_tunnel,
-        blocks, threads, 0, 0, col_indices_subblock_d, row_ptr_subblock_d, data_d, counts_subblock[rank], diag_tunnel_local);
+        blocks, threads, 0, 0, col_indices_subblock_d, row_ptr_subblock_d, data_d,
+        counts_subblock[rank], displ_subblock[rank], diag_tunnel_local);
 
-    // double *tunnel_diag_global;
-    // gpuErrchk( hipMalloc((void **)&tunnel_diag_global, num_tunnel_points_global * sizeof(double)) );
-    // MPI_Allgatherv(tunnel_diag, counts_subblock[rank], MPI_DOUBLE, tunnel_diag_global, counts_subblock, displ_subblock, MPI_DOUBLE, MPI_COMM_WORLD);
-
-    // if(rank == 0){
-    //     double *tunnel_diag_global_h = new double[num_tunnel_points_global];
-    //     gpuErrchk( hipMemcpy(tunnel_diag_global_h, tunnel_diag_global, num_tunnel_points_global * sizeof(double), hipMemcpyDeviceToHost) );
-
-    //     // write to a txt file
-    //     std::ofstream outfile;
-    //     std::string name = "tunnel_diag_global_h_" + std::to_string(size) + ".txt";
-    //     outfile.open(name);
-    //     for(int i = 0; i < num_tunnel_points_global; i++){
-    //         outfile << tunnel_diag_global_h[i] << std::endl;
-    //     }
-    //     outfile.close();        
-    // }
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // exit(0);
-    // TODO get preconditioner
-
-    // std::cout << "Output Tunnel matrix to file" << std::endl;
-    // dump_csr_matrix_txt(counts_subblock[rank], nnz_subblock_local, row_ptr_subblock_d, col_indices_subblock_d, data_d, rank + size);
-    // std::cout << "dumped matrix, exiting" << std::endl;
-    // exit(1);
 
     // load data into subblock struct:
     rocsparse_spmat_descr subblock_descriptor;
@@ -793,8 +768,6 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     rocsparse_dnvec_descr subblock_vector_descriptor_out;
     rocsparse_spmv_alg algo = rocsparse_spmv_alg_csr_adaptive;
     size_t subblock_buffersize;
-
-    std::cout << "going to descr" << std::endl;
 
     rocsparse_create_csr_descr(&subblock_descriptor,
                                 counts_subblock[rank],
@@ -812,8 +785,6 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     rocsparse_handle rocsparse_handle;
     rocsparse_create_handle(&rocsparse_handle);
 
-    std::cout << "going to spmv" << std::endl;
-
     double alpha = 1.0;
     double beta = 0.0;
     rocsparse_spmv(rocsparse_handle,
@@ -830,46 +801,44 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     double *subblock_buffer_d;
     hipMalloc(&subblock_buffer_d, subblock_buffersize);
 
-    std::cout << "going to subblock" << std::endl;
-
     // Distributed_subblock_sparse A_subblock;
     T_tunnel.subblock_indices_local_d = tunnel_indices_local_d;
-    std::cout << 1 << std::endl;
     T_tunnel.descriptor = &subblock_descriptor;
-    std::cout << 2 << std::endl;
     T_tunnel.algo = algo;
-    std::cout << 3 << std::endl;
     T_tunnel.buffersize = &subblock_buffersize;
-    std::cout << 4 << std::endl;
     T_tunnel.buffer_d = subblock_buffer_d;
-    std::cout << 5 << std::endl;
     T_tunnel.subblock_size = num_tunnel_points_local;
-    std::cout << 6 << std::endl;
     T_tunnel.count_subblock_h = counts_subblock;
-    std::cout << 7 << std::endl;
     T_tunnel.displ_subblock_h = displ_subblock;
-    std::cout << 8 << std::endl;
     T_tunnel.send_subblock_requests = new MPI_Request[size-1];
-    std::cout << 9 << std::endl;
     T_tunnel.recv_subblock_requests = new MPI_Request[size-1];
-    std::cout << 10 << std::endl;
     T_tunnel.streams_recv_subblock = new hipStream_t[size-1];
+    for(int i = 0; i < size-1; i++){
+        hipStreamCreate(&T_tunnel.streams_recv_subblock[i]);
+    }
+
+    // dump_csr_matrix_txt(num_tunnel_points_local, nnz_subblock_local, row_ptr_subblock_d, col_indices_subblock_d, data_d, size+rank);
+    // MPI_Barrier(MPI_COMM_WORLD);
+    // exit(1); 
+
+
 
     // delete stuff
-    delete[] counts_subblock;
-    delete[] displ_subblock;
+    // TODO delete outside
+    // delete[] counts_subblock;
+    // delete[] displ_subblock;
+    // gpuErrchk( hipFree(tunnel_indices_local_d) );
+    // gpuErrchk( hipFree(row_ptr_subblock_d) );
+    // gpuErrchk( hipFree(col_indices_subblock_d) );
+    // gpuErrchk( hipFree(data_d) );
+
     gpuErrchk( hipFree(is_tunnel) );
     gpuErrchk( hipFree(is_tunnel_indices) );
-    gpuErrchk( hipFree(tunnel_indices_local_d) );
     gpuErrchk( hipFree(tunnel_indices_global_d) );
     gpuErrchk( hipFree(dist_nnz_per_row_d) );
-    gpuErrchk( hipFree(dist_nnz_per_row_global_d) );
-    gpuErrchk( hipFree(row_ptr_subblock_d) );
-    gpuErrchk( hipFree(col_indices_subblock_d) );
-    gpuErrchk( hipFree(data_d) );
-    // gpuErrchk( hipFree(tunnel_diag) );
-    // gpuErrchk( hipFree(tunnel_diag_global) );
     rocsparse_destroy_handle(rocsparse_handle);
+
+    std::cout << "freed memory inside sparsity T" << std::endl;
 
     return num_tunnel_points_local;
 }

@@ -156,69 +156,6 @@ std::map<std::string, double> Device::updateCharge(GPUBuffers gpubuf, std::vecto
 
     auto t1 = std::chrono::steady_clock::now();
     std::chrono::duration<double> dt = t1 - t0;
-            
-//     auto t0 = std::chrono::steady_clock::now();
-//     int Vnn;
-//     int uncharged_V_counter = 0;
-//     int V_counter = 0;
-//     int Od_counter = 0;
-//     int uncharged_Od_counter = 0;
-//     int nn_cond = 2;
-//     bool metal_neighbor;
-
-// #pragma omp parallel for private(Vnn, metal_neighbor) reduction(+ : uncharged_V_counter, uncharged_Od_counter, V_counter, Od_counter)
-//     for (int i = 0; i < N; i++)
-//     {
-//         if (site_element[i] == VACANCY)
-//         {
-//             V_counter++;
-//             Vnn = 0;
-//             site_charge[i] = 2;
-//             for (int j : site_neighbors.l[i])
-//             {
-//                 metal_neighbor = is_in_vector<ELEMENT>(metals, site_element[j]);
-//                 if (site_element[j] == VACANCY)
-//                 {
-//                     Vnn++;
-//                 };
-//                 if (metal_neighbor) 
-//                 {
-//                     site_charge[i] = 0;
-//                     uncharged_V_counter++;
-//                     break;
-//                 }
-//                 if (Vnn >= nn_cond)
-//                 {
-//                     site_charge[i] = 0;
-//                     uncharged_V_counter++;
-//                     break;
-//                 }
-//             }
-//         }
-
-//         if (site_element[i] == OXYGEN_DEFECT)
-//         {
-//             Od_counter++;
-//             site_charge[i] = -2;
-//             for (int j : site_neighbors.l[i])
-//             {
-//                 metal_neighbor = is_in_vector<ELEMENT>(metals, site_element[j]);
-//                 if (metal_neighbor) 
-//                 {
-//                     site_charge[i] = 0;
-//                     uncharged_Od_counter++;
-//                     break;
-//                 }
-//             }
-//         }
-//     }
-
-//     result["Uncharged vacancies"] = (double) uncharged_V_counter;
-//     result["Charged vacancies"] = (double) V_counter - (double) uncharged_V_counter;
-//     result["Uncharged oxygen ions"] = (double) uncharged_Od_counter;
-//     result["Charged oxygen ions"] = (double) Od_counter - (double) uncharged_Od_counter;
-    // auto t1 = std::chrono::steady_clock::now();
-    // std::chrono::duration<double> dt = t1 - t0;
 
     result["Z - calculation time - charge [s]"] = dt.count();
     return result;
@@ -312,24 +249,22 @@ std::map<std::string, double> Device::updatePotential(hipblasHandle_t handle_cub
     int N_left_tot = p.num_atoms_first_layer; 
     int N_right_tot = p.num_atoms_first_layer; 
 
-    auto t0 = std::chrono::steady_clock::now();
+    auto t0 = MPI_Wtime(); 
 
     // gpubuf.sync_HostToGPU(*this); // comment out to avoid memory copy in GPU-only implementation
 
-    
     if (sparse_iterative_solver) 
     {
         background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
                                         Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
-        // std::cout << "local version for boundary potential" << std::endl;
         // background_potential_gpu_sparse_local(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
         //                                Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
     } else {
         background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
                                  Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
     }
-    auto t1 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt1 = t1 - t0;
+    auto t1 = MPI_Wtime(); 
+    std::cout << "time for background potential: " << t1 - t0 << std::endl;
 
     // Update site_potential_boundary with the sum from the charges
     poisson_gridless_gpu(p.num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
@@ -343,13 +278,15 @@ std::map<std::string, double> Device::updatePotential(hipblasHandle_t handle_cub
      
     // gpubuf.sync_GPUToHost(*this); // comment out to avoid memory copy in GPU-only implementation
 
-    auto t2 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt2 = t2 - t1;
+    auto t2 = MPI_Wtime();
+    std::cout << "time for poisson gridless: " << t2 - t1 << std::endl;
+
+    result["Z - calculation time - potential from boundaries [s]"] =  t1 - t0 ;
+    result["Z - calculation time - potential from charges [s]"] = t2 - t1 ;
 
 
 #else
     auto t0 = std::chrono::steady_clock::now();
-
     // circuit-model-based potential solver
     background_potential(handle_cusolver, p.num_atoms_contact, Vd, lattice, p.G_coeff, p.high_G, p.low_G, p.metals, kmc_step_count);
     auto t1 = std::chrono::steady_clock::now();
@@ -359,16 +296,11 @@ std::map<std::string, double> Device::updatePotential(hipblasHandle_t handle_cub
     poisson_gridless(p.num_atoms_contact, p.lattice);
     auto t2 = std::chrono::steady_clock::now();
     std::chrono::duration<double> dt2 = t2 - t1;
-    
-#endif
-
-    std::cout << "Z - calculation time - potential from boundaries [s]" << dt1.count() << "\n";
-    std::cout << "Z - calculation time - potential from charges [s]" << dt2.count() << "\n";
 
     result["Z - calculation time - potential from boundaries [s]"] = dt1.count();
     result["Z - calculation time - potential from charges [s]"] = dt2.count();
-    // std::cout << "done potential\n";
-    // exit(1);
+    
+#endif
 
     return result;
 }

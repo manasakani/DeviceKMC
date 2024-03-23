@@ -84,8 +84,7 @@ int main(int argc, char **argv)
     if (rocr_visible_devices != nullptr) {
         std::cout << "Rank " << mpi_rank << " ROCR_VISIBLE_DEVICES: " << rocr_visible_devices << std::endl;
     } else {
-        std::cerr << "Rank " << mpi_rank << " ROCR_VISIBLE_DEVICES not set" << std::endl;
-        exit(1);
+        std::cerr << "Rank " << mpi_rank << " ROCR_VISIBLE_DEVICES not set" << std::endl; exit(1);
     }
 
     hipError_t hipStatus;
@@ -101,9 +100,6 @@ int main(int argc, char **argv)
         std::cerr << "Rank " << mpi_rank << " failed to set device " << device_id << std::endl;
         std::cerr << "Error: " << getHipErrorString(hipStatus) << std::endl;
     }
-
-    fflush(stdout);
-    MPI_Barrier(MPI_COMM_WORLD);
 
 #pragma omp parallel
 {
@@ -170,30 +166,32 @@ int main(int argc, char **argv)
 
     if (p.pristine)                                                                // convert an initial percentage of oxygen atoms to vacancies
         device.makeSubstoichiometric(p.initial_vacancy_concentration);
-    
+
     //******************************
     // Initialize the KMC Simulation
     //******************************
-    
+   
     KMCProcess sim(device, p.freq);                                                // stores the division of the device into KMC 'layers' with different EA
 
     //*****************************
     // Setup GPU memory management
     //*****************************
 
-#ifdef USE_CUDA
+    MPI_Barrier(MPI_COMM_WORLD);
+    std::cout << "making buffers on gpu\n";
     GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,                         
                       device.N, device.N_atom, device.site_x, device.site_y, device.site_z,
                       device.max_num_neighbors, device.sigma, device.k, 
                       device.lattice, device.neigh_idx, device.cutoff_window, device.cutoff_idx, p.metals, p.metals.size(),
                       MPI_COMM_WORLD, p.num_atoms_first_layer);
+    std::cout << "done that\n";
     gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
 
 
     if (p.solve_potential || p.solve_current)
     {
-        initialize_sparsity_K(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer); // for K
-        // initialize_sparsity_T(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer, p.num_atoms_first_layer, p.num_layers_contact);
+        initialize_sparsity_K(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer);
+        std::cout << "Initialized sparsity pattern of K\n";
     }
 
     // make layer arrays and copy them to const memory
@@ -206,9 +204,6 @@ int main(int argc, char **argv)
     }
     int num_layers = sim.layers.size();
     copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host); 
-#else
-    GPUBuffers gpubuf;
-#endif
 
     // Create hip library handles to pass into the gpu_Device functions
     hipblasHandle_t handle;
@@ -216,12 +211,14 @@ int main(int argc, char **argv)
     hipsolverHandle_t handle_cusolver;
     hipsolverCreate(&handle_cusolver);                           
 
+    //***********************************
     // loop over V_switch and t_switch
     double Vd, t, kmc_time, step_time, I_macro, T_kmc, V_vcm;                                       // KMC loop variables
     int kmc_step_count;                                                                             // tracks the number of KMC steps per bias point
     std::map<std::string, double> resultMap;                                                        // dictionary of output quantities which are dumped to output.log
     std::chrono::duration<double> diff, diff_pot, diff_power, diff_temp, diff_perturb;              // track computation time of the different modules
 
+    auto tcode_start = std::chrono::steady_clock::now();
     for (int vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
     {
 
@@ -238,6 +235,8 @@ int main(int argc, char **argv)
         if (p.solve_current)
         {
             device.setLaplacePotential(handle, handle_cusolver, gpubuf, p, Vd);                     // homogenous poisson equation with contact BC
+            initialize_sparsity_T(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer, p.num_atoms_first_layer, p.num_layers_contact);
+            std::cout << "Initialized sparsity pattern of T\n";
         }
 
         // setup output folder
@@ -277,12 +276,15 @@ int main(int argc, char **argv)
             if (p.solve_potential)
             {
                 // update site-resolved charge
+                std::cout << "Updated charge\n";
                 std::map<std::string, double> chargeMap = device.updateCharge(gpubuf, p.metals);           
                 resultMap.insert(chargeMap.begin(), chargeMap.end());               
                 
                 // update site-resolved potential
+                std::cout << "Updating potential\n";
                 std::map<std::string, double> potentialMap = device.updatePotential(handle, handle_cusolver, gpubuf, p, Vd, kmc_step_count);
-                resultMap.insert(potentialMap.begin(), potentialMap.end());      
+                resultMap.insert(potentialMap.begin(), potentialMap.end());  
+                std::cout << "back from update potential\n";    
             }
 
 //             // generate xyz snapshot
@@ -299,7 +301,7 @@ int main(int argc, char **argv)
 //             }
 
             // Execute events and update kmc_time
-            if (p.perturb_structure){                                  
+            if (p.perturb_structure){     
                 std::map<std::string, double> kmcMap = sim.executeKMCStep(gpubuf, device, &step_time);   // execute events on the structure
                 kmc_time += step_time;
                 resultMap.insert(kmcMap.begin(), kmcMap.end());                                   
@@ -314,6 +316,8 @@ int main(int argc, char **argv)
             // Update current and joule heating
             if (p.solve_current)
             {
+                std::cout << "rank " << mpi_rank <<  "going to update power" << std::endl;   
+         
                 std::map<std::string, double> powerMap = device.updatePower(handle, handle_cusolver,    // update site-resolved dissipated power
                                                                             gpubuf, p, Vd);
                 resultMap.insert(powerMap.begin(), powerMap.end());
@@ -330,13 +334,13 @@ int main(int argc, char **argv)
             auto tfield = std::chrono::steady_clock::now();
             std::chrono::duration<double> dt_field = tfield - t0;
 
-            // if (!mpi_rank) 
-            // {
-            //     std::cout << "**********************************\n";
-            //     std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
-            //     std::cout << rocm_smi_output;
-            //     std::cout << "**********************************\n";
-            // }
+            if (!mpi_rank) 
+            {
+                std::cout << "**********************************\n";
+                std::string rocm_smi_output = exec("rocm-smi --showmeminfo vram");
+                std::cout << rocm_smi_output;
+                std::cout << "**********************************\n";
+            }
             
             // ********************************************************
             // ******************** Log results ***********************
@@ -375,9 +379,15 @@ int main(int argc, char **argv)
             outputBuffer << "Z - calculation time - logging results [s]: " << dt_log.count() << "\n";
             outputBuffer << "Z - calculation time - KMC superstep [s]: " << dt.count() << "\n";
             outputBuffer << "--------------------------------------";
-            
-            // gpuErrchk( hipDeviceSynchronize() ); //debug
 
+            // DEBUG
+            if (kmc_step_count > 10)
+            {
+                std::cout << "kmc step count limit for debug\n";
+                break;
+            }
+            
+            
         } // while (kmc_time < t)
 
 // Get device attributes from GPU memory
@@ -394,6 +404,12 @@ int main(int argc, char **argv)
         }
 
     } // for (int vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
+    auto tcode_ends = std::chrono::steady_clock::now();
+    std::chrono::duration<double> diff_code = tcode_ends - tcode_start;
+    if (!mpi_rank)
+    {
+        std::cout << "Total code execution time: " << diff_code.count() << " s\n";
+    }
 
 #ifdef USE_CUDA
     gpubuf.freeGPUmemory();
@@ -407,6 +423,7 @@ int main(int argc, char **argv)
     //***********************************
     // Finalize MPI
     //***********************************
+
     MPI_Finalize();
 
 

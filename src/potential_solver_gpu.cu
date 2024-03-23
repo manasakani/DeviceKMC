@@ -130,28 +130,11 @@ void update_charge_gpu(ELEMENT *d_site_element,
                        const ELEMENT *d_metals, const int num_metals){
 
     int num_threads = 1024;
-    int num_blocks = (N * nn + num_threads - 1) / num_threads;
+    int num_blocks = ((size_t)N * (size_t)nn + num_threads - 1) / num_threads;
 
     // hipLaunchKernelGGL(update_charge, num_blocks, num_threads, 0, 0, d_site_element, d_site_charge, d_neigh_idx, N, nn, d_metals, num_metals);
     update_charge<<<num_blocks, num_threads>>>(d_site_element, d_site_charge, d_neigh_idx, N, nn, d_metals, num_metals); 
 
-    // copy back and print neigh_idx
-    // int *neigh_idx = (int *)calloc(N * nn, sizeof(int));
-    // gpuErrchk( hipMemcpy(neigh_idx, d_neigh_idx, N * nn * sizeof(int), hipMemcpyDeviceToHost) );
-    // for (int i = 0; i < N; i++){
-    //     for (int j = 0; j < nn; j++){
-    //         std::cout << neigh_idx[i * nn + j] << " ";
-    //     }
-    //     std::cout << "\n";
-    // }
-    // exit(1);
-
-
-    // update_charge_by_dist<<<num_blocks, num_threads>>>(gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, gpubuf.site_element, 
-    //                                 gpubuf.cutoff_window, gpubuf.N_cutoff,
-    //                                 gpubuf.site_charge, gpubuf.N_, 
-    //                                 const int nn_dist,
-    //                                 const ELEMENT* metals, const int num_metals);
 }
 
 
@@ -1097,6 +1080,8 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     thrust::device_ptr<double> right_boundary = thrust::device_pointer_cast(gpubuf.site_potential_boundary + N_left_tot + N_interface);
     thrust::fill(right_boundary, right_boundary + N_right_tot, Vd/2);
 
+    std::cout << "updated boundary inside K - remove this later\n";
+
     // hipsparseDestroy(cusparseHandle);
     hipFree(VL);
     hipFree(VR);
@@ -1549,7 +1534,9 @@ __global__ void calculate_pairwise_interaction_indexed(const double* posx, const
 
         for (int j_idx = 0; j_idx < N_cutoff; j_idx++)
         {
-            j = cutoff_idx[i*N_cutoff + j_idx];
+            long int idx_next = (size_t)i*(size_t)N_cutoff + (size_t)j_idx;
+            j = cutoff_idx[idx_next];
+            // j = cutoff_idx[i*N_cutoff + j_idx];
 
             if (j >= 0 && i != j && charge[j] != 0) {
                 double dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
@@ -1641,12 +1628,6 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
 
     // // naive implementation, all-to-all
     // calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, NUM_THREADS, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice,
-    //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank]);
-    // gpuErrchk( hipPeekAtLastError() );
-    // gpuErrchk( hipDeviceSynchronize() );
-    // gpuErrchk( hipPeekAtLastError() );
-
-    // calculate_pairwise_interaction_singlenode<<<num_blocks, num_threads>>>(posx, posy, posz, lattice,
     //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank]);
     // gpuErrchk( hipPeekAtLastError() );
     // gpuErrchk( hipDeviceSynchronize() );

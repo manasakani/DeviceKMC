@@ -162,6 +162,7 @@ __global__ void build_event_list_split(const int N, const int size_i, const int 
         int idx = id + start_i * nn;
         int i = idx / nn;
         int j = neigh_idx[idx];
+        double epsilon = 1e-200; // for exponential overflow
 
         // condition for neighbor existing
         if (j >= 0 && j < N) {
@@ -178,7 +179,8 @@ __global__ void build_event_list_split(const int N, const int size_i, const int 
                 event_type_ = VACANCY_GENERATION;
                 double Ekin = 0; // kB * (temperature[j] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
-                P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
+                // P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
+                P = (*freq) * (1 / (exp(EA / (kB * (*T_bg))) + epsilon) );
             }
 
             // Recombination
@@ -194,7 +196,8 @@ __global__ void build_event_list_split(const int N, const int size_i, const int 
                 event_type_ = VACANCY_RECOMBINATION;
                 double Ekin = 0; //kB * (temperature[i] - (*T_bg)); //kB * (temperature[i] - temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
-                P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
+                // P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
+                P = (*freq) * (1 / (exp(EA / (kB * (*T_bg))) + epsilon) );
             }
 
             // Vacancy diffusion
@@ -212,7 +215,8 @@ __global__ void build_event_list_split(const int N, const int size_i, const int 
                 double zero_field_energy = E_Vdiff_const[layer[j]];  
                 double Ekin = 0;//kB * (temperature[i] - (*T_bg)); //kB * (temperature[j] - temperature[i]);
                 double EA = zero_field_energy - E - Ekin;
-                P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
+                // P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
+                P = (*freq) * (1 / (exp(EA / (kB * (*T_bg))) + epsilon) );
             }
 
             // Ion diffusion
@@ -231,7 +235,8 @@ __global__ void build_event_list_split(const int N, const int size_i, const int 
                 event_type_ = ION_DIFFUSION;
                 double Ekin = 0; //kB * (temperature[i] - (*T_bg)); //kB * (temperature[i] - temperature[j]);
                 double EA = zero_field_energy - E - Ekin;
-                P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
+                // P = exp(-1 * EA / (kB * (*T_bg))) * (*freq);
+                P = (*freq) * (1 / (exp(EA / (kB * (*T_bg))) + epsilon) );
             }
         }
         event_type[id] = event_type_;
@@ -480,6 +485,315 @@ double execute_kmc_step_gpu(const int N, const int nn, const int *neigh_idx, con
     return event_time;
 }
 
+// double execute_kmc_step_mpi(
+//         MPI_Comm comm,
+//         const int N,
+//         const int *count,
+//         const int *displs,
+//         const int nn, const int *neigh_idx, const int *site_layer,
+//         const double *lattice, const int pbc, const double *T_bg, 
+//         const double *freq, const double *sigma, const double *k,
+//         const double *posx, const double *posy, const double *posz, 
+//         const double *site_potential_charge, const double *site_temperature,
+//         ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host)
+// {
+
+
+//     int rank, size;
+//     MPI_Comm_rank(comm, &rank);
+//     MPI_Comm_size(comm, &size);
+
+//     // **************************
+//     // **** Build Event List ****
+//     // **************************
+
+//     double time_event_list = 0.0;
+
+//     // the KMC event list arrays only exist in gpu memory
+//     EVENTTYPE *event_type_local_d; 
+//     double    *event_prob_local_d; 
+//     gpuErrchk( hipMalloc((void**)&event_type_local_d, count[rank] * nn * sizeof(EVENTTYPE)) );
+//     gpuErrchk( hipMalloc((void**)&event_prob_local_d, count[rank] * nn * sizeof(double)) );
+//     double *event_prob_cum_local_d;
+//     gpuErrchk( hipMalloc((void**)&event_prob_cum_local_d, count[rank] * nn * sizeof(double)) );
+//     double *event_prob_cum_global_h;
+//     gpuErrchk(hipHostMalloc((void**)&event_prob_cum_global_h, size * sizeof(double)));
+       
+
+//     int num_threads = 1024;
+//     int num_blocks = (count[rank] * nn - 1) / num_threads + 1;
+
+//     // populate the event_type and event_prob arrays:
+//     // only your part of the event list
+//     // TODO use COO
+//     hipLaunchKernelGGL(build_event_list_split, num_blocks, num_threads, 0, 0, N,
+//                                                 count[rank], displs[rank],
+//                                                 nn, neigh_idx, 
+//                                                 site_layer, lattice, pbc,
+//                                                 T_bg, freq, sigma, k,
+//                                                 posx, posy, posz, 
+//                                                 site_potential_charge, site_temperature, 
+//                                                 site_element, site_charge,
+//                                                 event_type_local_d, event_prob_local_d);
+
+//     // **************************
+//     // ** Event Execution Loop **
+//     // **************************
+
+//     // helper variables:
+//     // NOTE: INITIALIZE THESE ON GPU AND USE MEMCPY DEVICETODEVICE INSTEAD
+//     int two_host = 2;
+//     int two_neg_host = -2;
+//     int zero_host = 0;
+//     ELEMENT defect_element_host = DEFECT;
+//     ELEMENT O_defect_element_host = OXYGEN_DEFECT;
+//     ELEMENT vacancy_element_host = VACANCY;
+//     ELEMENT O_element_host = O_EL;
+
+//     // constants on the device
+//     // TODO do only once
+//     int *two_d;
+//     gpuErrchk( hipMalloc((void**)&two_d, 1 * sizeof(int)) );
+//     gpuErrchk( hipMemcpy(two_d, &two_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+//     int *two_neg_d;
+//     gpuErrchk( hipMalloc((void**)&two_neg_d, 1 * sizeof(int)) );
+//     gpuErrchk( hipMemcpy(two_neg_d, &two_neg_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+//     int *zero_d;
+//     gpuErrchk( hipMalloc((void**)&zero_d, 1 * sizeof(int)) );
+//     gpuErrchk( hipMemcpy(zero_d, &zero_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+//     ELEMENT *defect_element_d;
+//     gpuErrchk( hipMalloc((void**)&defect_element_d, 1 * sizeof(ELEMENT)) );
+//     gpuErrchk( hipMemcpy(defect_element_d, &defect_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//     ELEMENT *O_defect_element_d;
+//     gpuErrchk( hipMalloc((void**)&O_defect_element_d, 1 * sizeof(ELEMENT)) );
+//     gpuErrchk( hipMemcpy(O_defect_element_d, &O_defect_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//     ELEMENT *vacancy_element_d;
+//     gpuErrchk( hipMalloc((void**)&vacancy_element_d, 1 * sizeof(ELEMENT)) );
+//     gpuErrchk( hipMemcpy(vacancy_element_d, &vacancy_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//     ELEMENT *O_element_d;
+//     gpuErrchk( hipMalloc((void**)&O_element_d, 1 * sizeof(ELEMENT)) );
+//     gpuErrchk( hipMemcpy(O_element_d, &O_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+
+//     ELEMENT *element_i_d;
+//     ELEMENT *element_j_d;
+//     int *charge_i_d;
+//     int *charge_j_d;
+//     gpuErrchk( hipMalloc((void**)&element_i_d, 1 * sizeof(ELEMENT)) );
+//     gpuErrchk( hipMalloc((void**)&element_j_d, 1 * sizeof(ELEMENT)) );
+//     gpuErrchk( hipMalloc((void**)&charge_i_d, 1 * sizeof(int)) );
+//     gpuErrchk( hipMalloc((void**)&charge_j_d, 1 * sizeof(int)) );
+
+//     int ijevent_to_delete[3];
+
+//     double event_time = 0.0;
+//     int event_counter = 0;
+
+//     double *Psum_host;
+//     gpuErrchk(hipHostMalloc((void**)&Psum_host, 1 * sizeof(double)));
+
+//     double freq_h;
+//     gpuErrchk( hipMemcpy(&freq_h, freq, 1 * sizeof(double), hipMemcpyDeviceToHost) );
+//     while (event_time < 1 / freq_h) {
+//         event_counter++;  
+
+//         // get the cumulative sum of the probabilities
+//         thrust::inclusive_scan(thrust::device, event_prob_local_d, event_prob_local_d + count[rank] * nn, event_prob_cum_local_d);
+
+//         // select an event
+
+//         // allgather using host pointers:
+//         gpuErrchk( hipMemcpy(Psum_host, event_prob_cum_local_d + count[rank] * nn - 1, sizeof(double), hipMemcpyDeviceToHost) );
+//         MPI_Allgather(Psum_host, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
+
+//         // allgather using device pointers with cuda aware mpi
+//         // MPI_Allgather(event_prob_cum_local_d + count[rank] * nn - 1, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
+
+//         for (int i = 1; i < size; i++){
+//             event_prob_cum_global_h[i] += event_prob_cum_global_h[i-1];
+//         }
+
+//         //TODO: cuda random number
+//         double number = rng.getRandomNumber() * event_prob_cum_global_h[size-1];
+//         // figure out which rank has the number
+//         int source_rank;
+//         for (int i = 0; i < size; i++){
+//             if (number < event_prob_cum_global_h[i]){
+//                 source_rank = i;
+//                 break;
+//             }
+//         }
+
+//         if(rank == source_rank){
+//             // shift random number to the correct range
+//             if(rank > 0){
+//                 number -= event_prob_cum_global_h[rank-1];
+//             }
+        
+//             int event_idx = thrust::upper_bound(thrust::device, event_prob_cum_local_d, event_prob_cum_local_d + count[rank] * nn, number) - event_prob_cum_local_d;
+//             // std::cout << "selected event: " << event_idx << "\n";
+
+//             // get attributes of the sites involved:
+//             // i, j, event_type
+//             ijevent_to_delete[0] = event_idx / nn + displs[rank];
+//             gpuErrchk( hipMemcpy(&ijevent_to_delete[1], neigh_idx + displs[rank]*nn + event_idx , sizeof(int), hipMemcpyDeviceToHost) );
+//             gpuErrchk( hipMemcpy(&ijevent_to_delete[2], event_type_local_d + event_idx, sizeof(EVENTTYPE), hipMemcpyDeviceToHost) );
+//             MPI_Bcast(ijevent_to_delete, 3, MPI_INT, source_rank, comm);
+//         }
+//         else{
+//             MPI_Bcast(ijevent_to_delete, 3, MPI_INT, source_rank, comm);
+//         }
+
+//         int i_host = ijevent_to_delete[0];
+//         int j_host = ijevent_to_delete[1];
+//         EVENTTYPE sel_event_type = static_cast<EVENTTYPE>(ijevent_to_delete[2]);
+
+//         gpuErrchk( hipMemcpy(element_i_d, site_element + i_host, sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//         gpuErrchk( hipMemcpy(element_j_d, site_element + j_host, sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//         gpuErrchk( hipMemcpy(charge_i_d, site_charge + i_host, sizeof(int), hipMemcpyDeviceToDevice) );
+//         gpuErrchk( hipMemcpy(charge_j_d, site_charge + j_host, sizeof(int), hipMemcpyDeviceToDevice) );
+
+//         // Event execution loop
+//         switch (sel_event_type)
+//         {
+//         case VACANCY_GENERATION:
+//         {
+//             gpuErrchk( hipMemcpy(site_element + i_host, O_defect_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_element + j_host, vacancy_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + i_host, two_neg_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + j_host, two_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+
+//             break;
+//         }
+//         case VACANCY_RECOMBINATION:
+//         {
+//             gpuErrchk( hipMemcpy(site_element + i_host, defect_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_element + j_host, O_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + i_host, zero_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + j_host, zero_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );       
+
+//             break;
+//         }
+//         case VACANCY_DIFFUSION:
+//         {
+//             gpuErrchk( hipMemcpy(site_element + i_host, element_j_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_element + j_host, element_i_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + i_host, charge_j_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + j_host, charge_i_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+
+//             break;
+//         }
+//         case ION_DIFFUSION:
+//         {
+//             gpuErrchk( hipMemcpy(site_element + i_host, element_j_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_element + j_host, element_i_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + i_host, charge_j_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + j_host, charge_i_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+
+//             break;
+//         }
+//         default:
+//             print("error: unidentified event key found: ");
+//             print(sel_event_type);
+//         }
+
+//         int threads = 1024;
+//         int blocks = (count[rank] * nn + threads - 1) / threads;
+//         hipLaunchKernelGGL(zero_out_events_split, blocks, threads, 0, 0, event_type_local_d, event_prob_local_d, neigh_idx,
+//             count[rank], displs[rank],
+//             nn, i_host, j_host);
+//         event_time = -log(rng.getRandomNumber()) / event_prob_cum_global_h[size-1];
+//     }
+
+//     if(rank == 0){
+//         std::cout << "Number of KMC events: " << event_counter << "\n";
+//         std::cout << "Event time: " << event_time << "\n";
+//     }
+
+//     gpuErrchk( hipFree(event_prob_cum_local_d) );
+//     gpuErrchk( hipFree(event_type_local_d) );
+//     gpuErrchk( hipFree(event_prob_local_d) );
+//     gpuErrchk(hipHostFree(event_prob_cum_global_h));
+//     gpuErrchk(hipHostFree(Psum_host));
+//     gpuErrchk( hipFree(element_i_d) );
+//     gpuErrchk( hipFree(element_j_d) );
+//     gpuErrchk( hipFree(charge_i_d) );
+//     gpuErrchk( hipFree(charge_j_d) );
+//     gpuErrchk( hipFree(two_d) );
+//     gpuErrchk( hipFree(two_neg_d) );
+//     gpuErrchk( hipFree(zero_d) );
+//     gpuErrchk( hipFree(defect_element_d) );
+//     gpuErrchk( hipFree(O_defect_element_d) );
+//     gpuErrchk( hipFree(vacancy_element_d) );
+//     gpuErrchk( hipFree(O_element_d) );
+
+//     return event_time;    
+// }
+
+__global__ void read_out_event(
+    int *ijevent_to_delete,
+    const int i,
+    const int *j,
+    const EVENTTYPE *type
+){
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(idx == 0){
+        ijevent_to_delete[0] = i;
+        ijevent_to_delete[1] = *j;
+        ijevent_to_delete[2] = int(*type);
+    }
+}
+
+template <typename T>
+__device__ void swap(
+    T *a, T *b
+){
+    T temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+__global__ void execute_event(
+    ELEMENT *site_element,
+    int *site_charge,
+    int *ijevent_to_delete
+){
+
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if(idx == 0){
+        int i_host = ijevent_to_delete[0];
+        int j_host = ijevent_to_delete[1];
+        EVENTTYPE sel_event_type = EVENTTYPE(ijevent_to_delete[2]);
+
+        if(sel_event_type == VACANCY_GENERATION){
+            site_element[i_host] = OXYGEN_DEFECT;
+            site_element[j_host] = VACANCY;
+            site_charge[i_host] = -2;
+            site_charge[j_host] = 2;
+        }
+        //TODO generalizable
+        else if(sel_event_type == VACANCY_RECOMBINATION){
+            site_element[i_host] = DEFECT;
+            site_element[j_host] = O_EL;
+            site_charge[i_host] = 0;
+            site_charge[j_host] = 0;
+
+        }
+        else if(sel_event_type == VACANCY_DIFFUSION){
+            // swap
+            swap<ELEMENT>(site_element + i_host, site_element + j_host);
+            swap<int>(site_charge + i_host, site_charge + j_host);
+        }
+        else if(sel_event_type == ION_DIFFUSION){
+            // swap
+            swap<ELEMENT>(site_element + i_host, site_element + j_host);
+            swap<int>(site_charge + i_host, site_charge + j_host);
+        }
+
+    }
+} 
+
 double execute_kmc_step_mpi(
         MPI_Comm comm,
         const int N,
@@ -507,21 +821,21 @@ double execute_kmc_step_mpi(
     // the KMC event list arrays only exist in gpu memory
     EVENTTYPE *event_type_local_d; 
     double    *event_prob_local_d; 
-    gpuErrchk( hipMalloc((void**)&event_type_local_d, count[rank] * nn * sizeof(EVENTTYPE)) );
-    gpuErrchk( hipMalloc((void**)&event_prob_local_d, count[rank] * nn * sizeof(double)) );
+    gpuErrchk( hipMalloc((void**)&event_type_local_d, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE)) );
+    gpuErrchk( hipMalloc((void**)&event_prob_local_d, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
     double *event_prob_cum_local_d;
-    gpuErrchk( hipMalloc((void**)&event_prob_cum_local_d, count[rank] * nn * sizeof(double)) );
+    gpuErrchk( hipMalloc((void**)&event_prob_cum_local_d, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
     double *event_prob_cum_global_h;
-    gpuErrchk(hipHostMalloc((void**)&event_prob_cum_global_h, size * sizeof(double)));
+    gpuErrchk( hipMallocHost((void**)&event_prob_cum_global_h, size * sizeof(double)));
        
 
     int num_threads = 1024;
-    int num_blocks = (count[rank] * nn - 1) / num_threads + 1;
+    int num_blocks = ((size_t)count[rank] * (size_t)nn - 1) / num_threads + 1;
 
     // populate the event_type and event_prob arrays:
     // only your part of the event list
     // TODO use COO
-    hipLaunchKernelGGL(build_event_list_split, num_blocks, num_threads, 0, 0, N,
+    build_event_list_split<<<num_blocks, num_threads>>>(N,
                                                 count[rank], displs[rank],
                                                 nn, neigh_idx, 
                                                 site_layer, lattice, pbc,
@@ -535,56 +849,18 @@ double execute_kmc_step_mpi(
     // ** Event Execution Loop **
     // **************************
 
-    // helper variables:
-    // NOTE: INITIALIZE THESE ON GPU AND USE MEMCPY DEVICETODEVICE INSTEAD
-    int two_host = 2;
-    int two_neg_host = -2;
-    int zero_host = 0;
-    ELEMENT defect_element_host = DEFECT;
-    ELEMENT O_defect_element_host = OXYGEN_DEFECT;
-    ELEMENT vacancy_element_host = VACANCY;
-    ELEMENT O_element_host = O_EL;
-
-    // constants on the device
-    // TODO do only once
-    int *two_d;
-    gpuErrchk( hipMalloc((void**)&two_d, 1 * sizeof(int)) );
-    gpuErrchk( hipMemcpy(two_d, &two_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
-    int *two_neg_d;
-    gpuErrchk( hipMalloc((void**)&two_neg_d, 1 * sizeof(int)) );
-    gpuErrchk( hipMemcpy(two_neg_d, &two_neg_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
-    int *zero_d;
-    gpuErrchk( hipMalloc((void**)&zero_d, 1 * sizeof(int)) );
-    gpuErrchk( hipMemcpy(zero_d, &zero_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
-    ELEMENT *defect_element_d;
-    gpuErrchk( hipMalloc((void**)&defect_element_d, 1 * sizeof(ELEMENT)) );
-    gpuErrchk( hipMemcpy(defect_element_d, &defect_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-    ELEMENT *O_defect_element_d;
-    gpuErrchk( hipMalloc((void**)&O_defect_element_d, 1 * sizeof(ELEMENT)) );
-    gpuErrchk( hipMemcpy(O_defect_element_d, &O_defect_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-    ELEMENT *vacancy_element_d;
-    gpuErrchk( hipMalloc((void**)&vacancy_element_d, 1 * sizeof(ELEMENT)) );
-    gpuErrchk( hipMemcpy(vacancy_element_d, &vacancy_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-    ELEMENT *O_element_d;
-    gpuErrchk( hipMalloc((void**)&O_element_d, 1 * sizeof(ELEMENT)) );
-    gpuErrchk( hipMemcpy(O_element_d, &O_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-
-    ELEMENT *element_i_d;
-    ELEMENT *element_j_d;
-    int *charge_i_d;
-    int *charge_j_d;
-    gpuErrchk( hipMalloc((void**)&element_i_d, 1 * sizeof(ELEMENT)) );
-    gpuErrchk( hipMalloc((void**)&element_j_d, 1 * sizeof(ELEMENT)) );
-    gpuErrchk( hipMalloc((void**)&charge_i_d, 1 * sizeof(int)) );
-    gpuErrchk( hipMalloc((void**)&charge_j_d, 1 * sizeof(int)) );
+    int threads_single_block = 64;
 
     int ijevent_to_delete[3];
+    int *ijevent_to_delete_d;
+    gpuErrchk( hipMalloc((void**)&ijevent_to_delete_d, 3 * sizeof(int)) );
 
     double event_time = 0.0;
     int event_counter = 0;
 
     double *Psum_host;
-    gpuErrchk(hipHostMalloc((void**)&Psum_host, 1 * sizeof(double)));
+    gpuErrchk(hipMallocHost((void**)&Psum_host, 1 * sizeof(double)));
+
 
     double freq_h;
     gpuErrchk( hipMemcpy(&freq_h, freq, 1 * sizeof(double), hipMemcpyDeviceToHost) );
@@ -592,15 +868,16 @@ double execute_kmc_step_mpi(
         event_counter++;  
 
         // get the cumulative sum of the probabilities
-        thrust::inclusive_scan(thrust::device, event_prob_local_d, event_prob_local_d + count[rank] * nn, event_prob_cum_local_d);
+        thrust::inclusive_scan(thrust::device, event_prob_local_d, event_prob_local_d + (size_t)count[rank] * (size_t)nn, event_prob_cum_local_d);
 
+        
         // select an event
 
-        // allgather using host pointers:
-        gpuErrchk( hipMemcpy(Psum_host, event_prob_cum_local_d + count[rank] * nn - 1, sizeof(double), hipMemcpyDeviceToHost) );
+        // allgather with host pointers
+        gpuErrchk( hipMemcpy(Psum_host, event_prob_cum_local_d + (size_t)count[rank] * (size_t)nn - 1, sizeof(double), hipMemcpyDeviceToHost) );
         MPI_Allgather(Psum_host, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
 
-        // allgather using device pointers with cuda aware mpi
+        // allgather with device pointers:
         // MPI_Allgather(event_prob_cum_local_d + count[rank] * nn - 1, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
 
         for (int i = 1; i < size; i++){
@@ -624,76 +901,38 @@ double execute_kmc_step_mpi(
                 number -= event_prob_cum_global_h[rank-1];
             }
         
-            int event_idx = thrust::upper_bound(thrust::device, event_prob_cum_local_d, event_prob_cum_local_d + count[rank] * nn, number) - event_prob_cum_local_d;
+            int event_idx = thrust::upper_bound(thrust::device, event_prob_cum_local_d, event_prob_cum_local_d + (size_t)count[rank] * (size_t)nn, number) - event_prob_cum_local_d;
             // std::cout << "selected event: " << event_idx << "\n";
 
-            // get attributes of the sites involved:
-            // i, j, event_type
-            ijevent_to_delete[0] = event_idx / nn + displs[rank];
-            gpuErrchk( hipMemcpy(&ijevent_to_delete[1], neigh_idx + displs[rank]*nn + event_idx , sizeof(int), hipMemcpyDeviceToHost) );
-            gpuErrchk( hipMemcpy(&ijevent_to_delete[2], event_type_local_d + event_idx, sizeof(EVENTTYPE), hipMemcpyDeviceToHost) );
+            read_out_event<<<1,threads_single_block>>>(
+                ijevent_to_delete_d,
+                event_idx / nn + displs[rank],
+                neigh_idx + displs[rank]*nn + event_idx,
+                event_type_local_d + event_idx);
+            
+            gpuErrchk( hipMemcpy(ijevent_to_delete,
+                ijevent_to_delete_d, 3 * sizeof(int), hipMemcpyDeviceToHost) );
+
             MPI_Bcast(ijevent_to_delete, 3, MPI_INT, source_rank, comm);
         }
         else{
             MPI_Bcast(ijevent_to_delete, 3, MPI_INT, source_rank, comm);
+            // memcpy to device
+            gpuErrchk( hipMemcpy(ijevent_to_delete_d, ijevent_to_delete, 3 * sizeof(int), hipMemcpyHostToDevice) );
         }
 
+
+        // execute the event on the SoA
+
+        execute_event<<<1, threads_single_block>>>(site_element, site_charge, ijevent_to_delete_d);
+        
+        // TODO ijevent_to_delete only on device
         int i_host = ijevent_to_delete[0];
         int j_host = ijevent_to_delete[1];
-        EVENTTYPE sel_event_type = static_cast<EVENTTYPE>(ijevent_to_delete[2]);
-
-        gpuErrchk( hipMemcpy(element_i_d, site_element + i_host, sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-        gpuErrchk( hipMemcpy(element_j_d, site_element + j_host, sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-        gpuErrchk( hipMemcpy(charge_i_d, site_charge + i_host, sizeof(int), hipMemcpyDeviceToDevice) );
-        gpuErrchk( hipMemcpy(charge_j_d, site_charge + j_host, sizeof(int), hipMemcpyDeviceToDevice) );
-
-        // Event execution loop
-        switch (sel_event_type)
-        {
-        case VACANCY_GENERATION:
-        {
-            gpuErrchk( hipMemcpy(site_element + i_host, O_defect_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_element + j_host, vacancy_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + i_host, two_neg_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + j_host, two_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-
-            break;
-        }
-        case VACANCY_RECOMBINATION:
-        {
-            gpuErrchk( hipMemcpy(site_element + i_host, defect_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_element + j_host, O_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + i_host, zero_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + j_host, zero_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );       
-
-            break;
-        }
-        case VACANCY_DIFFUSION:
-        {
-            gpuErrchk( hipMemcpy(site_element + i_host, element_j_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_element + j_host, element_i_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + i_host, charge_j_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + j_host, charge_i_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-
-            break;
-        }
-        case ION_DIFFUSION:
-        {
-            gpuErrchk( hipMemcpy(site_element + i_host, element_j_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_element + j_host, element_i_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + i_host, charge_j_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + j_host, charge_i_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-
-            break;
-        }
-        default:
-            print("error: unidentified event key found: ");
-            print(sel_event_type);
-        }
 
         int threads = 1024;
-        int blocks = (count[rank] * nn + threads - 1) / threads;
-        hipLaunchKernelGGL(zero_out_events_split, blocks, threads, 0, 0, event_type_local_d, event_prob_local_d, neigh_idx,
+        int blocks = ((size_t)count[rank] * (size_t)nn + threads - 1) / threads;
+        zero_out_events_split<<<blocks, threads>>>(event_type_local_d, event_prob_local_d, neigh_idx,
             count[rank], displs[rank],
             nn, i_host, j_host);
         event_time = -log(rng.getRandomNumber()) / event_prob_cum_global_h[size-1];
@@ -704,264 +943,252 @@ double execute_kmc_step_mpi(
         std::cout << "Event time: " << event_time << "\n";
     }
 
+
     gpuErrchk( hipFree(event_prob_cum_local_d) );
     gpuErrchk( hipFree(event_type_local_d) );
     gpuErrchk( hipFree(event_prob_local_d) );
-    gpuErrchk(hipHostFree(event_prob_cum_global_h));
-    gpuErrchk(hipHostFree(Psum_host));
-    gpuErrchk( hipFree(element_i_d) );
-    gpuErrchk( hipFree(element_j_d) );
-    gpuErrchk( hipFree(charge_i_d) );
-    gpuErrchk( hipFree(charge_j_d) );
-    gpuErrchk( hipFree(two_d) );
-    gpuErrchk( hipFree(two_neg_d) );
-    gpuErrchk( hipFree(zero_d) );
-    gpuErrchk( hipFree(defect_element_d) );
-    gpuErrchk( hipFree(O_defect_element_d) );
-    gpuErrchk( hipFree(vacancy_element_d) );
-    gpuErrchk( hipFree(O_element_d) );
-
+    gpuErrchk( hipFreeHost(event_prob_cum_global_h));
     return event_time;    
 }
 
 
-double execute_kmc_step_mpi2(
-        MPI_Comm comm,
-        const int N,
-        const int *count,
-        const int *displs,
-        const int nn, const int *neigh_idx, const int *site_layer,
-        const double *lattice, const int pbc, const double *T_bg, 
-        const double *freq, const double *sigma, const double *k,
-        const double *posx, const double *posy, const double *posz, 
-        const double *site_potential_charge, const double *site_temperature,
-        ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host)
-{
+// double execute_kmc_step_mpi2(
+//         MPI_Comm comm,
+//         const int N,
+//         const int *count,
+//         const int *displs,
+//         const int nn, const int *neigh_idx, const int *site_layer,
+//         const double *lattice, const int pbc, const double *T_bg, 
+//         const double *freq, const double *sigma, const double *k,
+//         const double *posx, const double *posy, const double *posz, 
+//         const double *site_potential_charge, const double *site_temperature,
+//         ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host)
+// {
 
 
-    int rank, size;
-    MPI_Comm_rank(comm, &rank);
-    MPI_Comm_size(comm, &size);
+//     int rank, size;
+//     MPI_Comm_rank(comm, &rank);
+//     MPI_Comm_size(comm, &size);
 
-    // **************************
-    // **** Build Event List ****
-    // **************************
+//     // **************************
+//     // **** Build Event List ****
+//     // **************************
 
-    double time_event_list = 0.0;
+//     double time_event_list = 0.0;
 
-    // the KMC event list arrays only exist in gpu memory
-    EVENTTYPE *event_type; 
-    double    *event_prob; 
-    gpuErrchk( hipMalloc((void**)&event_type, N * nn * sizeof(EVENTTYPE)) );
-    gpuErrchk( hipMalloc((void**)&event_prob, N * nn * sizeof(double)) );
+//     // the KMC event list arrays only exist in gpu memory
+//     EVENTTYPE *event_type; 
+//     double    *event_prob; 
+//     gpuErrchk( hipMalloc((void**)&event_type, N * nn * sizeof(EVENTTYPE)) );
+//     gpuErrchk( hipMalloc((void**)&event_prob, N * nn * sizeof(double)) );
 
 
-    int num_threads = 1024;
-    int num_blocks = (count[rank] * nn - 1) / num_threads + 1;
+//     int num_threads = 1024;
+//     int num_blocks = (count[rank] * nn - 1) / num_threads + 1;
 
-    // populate the event_type and event_prob arrays:
-    // only your part of the event list
-    // TODO use COO
-    hipLaunchKernelGGL(build_event_list_split, num_blocks, num_threads, 0, 0, N,
-                                                count[rank], displs[rank],
-                                                nn, neigh_idx, 
-                                                site_layer, lattice, pbc,
-                                                T_bg, freq, sigma, k,
-                                                posx, posy, posz, 
-                                                site_potential_charge, site_temperature, 
-                                                site_element, site_charge,
-                                                event_type + displs[rank]*nn,
-                                                event_prob + displs[rank]*nn);
+//     // populate the event_type and event_prob arrays:
+//     // only your part of the event list
+//     // TODO use COO
+//     hipLaunchKernelGGL(build_event_list_split, num_blocks, num_threads, 0, 0, N,
+//                                                 count[rank], displs[rank],
+//                                                 nn, neigh_idx, 
+//                                                 site_layer, lattice, pbc,
+//                                                 T_bg, freq, sigma, k,
+//                                                 posx, posy, posz, 
+//                                                 site_potential_charge, site_temperature, 
+//                                                 site_element, site_charge,
+//                                                 event_type + displs[rank]*nn,
+//                                                 event_prob + displs[rank]*nn);
 
-    EVENTTYPE *event_type_local_h;
-    double *event_prob_local_h;
-    gpuErrchk(hipHostMalloc((void**)&event_type_local_h, N * nn * sizeof(EVENTTYPE)));
-    gpuErrchk(hipHostMalloc((void**)&event_prob_local_h, N * nn * sizeof(double)));
+//     EVENTTYPE *event_type_local_h;
+//     double *event_prob_local_h;
+//     gpuErrchk(hipHostMalloc((void**)&event_type_local_h, N * nn * sizeof(EVENTTYPE)));
+//     gpuErrchk(hipHostMalloc((void**)&event_prob_local_h, N * nn * sizeof(double)));
 
-    gpuErrchk( hipMemcpy(event_type_local_h + displs[rank]*nn,
-        event_type + displs[rank]*nn,
-        count[rank] * nn * sizeof(EVENTTYPE), hipMemcpyDeviceToHost) );
-    gpuErrchk( hipMemcpy(event_prob_local_h + displs[rank]*nn,
-        event_prob + displs[rank]*nn,
-        count[rank] * nn * sizeof(double), hipMemcpyDeviceToHost) ); 
+//     gpuErrchk( hipMemcpy(event_type_local_h + displs[rank]*nn,
+//         event_type + displs[rank]*nn,
+//         count[rank] * nn * sizeof(EVENTTYPE), hipMemcpyDeviceToHost) );
+//     gpuErrchk( hipMemcpy(event_prob_local_h + displs[rank]*nn,
+//         event_prob + displs[rank]*nn,
+//         count[rank] * nn * sizeof(double), hipMemcpyDeviceToHost) ); 
     
-    int *count_nn = new int[size];
-    int *displs_nn = new int[size];
-    for (int i = 0; i < size; i++){
-        count_nn[i] = count[i] * nn;
-        displs_nn[i] = displs[i] * nn;
-    }
+//     int *count_nn = new int[size];
+//     int *displs_nn = new int[size];
+//     for (int i = 0; i < size; i++){
+//         count_nn[i] = count[i] * nn;
+//         displs_nn[i] = displs[i] * nn;
+//     }
 
 
-    MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, event_type_local_h, count_nn, displs_nn, MPI_INT, comm);
-    MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, event_prob_local_h, count_nn, displs_nn, MPI_DOUBLE, comm);
+//     MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, event_type_local_h, count_nn, displs_nn, MPI_INT, comm);
+//     MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, event_prob_local_h, count_nn, displs_nn, MPI_DOUBLE, comm);
 
-    gpuErrchk( hipMemcpy(event_type, event_type_local_h, N * nn * sizeof(EVENTTYPE), hipMemcpyHostToDevice) );
-    gpuErrchk( hipMemcpy(event_prob, event_prob_local_h, N * nn * sizeof(double), hipMemcpyHostToDevice) );
+//     gpuErrchk( hipMemcpy(event_type, event_type_local_h, N * nn * sizeof(EVENTTYPE), hipMemcpyHostToDevice) );
+//     gpuErrchk( hipMemcpy(event_prob, event_prob_local_h, N * nn * sizeof(double), hipMemcpyHostToDevice) );
 
-    // **************************
-    // ** Event Execution Loop **
-    // **************************
+//     // **************************
+//     // ** Event Execution Loop **
+//     // **************************
 
-    // helper variables:
-    // NOTE: INITIALIZE THESE ON GPU AND USE MEMCPY DEVICETODEVICE INSTEAD
-    int two_host = 2;
-    int two_neg_host = -2;
-    int zero_host = 0;
-    ELEMENT defect_element_host = DEFECT;
-    ELEMENT O_defect_element_host = OXYGEN_DEFECT;
-    ELEMENT vacancy_element_host = VACANCY;
-    ELEMENT O_element_host = O_EL;
+//     // helper variables:
+//     // NOTE: INITIALIZE THESE ON GPU AND USE MEMCPY DEVICETODEVICE INSTEAD
+//     int two_host = 2;
+//     int two_neg_host = -2;
+//     int zero_host = 0;
+//     ELEMENT defect_element_host = DEFECT;
+//     ELEMENT O_defect_element_host = OXYGEN_DEFECT;
+//     ELEMENT vacancy_element_host = VACANCY;
+//     ELEMENT O_element_host = O_EL;
 
-    int *two_d;
-    gpuErrchk( hipMalloc((void**)&two_d, 1 * sizeof(int)) );
-    gpuErrchk( hipMemcpy(two_d, &two_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
-    int *two_neg_d;
-    gpuErrchk( hipMalloc((void**)&two_neg_d, 1 * sizeof(int)) );
-    gpuErrchk( hipMemcpy(two_neg_d, &two_neg_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
-    int *zero_d;
-    gpuErrchk( hipMalloc((void**)&zero_d, 1 * sizeof(int)) );
-    gpuErrchk( hipMemcpy(zero_d, &zero_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
-    ELEMENT *defect_element_d;
-    gpuErrchk( hipMalloc((void**)&defect_element_d, 1 * sizeof(ELEMENT)) );
-    gpuErrchk( hipMemcpy(defect_element_d, &defect_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-    ELEMENT *O_defect_element_d;
-    gpuErrchk( hipMalloc((void**)&O_defect_element_d, 1 * sizeof(ELEMENT)) );
-    gpuErrchk( hipMemcpy(O_defect_element_d, &O_defect_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-    ELEMENT *vacancy_element_d;
-    gpuErrchk( hipMalloc((void**)&vacancy_element_d, 1 * sizeof(ELEMENT)) );
-    gpuErrchk( hipMemcpy(vacancy_element_d, &vacancy_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-    ELEMENT *O_element_d;
-    gpuErrchk( hipMalloc((void**)&O_element_d, 1 * sizeof(ELEMENT)) );
-    gpuErrchk( hipMemcpy(O_element_d, &O_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//     int *two_d;
+//     gpuErrchk( hipMalloc((void**)&two_d, 1 * sizeof(int)) );
+//     gpuErrchk( hipMemcpy(two_d, &two_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+//     int *two_neg_d;
+//     gpuErrchk( hipMalloc((void**)&two_neg_d, 1 * sizeof(int)) );
+//     gpuErrchk( hipMemcpy(two_neg_d, &two_neg_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+//     int *zero_d;
+//     gpuErrchk( hipMalloc((void**)&zero_d, 1 * sizeof(int)) );
+//     gpuErrchk( hipMemcpy(zero_d, &zero_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+//     ELEMENT *defect_element_d;
+//     gpuErrchk( hipMalloc((void**)&defect_element_d, 1 * sizeof(ELEMENT)) );
+//     gpuErrchk( hipMemcpy(defect_element_d, &defect_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//     ELEMENT *O_defect_element_d;
+//     gpuErrchk( hipMalloc((void**)&O_defect_element_d, 1 * sizeof(ELEMENT)) );
+//     gpuErrchk( hipMemcpy(O_defect_element_d, &O_defect_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//     ELEMENT *vacancy_element_d;
+//     gpuErrchk( hipMalloc((void**)&vacancy_element_d, 1 * sizeof(ELEMENT)) );
+//     gpuErrchk( hipMemcpy(vacancy_element_d, &vacancy_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//     ELEMENT *O_element_d;
+//     gpuErrchk( hipMalloc((void**)&O_element_d, 1 * sizeof(ELEMENT)) );
+//     gpuErrchk( hipMemcpy(O_element_d, &O_element_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
 
 
-    double *event_prob_cum;
-    gpuErrchk( hipMalloc((void**)&event_prob_cum, N * nn * sizeof(double)) );
+//     double *event_prob_cum;
+//     gpuErrchk( hipMalloc((void**)&event_prob_cum, N * nn * sizeof(double)) );
  
-    double freq_host;
-    gpuErrchk( hipMemcpy(&freq_host, freq, 1 * sizeof(double), hipMemcpyDeviceToHost) );
+//     double freq_host;
+//     gpuErrchk( hipMemcpy(&freq_host, freq, 1 * sizeof(double), hipMemcpyDeviceToHost) );
 
 
 
-    double event_time = 0.0;
-    int event_counter = 0;
-    while (event_time < 1 / freq_host) {
-        event_counter++;  
-        // get the cumulative sum of the probabilities
-        thrust::inclusive_scan(thrust::device, event_prob, event_prob + N * nn, event_prob_cum);
+//     double event_time = 0.0;
+//     int event_counter = 0;
+//     while (event_time < 1 / freq_host) {
+//         event_counter++;  
+//         // get the cumulative sum of the probabilities
+//         thrust::inclusive_scan(thrust::device, event_prob, event_prob + N * nn, event_prob_cum);
 
-        // select an event
-        double Psum_host;
-        gpuErrchk( hipMemcpy(&Psum_host, event_prob_cum + N * nn - 1, sizeof(double), hipMemcpyDeviceToHost) );
+//         // select an event
+//         double Psum_host;
+//         gpuErrchk( hipMemcpy(&Psum_host, event_prob_cum + N * nn - 1, sizeof(double), hipMemcpyDeviceToHost) );
 
-        //TODO: cuda random number
-        double number = rng.getRandomNumber() * Psum_host;
-        int event_idx = thrust::upper_bound(thrust::device, event_prob_cum, event_prob_cum + N * nn, number) - event_prob_cum;
-        // std::cout << "selected event: " << event_idx << "\n";
+//         //TODO: cuda random number
+//         double number = rng.getRandomNumber() * Psum_host;
+//         int event_idx = thrust::upper_bound(thrust::device, event_prob_cum, event_prob_cum + N * nn, number) - event_prob_cum;
+//         // std::cout << "selected event: " << event_idx << "\n";
 
-        EVENTTYPE sel_event_type = NULL_EVENT;
-        gpuErrchk( hipMemcpy(&sel_event_type, event_type + event_idx, sizeof(EVENTTYPE), hipMemcpyDeviceToHost) );
+//         EVENTTYPE sel_event_type = NULL_EVENT;
+//         gpuErrchk( hipMemcpy(&sel_event_type, event_type + event_idx, sizeof(EVENTTYPE), hipMemcpyDeviceToHost) );
 
-        // test output:
-        // double sel_event_prob;
-        // gpuErrchk( hipMemcpy(&sel_event_prob, event_prob + event_idx, sizeof(double), hipMemcpyDeviceToHost) );
-        // std::cout << "Selected event index: " << event_idx << " with type "
-        //           << sel_event_type << " and probability " << sel_event_prob << std::endl;
+//         // test output:
+//         // double sel_event_prob;
+//         // gpuErrchk( hipMemcpy(&sel_event_prob, event_prob + event_idx, sizeof(double), hipMemcpyDeviceToHost) );
+//         // std::cout << "Selected event index: " << event_idx << " with type "
+//         //           << sel_event_type << " and probability " << sel_event_prob << std::endl;
 
-        // get attributes of the sites involved:
-        int i_host = static_cast<int>(floorf(event_idx / nn));
-        int j_host;
-        ELEMENT element_i_host, element_j_host;
-        int charge_i_host, charge_j_host;
+//         // get attributes of the sites involved:
+//         int i_host = static_cast<int>(floorf(event_idx / nn));
+//         int j_host;
+//         ELEMENT element_i_host, element_j_host;
+//         int charge_i_host, charge_j_host;
 
-        gpuErrchk( hipMemcpy(&j_host, neigh_idx + event_idx, sizeof(int), hipMemcpyDeviceToHost) );
-        gpuErrchk( hipMemcpy(&element_i_host, site_element + i_host, sizeof(ELEMENT), hipMemcpyDeviceToHost) );
-        gpuErrchk( hipMemcpy(&element_j_host, site_element + j_host, sizeof(ELEMENT), hipMemcpyDeviceToHost) );
-        gpuErrchk( hipMemcpy(&charge_i_host, site_charge + i_host, sizeof(int), hipMemcpyDeviceToHost) );
-        gpuErrchk( hipMemcpy(&charge_j_host, site_charge + j_host, sizeof(int), hipMemcpyDeviceToHost) );
+//         gpuErrchk( hipMemcpy(&j_host, neigh_idx + event_idx, sizeof(int), hipMemcpyDeviceToHost) );
+//         gpuErrchk( hipMemcpy(&element_i_host, site_element + i_host, sizeof(ELEMENT), hipMemcpyDeviceToHost) );
+//         gpuErrchk( hipMemcpy(&element_j_host, site_element + j_host, sizeof(ELEMENT), hipMemcpyDeviceToHost) );
+//         gpuErrchk( hipMemcpy(&charge_i_host, site_charge + i_host, sizeof(int), hipMemcpyDeviceToHost) );
+//         gpuErrchk( hipMemcpy(&charge_j_host, site_charge + j_host, sizeof(int), hipMemcpyDeviceToHost) );
 
-        // ELEMENT *element_i_d = site_element + i_host;
-        // ELEMENT *element_j_d = site_element + j_host;
-        // int *charge_i_d = site_charge + i_host;
-        // int *charge_j_d = site_charge + j_host;
-
-
-
-        // Event execution loop
-        switch (sel_event_type)
-        {
-        case VACANCY_GENERATION:
-        {
-            gpuErrchk( hipMemcpy(site_element + i_host, O_defect_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_element + j_host, vacancy_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + i_host, two_neg_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + j_host, two_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+//         // ELEMENT *element_i_d = site_element + i_host;
+//         // ELEMENT *element_j_d = site_element + j_host;
+//         // int *charge_i_d = site_charge + i_host;
+//         // int *charge_j_d = site_charge + j_host;
 
 
 
-            break;
-        }
-        case VACANCY_RECOMBINATION:
-        {
-            gpuErrchk( hipMemcpy(site_element + i_host, defect_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_element + j_host, O_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + i_host, zero_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + j_host, zero_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );       
-
-            break;
-        }
-        case VACANCY_DIFFUSION:
-        {
-
-            // problem: TODO swap needed (naive overwrite one first)
-            // make swap kernel
-            gpuErrchk( hipMemcpy(site_element + i_host, &element_j_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-            gpuErrchk( hipMemcpy(site_element + j_host, &element_i_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + i_host, &charge_j_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + j_host, &charge_i_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
-
-            break;
-        }
-        case ION_DIFFUSION:
-        {
-            // gpuErrchk( hipMemcpy(site_element + i_host, element_j_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            // gpuErrchk( hipMemcpy(site_element + j_host, element_i_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
-            // gpuErrchk( hipMemcpy(site_charge + i_host, charge_j_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-            // gpuErrchk( hipMemcpy(site_charge + j_host, charge_i_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
-
-            gpuErrchk( hipMemcpy(site_element + i_host, &element_j_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-            gpuErrchk( hipMemcpy(site_element + j_host, &element_i_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + i_host, &charge_j_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
-            gpuErrchk( hipMemcpy(site_charge + j_host, &charge_i_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+//         // Event execution loop
+//         switch (sel_event_type)
+//         {
+//         case VACANCY_GENERATION:
+//         {
+//             gpuErrchk( hipMemcpy(site_element + i_host, O_defect_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_element + j_host, vacancy_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + i_host, two_neg_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + j_host, two_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
 
 
-            break;
-        }
-        default:
-            print("error: unidentified event key found: ");
-            print(sel_event_type);
-        }
 
-        int threads = 1024;
-        int blocks = (N * nn + threads - 1) / threads;
-        hipLaunchKernelGGL(zero_out_events, blocks, threads, 0, 0, event_type, event_prob,
-            neigh_idx, N, nn, i_host, j_host);
-        event_time = -log(rng.getRandomNumber()) / Psum_host;
-    }
+//             break;
+//         }
+//         case VACANCY_RECOMBINATION:
+//         {
+//             gpuErrchk( hipMemcpy(site_element + i_host, defect_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_element + j_host, O_element_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + i_host, zero_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + j_host, zero_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );       
 
-    if(rank == 0){
-        std::cout << "Number of KMC events: " << event_counter << "\n";
-        std::cout << "Event time: " << event_time << "\n";
-    }
-    gpuErrchk( hipFree(event_prob_cum) );
-    gpuErrchk( hipFree(event_type) );
-    gpuErrchk( hipFree(event_prob) );
-    gpuErrchk( hipHostFree(event_type_local_h) );
-    gpuErrchk( hipHostFree(event_prob_local_h) );
+//             break;
+//         }
+//         case VACANCY_DIFFUSION:
+//         {
 
-    return event_time;    
-}
+//             // problem: TODO swap needed (naive overwrite one first)
+//             // make swap kernel
+//             gpuErrchk( hipMemcpy(site_element + i_host, &element_j_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//             gpuErrchk( hipMemcpy(site_element + j_host, &element_i_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + i_host, &charge_j_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + j_host, &charge_i_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+
+//             break;
+//         }
+//         case ION_DIFFUSION:
+//         {
+//             // gpuErrchk( hipMemcpy(site_element + i_host, element_j_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             // gpuErrchk( hipMemcpy(site_element + j_host, element_i_d, 1 * sizeof(ELEMENT), hipMemcpyDeviceToDevice) );
+//             // gpuErrchk( hipMemcpy(site_charge + i_host, charge_j_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+//             // gpuErrchk( hipMemcpy(site_charge + j_host, charge_i_d, 1 * sizeof(int), hipMemcpyDeviceToDevice) );
+
+//             gpuErrchk( hipMemcpy(site_element + i_host, &element_j_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//             gpuErrchk( hipMemcpy(site_element + j_host, &element_i_host, 1 * sizeof(ELEMENT), hipMemcpyHostToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + i_host, &charge_j_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+//             gpuErrchk( hipMemcpy(site_charge + j_host, &charge_i_host, 1 * sizeof(int), hipMemcpyHostToDevice) );
+
+
+//             break;
+//         }
+//         default:
+//             print("error: unidentified event key found: ");
+//             print(sel_event_type);
+//         }
+
+//         int threads = 1024;
+//         int blocks = (N * nn + threads - 1) / threads;
+//         hipLaunchKernelGGL(zero_out_events, blocks, threads, 0, 0, event_type, event_prob,
+//             neigh_idx, N, nn, i_host, j_host);
+//         event_time = -log(rng.getRandomNumber()) / Psum_host;
+//     }
+
+//     if(rank == 0){
+//         std::cout << "Number of KMC events: " << event_counter << "\n";
+//         std::cout << "Event time: " << event_time << "\n";
+//     }
+//     gpuErrchk( hipFree(event_prob_cum) );
+//     gpuErrchk( hipFree(event_type) );
+//     gpuErrchk( hipFree(event_prob) );
+//     gpuErrchk( hipHostFree(event_type_local_h) );
+//     gpuErrchk( hipHostFree(event_prob_local_h) );
+
+//     return event_time;    
+// }
 
 
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff)

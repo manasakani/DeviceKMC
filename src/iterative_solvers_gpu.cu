@@ -282,7 +282,7 @@ void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
     gpuErrchk(hipMemset(dist_nnz_per_row_d, 0, gpubuf.size * rows_this_rank * sizeof(int)));
 
     // Assemble the sparsity pattern
-
+    
     // loop over the size to determine neighbours
     for(int i = 0; i < size; i++){
         int rows_other = gpubuf.count_K_device[i];
@@ -320,7 +320,6 @@ void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
             dist_nnz_d + i, rows_this_rank);
     }
 
-
     gpuErrchk( hipMemcpy(dist_nnz_h, dist_nnz_d, size * sizeof(int), hipMemcpyDeviceToHost) );
     // counting neighbours
     int neighbor_count = 0;
@@ -329,13 +328,6 @@ void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
             neighbor_count++;
         }
     }
-
-    // //print dist_nnz_h:
-    // for (int i = 0; i < size; i++)
-    // {
-    //     std::cout << "K dist_nnz_h[" << i << "] = " << dist_nnz_h[i] << std::endl;
-    // }
-    // exit(1);
 
     // // print nieghbor count:
     // std::cout << "K neighbor_count = " << neighbor_count << std::endl;
@@ -429,6 +421,7 @@ void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
         col_indices_d,
         row_ptr_d,
         neighbor_nnz_h,
+        rocsparse_spmv_alg_csr_adaptive,
         gpubuf.comm
     );
 
@@ -529,7 +522,9 @@ void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices,
 
     // Copy matrix back to host memory
     double *h_csrValues = (double *)calloc(nnz, sizeof(double));
+     std::cout << "here1\n";
     int *h_csrRowPtr = (int *)calloc((m + 1), sizeof(int));
+     std::cout << "here\n";
     int *h_csrColIndices = (int *)calloc(nnz, sizeof(int));
 
     // print nnz and m to console
@@ -538,6 +533,8 @@ void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices,
     gpuErrchk( hipMemcpy(h_csrValues, d_csrValues, nnz * sizeof(double), hipMemcpyDeviceToHost) );
     gpuErrchk( hipMemcpy(h_csrRowPtr, d_csrRowPtr, (m + 1) * sizeof(int), hipMemcpyDeviceToHost) );
     gpuErrchk( hipMemcpy(h_csrColIndices, d_csrColIndices, nnz * sizeof(int), hipMemcpyDeviceToHost) );
+
+    std::cout << "memcpy\n";
 
     // print to file, tagged with the kmc step number
     std::ofstream fout_val("csrValues_step#" + std::to_string(kmc_step_count) + ".txt");
@@ -552,6 +549,9 @@ void dump_csr_matrix_txt(int m, int nnz, int* d_csrRowPtr, int* d_csrColIndices,
     for(int i = 0; i < nnz; i++){
         fout_col << h_csrColIndices[i] << " "; 
     }
+
+    std::cout << "dumping matrix done\n";
+    fflush(stdout);
 
     free(h_csrValues);
     free(h_csrRowPtr);
@@ -1283,8 +1283,8 @@ __global__ void calc_nnz_per_row_X_gpu( const double *posx_d, const double *posy
         for(int j = 0; j < Natom - 1; j++){ // N_atom - 1 to exclude the ground node
 
             double dist = site_dist_gpu(posx_d[i], posy_d[i], posz_d[i],
-                                          posx_d[j], posy_d[j], posz_d[j],
-                                          lattice[0], lattice[1], lattice[2], pbc);
+                                        posx_d[j], posy_d[j], posz_d[j],
+                                        lattice[0], lattice[1], lattice[2], pbc);
             
             // diagonal terms
             if ( i == j )
@@ -1859,7 +1859,6 @@ __global__ void populate_sparse_X_gpu(const double *posx_d, const double *posy_d
                         // compute the WKB tunneling coefficients for all the tunnelling conditions
                         if ((trap_to_trap || contact_to_trap || contact_to_contact)  && (fabs(local_E_drop) > tol))
                         {
-                                
                             double prefac = -(sqrt( 2 * m_e ) / h_bar) * (2.0 / 3.0);           // [s/(kg^1/2 * m^2)] coefficient inside the exponential
                             double dist = (1e-10)*dist_angstrom;                                // [m] 3D distance between atoms i and j
 
@@ -2231,25 +2230,28 @@ void Assemble_X_sparsity(int Natom, const double *posx, const double *posy, cons
 
     //debug
     // print nnz per row to file
-    std::ofstream fout("nnz_per_row.txt");
-    int *nnz_per_row_h = (int*)malloc(matrix_size * sizeof(int));
-    gpuErrchk(hipMemcpy(nnz_per_row_h, nnz_per_row_d, matrix_size * sizeof(int), hipMemcpyDeviceToHost));
-    for (int i = 0; i < matrix_size; i++) {
-        std::cout << nnz_per_row_h[i] << " ";
-        fout << nnz_per_row_h[i]; 
-        fout << ' ';
-    } exit(1);
-    std::cout << "wrote nnz to file\n";
+    // std::ofstream fout("nnz_per_row.txt");
+    // int *nnz_per_row_h = (int*)malloc((matrix_size-1) * sizeof(int));
+    // gpuErrchk(hipMemcpy(nnz_per_row_h, nnz_per_row_d, (matrix_size-1) * sizeof(int), hipMemcpyDeviceToHost));
+    // for (int i = 0; i < (matrix_size-1); i++) {
+    //     std::cout << nnz_per_row_h[i] << " ";
+    //     fout << nnz_per_row_h[i]; 
+    //     fout << ' ';
+    // } 
+    // fout.close();
+    // std::cout << "wrote nnz correct to file\n";
     //debug
 
     // debug
-    // int *nnz_per_row_h = new int[matrix_size];
-    // gpuErrchk(hipMemcpy(nnz_per_row_h, nnz_per_row_d, matrix_size * sizeof(int), hipMemcpyDeviceToHost));
+    // int *nnz_per_row_h = new int[Nfull-1];
+    // gpuErrchk(hipMemcpy(nnz_per_row_h, nnz_per_row_d, (Nfull-1) * sizeof(int), hipMemcpyDeviceToHost));
     // int total_nnz = 0;
-    // for (int i = 0; i < matrix_size; ++i) {
+    // for (int i = 0; i < (Nfull-1); ++i) {
     //     total_nnz += nnz_per_row_h[i];
-    //     std::cout << nnz_per_row_h[i] << " ";
     // }
+    // std::cout << "total nnz: " << total_nnz << std::endl;
+    // std::cout << "exiting\n";
+    // exit(1);
 
     // Set the row pointers according to the cumulative sum of the nnz per row (total nnz is the last element of the row pointer)
     gpuErrchk( hipMalloc((void **)X_row_ptr, (matrix_size + 1 - 1) * sizeof(int)) );   // subtract 1 to ignore the ground node
@@ -2285,6 +2287,7 @@ void Assemble_X_sparsity(int Natom, const double *posx, const double *posy, cons
     // }
     // fout2.close();
     // std::cout << "\nSum of all column indices sparse: " << sum_of_indices << std::endl;
+    // exit(1);
     // debug
 
     hipFree(temp_storage_d);

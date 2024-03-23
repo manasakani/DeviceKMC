@@ -31,6 +31,7 @@
 #include <hipsparse.h>
 #include <hipsolver.h>
 #include <hipblas.h>
+#include "rocsparse.h"
 
 #include "../dist_iterative/dist_conjugate_gradient.h"
 #include "../dist_iterative/dist_spmv.h"
@@ -57,9 +58,14 @@ void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::v
 // Initialize the buffer and the indices of the non-zeros in the matrix which represent neighbor connectivity
 void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact);
 
-// Initialize the sparsity of the T matrix (full)
+// Initialize the sparsity of the T matrix (neighbor)
 void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact);
+// void initialize_sparsity_T_split(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact);
 
+int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact, 
+                                 const double high_G, const double low_G, const double loop_G, const double Vd, const double m_e, const double V0,
+                                 Distributed_subblock_sparse &T_tunnel, Distributed_matrix *T_neighbor, double *&diag_tunnel_local, int *&tunnel_indices_local_d);
+                                
 // check that sparse and dense versions are the same
 void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal);
 
@@ -204,6 +210,18 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverDnHandle_t handle_c
                             const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
                             const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp);
 
+// distributed version which calls the CG library function
+void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+                                  const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
+                                  const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+                                  const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
+                                  const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp);
+
+void update_power_gpu_split_dist(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
+                                const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
+                                const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+                                const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
+                                const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp);
 
 //********************************************
 // Heat solver functions / heat_solver_gpu.cu
@@ -272,6 +290,13 @@ __device__ inline int is_in_array_gpu(const T *array, const T element, const int
 }
 
 __device__ inline double site_dist_gpu(double pos1x, double pos1y, double pos1z,
+                                double pos2x, double pos2y, double pos2z)
+{
+    double dist = sqrt(pow(pos2x - pos1x, 2) + pow(pos2y - pos1y, 2) + pow(pos2z - pos1z, 2));
+    return dist;
+}
+
+__device__ inline double site_dist_gpu(double pos1x, double pos1y, double pos1z,
                                 double pos2x, double pos2y, double pos2z,
                                 double lattx, double latty, double lattz, bool pbc)
 {
@@ -323,11 +348,23 @@ struct is_defect
 };
 
 
+struct is_not_zero
+{
+    __host__ __device__ bool operator()(const int integer)
+    {
+        return (integer != 0);
+    }
+};
+
+
 // used to be named 'calc_diagonal_A_gpu' - row reduction into the diagonal elements for a sparse matrix
 __global__ void reduce_rows_into_diag( int *col_indices, int *row_ptr, double *data, int matrix_size );
 
 // used to be called 'set_diag' - overwrite the diagonal of matrix A with vector diag
 __global__ void write_to_diag(double *A, double *diag, int N);
+
+__global__ void get_is_tunnel(int *is_tunnel, int *tunnel_indices, const ELEMENT *element, 
+                              int N_atom, int num_layers_contact, int num_source_inj, int num_ground_ext);
 
 // used to be named diagonal_sum - sum the rows of A into the vector diag
 template <int NTHREADS>

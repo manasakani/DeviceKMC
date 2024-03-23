@@ -84,18 +84,21 @@ public:
     int *count_sites = nullptr;
     int *displ_sites = nullptr;
     Distributed_matrix *K_distributed = nullptr;
-    Distributed_vector *K_p_distributed = nullptr; // vector for SPMV of K*p
-    int *left_row_ptr_d = nullptr;            // CSR representation of the matrix which represents connectivity of the left contact
+    Distributed_vector *K_p_distributed = nullptr;            // vector for SPMV of K*p
+    int *left_row_ptr_d = nullptr;                            // CSR representation of the matrix which represents connectivity of the left contact
     int *left_col_indices_d = nullptr;
-    int *right_row_ptr_d = nullptr;           // CSR representation of the matrix which represents connectivity of the right contact
+    int *right_row_ptr_d = nullptr;                           // CSR representation of the matrix which represents connectivity of the right contact
     int *right_col_indices_d = nullptr; 
     int left_nnz, right_nnz;
+    
 
     // buffers used for the T matrix:
     int *count_T_device = nullptr;
     int *displ_T_device = nullptr;
-    Distributed_matrix *T_distributed = nullptr;    // matrix for the full sparsity of T
-    Distributed_vector *T_p_distributed = nullptr;  // rhs for the T matrix
+    Distributed_matrix *T_distributed = nullptr;              // matrix for the full sparsity of T
+    Distributed_vector *T_p_distributed = nullptr;            // rhs for the T matrix
+    // Distributed_matrix *T_distributed_neighbor = nullptr;     // matrix for the neighbor sparsity of T
+    // Distributed_vector *T_p_distributed_neighbor = nullptr;   // rhs for the neighbor sparsity of T
 
     // constructor allocates nothing (used for CPU-only code):
     GPUBuffers(){};
@@ -123,6 +126,8 @@ public:
         }
         int num_layers = layers.size();
 
+        MPI_Barrier(MPI_COMM_WORLD);
+
         // allocate MPI data split for sites
         MPI_Comm_rank(comm, &rank);
         MPI_Comm_size(comm, &size);
@@ -145,6 +150,8 @@ public:
             displ_K_device[i] = displ_K_device[i-1] + count_K_device[i-1];
         }
 
+        MPI_Barrier(MPI_COMM_WORLD);
+
         // TODO better split
         count_sites = new int[size];
         displ_sites = new int[size];
@@ -157,6 +164,8 @@ public:
         for (int i = 1; i < size; ++i) {
             displ_sites[i] = displ_sites[i-1] + count_sites[i-1];
         }
+
+        MPI_Barrier(MPI_COMM_WORLD);
 
         // *** divide T matrix between ranks and store the distribution ***
         count_T_device = new int[size];
@@ -173,6 +182,8 @@ public:
             }
         }
 
+        MPI_Barrier(MPI_COMM_WORLD);
+
         // print count and displacement for each rank
         std::cout << "printing things\n";
         std::cout << "rank " << rank << " count_Tdevice: ";
@@ -185,10 +196,20 @@ public:
             std::cout << displ_T_device[i] << " ";
         }
         std::cout << std::endl;
-            std::cout << "Nsub inside gpubuf: " << N_sub_ << std::endl;
+        std::cout << "rank " << rank << " count_Kdevice: ";
+        for(int i = 0; i < size; ++i){
+            std::cout << count_K_device[i] << " ";
+        }
+        std::cout << std::endl;
+        std::cout << "rank " << rank << "displ_Kdevice: "; 
+        for(int i = 0; i < size; ++i){
+            std::cout << displ_K_device[i] << " ";
+        }
+        // std::cout << std::endl;   
+        // MPI_Barrier(MPI_COMM_WORLD);
         // exit(1);
 
-        // initialize CUDA library handles:
+        // initialize CUDA library handles (not used)
         // hipsparseCreate(&cusparse_handle);
         // hipsparseSetPointerMode(cusparse_handle, HIPSPARSE_POINTER_MODE_DEVICE);
         // CreateCublasHandle(cublas_handle, 0);
@@ -197,8 +218,8 @@ public:
  
         // small lists and variables to store in GPU cache
         // copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host);       //COMMENTED OUT
-        hipPeekAtLastError();
-        hipDeviceSynchronize();
+        // hipPeekAtLastError();
+        // hipDeviceSynchronize();
         
         // member variables of the KMCProcess 
         gpuErrchk( hipMalloc((void**)&site_layer, N_ * sizeof(int)) );
@@ -217,7 +238,7 @@ public:
         gpuErrchk( hipMalloc((void**)&site_charge, N_ * sizeof(int)) );
         gpuErrchk( hipMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );
         gpuErrchk( hipMalloc((void**)&cutoff_window, N_ * 2 * sizeof(int)) );
-        gpuErrchk( hipMalloc((void**)&cutoff_idx, N_ * N_cutoff_ * sizeof(int)) );
+        gpuErrchk( hipMalloc((void**)&cutoff_idx, (size_t)N_ * (size_t)N_cutoff_ * sizeof(int)) );
         gpuErrchk( hipMalloc((void**)&T_bg, 1 * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&sigma, 1 * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&k, 1 * sizeof(double)) );
@@ -255,7 +276,7 @@ public:
         gpuErrchk( hipMemcpy(lattice, lattice_in.data(), 3 * sizeof(double), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(cutoff_window, cutoff_window_in.data(), N_ * 2 * sizeof(int), hipMemcpyHostToDevice) );
-        gpuErrchk( hipMemcpy(cutoff_idx, cutoff_idx_in.data(), N_ * N_cutoff_ * sizeof(int), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(cutoff_idx, cutoff_idx_in.data(), (size_t)N_ * (size_t)N_cutoff_ * sizeof(int), hipMemcpyHostToDevice) );
     
         hipDeviceSynchronize();
         

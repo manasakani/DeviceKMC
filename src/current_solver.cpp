@@ -30,7 +30,7 @@ std::map<std::string, double> Device::updatePower(hipblasHandle_t handle, hipsol
         //                        nn_dist, p.m_e, p.V0, p.metals.size(), &imacro, p.solve_heating_local, p.solve_heating_global, alpha);
 
         // this doesnt work unless the tunneling terms are included
-        // T seperated into a sparse neighbor matrix and a dense tunnel matrix
+        // T seperated into a sparse neighbor matrix and a sparse tunnel matrix
         update_power_gpu_sparse_dist(handle, handle_cusolver, gpubuf, num_source_inj, num_ground_ext, p.num_layers_contact,
                                      Vd, pbc, high_G, low_G, loop_G, G0, tol,
                                      nn_dist, p.m_e, p.V0, p.metals.size(), &imacro, p.solve_heating_local, p.solve_heating_global, alpha);
