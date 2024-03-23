@@ -561,8 +561,8 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
 
     // The tunnel indices have the size of Nsub
     int Nsub = N_atom + 1;
-    int rank = gpubuf.rank;
-    int size = gpubuf.size;
+    int rank = T_neighbor->rank;
+    int size = T_neighbor->size;
     int counts_this_rank = T_neighbor->counts[rank];
     int disp_this_rank = T_neighbor->displacements[rank];
 
@@ -589,7 +589,7 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     // allreduce num_tunnel_points_local
     int num_tunnel_points_global;
     MPI_Allreduce(&num_tunnel_points_local, &num_tunnel_points_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-    // std::cout << "size of tunneling submatrix: " << num_tunnel_points_global << "\n";
+    std::cout << "size of tunneling submatrix: " << num_tunnel_points_global << "\n";
 
     // allgather the num_tunnel_points_local for every rank
     int *counts_subblock = new int[size];
@@ -619,7 +619,7 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     for(int i = 0; i < num_tunnel_points_global; i++){
         sum_indices += tunnel_indices_global_h[i];
     }
-    // std::cout << "rank: " << rank << " sum_indices: " << sum_indices << std::endl;
+    std::cout << "rank: " << rank << " sum_indices: " << sum_indices << std::endl;
 
     // make the nnz vector for each rank:    
     // loop over the size to determine neighbours
@@ -696,7 +696,7 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     int nnz_subblock[1];
     hipDeviceSynchronize();
     MPI_Allreduce(&nnz_subblock_local, nnz_subblock, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-    // std::cout << "rank: " << rank << " nnz_subblock: " << nnz_subblock[0] << std::endl;
+    std::cout << "rank: " << rank << " nnz_subblock: " << nnz_subblock[0] << std::endl;
 
     MPI_Barrier(MPI_COMM_WORLD);        // remove
 
@@ -755,6 +755,9 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     // MPI_Barrier(MPI_COMM_WORLD);
     // exit(1);
 
+
+    std::cout << "shifted tunnel indices" << std::endl;
+
     // row reduce the diagonals - diag_tunnel_local is passed in
     gpuErrchk( hipMalloc((void **)&diag_tunnel_local, counts_subblock[rank] * sizeof(double)) );
     hipLaunchKernelGGL(calc_diagonal_T_tunnel,
@@ -768,6 +771,8 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     rocsparse_dnvec_descr subblock_vector_descriptor_out;
     rocsparse_spmv_alg algo = rocsparse_spmv_alg_csr_adaptive;
     size_t subblock_buffersize;
+
+    std::cout << "going to descr" << std::endl;
 
     rocsparse_create_csr_descr(&subblock_descriptor,
                                 counts_subblock[rank],
@@ -785,6 +790,8 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     rocsparse_handle rocsparse_handle;
     rocsparse_create_handle(&rocsparse_handle);
 
+    std::cout << "going to spmv" << std::endl;
+
     double alpha = 1.0;
     double beta = 0.0;
     rocsparse_spmv(rocsparse_handle,
@@ -800,6 +807,8 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
                     nullptr);
     double *subblock_buffer_d;
     hipMalloc(&subblock_buffer_d, subblock_buffersize);
+
+    std::cout << "going to subblock" << std::endl;
 
     // Distributed_subblock_sparse A_subblock;
     T_tunnel.subblock_indices_local_d = tunnel_indices_local_d;
@@ -836,6 +845,7 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     gpuErrchk( hipFree(is_tunnel_indices) );
     gpuErrchk( hipFree(tunnel_indices_global_d) );
     gpuErrchk( hipFree(dist_nnz_per_row_d) );
+
     rocsparse_destroy_handle(rocsparse_handle);
 
     std::cout << "freed memory inside sparsity T" << std::endl;
@@ -843,7 +853,8 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     return num_tunnel_points_local;
 }
 
-void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact)
+void initialize_sparsity_T(GPUBuffers &gpubuf,
+    int pbc, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact, KMC_comm &kmc_comm)
 {
     // copy atom arrays:
     int *gpu_index;
@@ -862,26 +873,26 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
     thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
 
     int N_sub = N_atom + 1;
-    int rank = gpubuf.rank;
-    int size = gpubuf.size;
-    int rows_this_rank = gpubuf.count_T_device[rank];
-    int disp_this_rank = gpubuf.displ_T_device[rank];
+    int rank = kmc_comm.rank_T;
+    int size = kmc_comm.size_T;
+    int rows_this_rank = kmc_comm.counts_T[rank];
+    int disp_this_rank = kmc_comm.displs_T[rank];
     
-    int *dist_nnz_h = new int[gpubuf.size];
+    int *dist_nnz_h = new int[size];
     int *dist_nnz_d;
     int *dist_nnz_per_row_d;
 
-    gpuErrchk( hipMalloc((void **)&dist_nnz_d, gpubuf.size * sizeof(int)) );
-    gpuErrchk(hipMemset(dist_nnz_d, 0, gpubuf.size * sizeof(int)));
-    gpuErrchk( hipMalloc((void **)&dist_nnz_per_row_d, gpubuf.size * rows_this_rank * sizeof(int)) );
-    gpuErrchk(hipMemset(dist_nnz_per_row_d, 0, gpubuf.size * rows_this_rank * sizeof(int)));
+    gpuErrchk( hipMalloc((void **)&dist_nnz_d, size * sizeof(int)) );
+    gpuErrchk(hipMemset(dist_nnz_d, 0, size * sizeof(int)));
+    gpuErrchk( hipMalloc((void **)&dist_nnz_per_row_d, size * rows_this_rank * sizeof(int)) );
+    gpuErrchk(hipMemset(dist_nnz_per_row_d, 0, size * rows_this_rank * sizeof(int)));
 
     // Assemble the sparsity pattern
 
     // loop over the size to determine neighbours
     for(int i = 0; i < size; i++){
-        int rows_other = gpubuf.count_T_device[i];
-        int displ_other = gpubuf.displ_T_device[i];
+        int rows_other = kmc_comm.counts_T[i];
+        int displ_other = kmc_comm.displs_T[i];
 
         int threads = 1024;
         //start with self
@@ -893,27 +904,6 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
                            gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_CB_edge, gpubuf.lattice, pbc,
                            nn_dist, tol, num_source_inj, num_ground_ext, num_layers_contact,
                            num_metals, N_sub, rows_this_rank, rows_other, disp_this_rank, displ_other, dist_nnz_per_row_d + i * rows_this_rank);
-        gpuErrchk( hipDeviceSynchronize() );
-
-        std::cout << "Nsub: " << N_sub << std::endl;
-        // print rows_this_rank, rows_other, disp_this_rank, displ_other:
-        // std::cout << "rank " << gpubuf.rank << "T rows_this_rank = " << rows_this_rank << std::endl;
-        // std::cout << "rank " << gpubuf.rank << "T rows_other = " << rows_other << std::endl;
-        // std::cout << "rank " << gpubuf.rank << "T disp_this_rank = " << disp_this_rank << std::endl;
-        // std::cout << "rank " << gpubuf.rank << "T displ_other = " << displ_other << std::endl;
-
-        // print nnz per row to file
-        // std::ofstream fout("nnz_per_row_testing.txt");
-        // int *dist_nnz_per_row_h = new int[N_sub];
-        // gpuErrchk( hipMemcpy(dist_nnz_per_row_h, dist_nnz_per_row_d, N_sub * sizeof(int), hipMemcpyDeviceToHost) );
-        // for (int i = 0; i < N_sub; i++) {
-        //     fout << dist_nnz_per_row_h[i]; 
-        //     fout << ' ';
-        // }
-        // fout.close();
-        // std::cout << "wrote nnz to file\n";
-        // // exit(1);
-        // debug
 
         // reduce nnz per row
         void     *temp_storage_d = NULL;
@@ -947,9 +937,9 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
     // print dist_nnz_h:
     for (int i = 0; i < size; i++)
     {
-        std::cout << "rank " << gpubuf.rank << "T dist_nnz_h[" << i << "] = " << dist_nnz_h[i] << std::endl;
+        std::cout << "rank " << rank << "T dist_nnz_h[" << i << "] = " << dist_nnz_h[i] << std::endl;
     }
-    std::cout << "rank " << gpubuf.rank <<  "T neighbor_count = " << neighbor_count << std::endl;
+    std::cout << "rank " << rank <<  "T neighbor_count = " << neighbor_count << std::endl;
 
     // get the indices of the neighbours
     int *neighbor_idx = new int[neighbor_count];
@@ -967,7 +957,7 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
         }
     }    
 
-    std::cout << "rank " << gpubuf.rank <<  "T neighbor_idx = " << neighbor_count << std::endl;   
+    std::cout << "rank " << rank <<  "T neighbor_idx = " << neighbor_count << std::endl;   
 
     // fill the neighbor nnz
     for(int i = 0; i < neighbor_count; i++){
@@ -1011,8 +1001,8 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
     // column indices
     for(int i = 0; i < neighbor_count; i++){
         int neighbour = neighbor_idx[i];
-        int rows_neighbour = gpubuf.count_T_device[neighbour];
-        int disp_neighbour = gpubuf.displ_T_device[neighbour];
+        int rows_neighbour = kmc_comm.counts_T[neighbour];
+        int disp_neighbour = kmc_comm.displs_T[neighbour];
 
         int threads = 1024;
         int blocks = (rows_this_rank + threads - 1) / threads;
@@ -1031,24 +1021,24 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
 
     gpubuf.T_distributed = new Distributed_matrix(
         N_sub,
-        gpubuf.count_T_device,
-        gpubuf.displ_T_device,
+        kmc_comm.counts_T,
+        kmc_comm.displs_T,
         neighbor_count,
         neighbor_idx,
         col_indices_d,
         row_ptr_d,
         neighbor_nnz_h,
         rocsparse_spmv_alg_csr_adaptive,
-        gpubuf.comm
+        kmc_comm.group_T
     );
 
     gpubuf.T_p_distributed = new Distributed_vector(
         N_sub,
-        gpubuf.count_T_device,
-        gpubuf.displ_T_device,
+        kmc_comm.counts_T,
+        kmc_comm.displs_T,
         gpubuf.T_distributed->number_of_neighbours,
         gpubuf.T_distributed->neighbours,
-        gpubuf.comm
+        kmc_comm.group_T
     );
 
     for(int i = 0; i < neighbor_count; i++){
@@ -1065,6 +1055,6 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
     gpuErrchk( hipFree(dist_nnz_per_row_d) );
     delete[] neighbor_nnz_h;
     gpuErrchk( hipFree(neighbor_nnz_per_row_d) );    //FREE MEMORY
-    std::cout << "rank " << gpubuf.rank <<  "initialized sparsity of peice of T " << neighbor_count << std::endl;   
+    std::cout << "rank " << rank <<  "initialized sparsity of peice of T " << neighbor_count << std::endl;   
 
 }

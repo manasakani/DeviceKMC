@@ -259,34 +259,34 @@ void writeArrayToBinFile(T* array, int numElements, const std::string& filename)
 }
 
 
-void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact)
+void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact, KMC_comm &kmc_comm)
 {
     
 
-    int rank = gpubuf.rank;
-    int size = gpubuf.size;
-    int rows_this_rank = gpubuf.count_K_device[rank];
-    int disp_this_rank = gpubuf.displ_K_device[rank];
+    int rank = kmc_comm.rank_K;
+    int size = kmc_comm.size_K;
+    int rows_this_rank = kmc_comm.counts_K[rank];
+    int disp_this_rank = kmc_comm.displs_K[rank];
 
     int N_left_tot = num_atoms_contact;
     int N_right_tot = num_atoms_contact;
     int N_interface = gpubuf.N_ - (N_left_tot + N_right_tot);
     
-    int *dist_nnz_h = new int[gpubuf.size];
+    int *dist_nnz_h = new int[size];
     int *dist_nnz_d;
     int *dist_nnz_per_row_d;
 
-    gpuErrchk( hipMalloc((void **)&dist_nnz_d, gpubuf.size * sizeof(int)) );
-    gpuErrchk(hipMemset(dist_nnz_d, 0, gpubuf.size * sizeof(int)));
-    gpuErrchk( hipMalloc((void **)&dist_nnz_per_row_d, gpubuf.size * rows_this_rank * sizeof(int)) );
-    gpuErrchk(hipMemset(dist_nnz_per_row_d, 0, gpubuf.size * rows_this_rank * sizeof(int)));
+    gpuErrchk( hipMalloc((void **)&dist_nnz_d, size * sizeof(int)) );
+    gpuErrchk(hipMemset(dist_nnz_d, 0, size * sizeof(int)));
+    gpuErrchk( hipMalloc((void **)&dist_nnz_per_row_d, size * rows_this_rank * sizeof(int)) );
+    gpuErrchk(hipMemset(dist_nnz_per_row_d, 0, size * rows_this_rank * sizeof(int)));
 
     // Assemble the sparsity pattern
     
     // loop over the size to determine neighbours
     for(int i = 0; i < size; i++){
-        int rows_other = gpubuf.count_K_device[i];
-        int displ_other = gpubuf.displ_K_device[i];
+        int rows_other = kmc_comm.counts_K[i];
+        int displ_other = kmc_comm.displs_K[i];
 
         int threads = 1024;
         //start with self
@@ -391,8 +391,8 @@ void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
     // column indices
     for(int i = 0; i < neighbor_count; i++){
         int neighbour = neighbor_idx[i];
-        int rows_neighbour = gpubuf.count_K_device[neighbour];
-        int disp_neighbour = gpubuf.displ_K_device[neighbour];
+        int rows_neighbour = kmc_comm.counts_K[neighbour];
+        int disp_neighbour = kmc_comm.displs_K[neighbour];
 
         int threads = 1024;
         int blocks = (rows_this_rank + threads - 1) / threads;
@@ -414,24 +414,24 @@ void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
     // TODO: replace with unique ptrs
     gpubuf.K_distributed = new Distributed_matrix(
         N_interface,
-        gpubuf.count_K_device,
-        gpubuf.displ_K_device,
+        kmc_comm.counts_K,
+        kmc_comm.displs_K,
         neighbor_count,
         neighbor_idx,
         col_indices_d,
         row_ptr_d,
         neighbor_nnz_h,
         rocsparse_spmv_alg_csr_adaptive,
-        gpubuf.comm
+        kmc_comm.comm_K
     );
 
     gpubuf.K_p_distributed = new Distributed_vector(
         N_interface,
-        gpubuf.count_K_device,
-        gpubuf.displ_K_device,
+        kmc_comm.counts_K,
+        kmc_comm.displs_K,
         gpubuf.K_distributed->number_of_neighbours,
         gpubuf.K_distributed->neighbours,
-        gpubuf.comm
+        kmc_comm.comm_K
     );
 
     // indices of the off-diagonal leftcontact-A matrix
@@ -474,18 +474,24 @@ void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
     gpuErrchk( hipFree(dist_nnz_per_row_d) );
     delete[] neighbor_nnz_h;
     gpuErrchk( hipFree(neighbor_nnz_per_row_d) );
+}
 
+void initialize_sparsity_CB(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact){
+
+    int N_left_tot = num_atoms_contact;
+    int N_right_tot = num_atoms_contact;
+    int N_interface = gpubuf.N_ - (N_left_tot + N_right_tot);
 
     // This populates the site_CB_edge vector, and runs once at the beginning (not distributed)
-    // needs to be distributed in the future if ever OOM (use a function pointer to the correct kernel for CB edge)
+    // needs to be distributed in the future if ever OOM (use a function pointer to the correct kernel for CB edge)    
     Assemble_K_sparsity(gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                         gpubuf.lattice, pbc, nn_dist,
                         N_interface, N_left_tot, N_right_tot,
                         &gpubuf.Device_row_ptr_d, &gpubuf.Device_col_indices_d, &gpubuf.Device_nnz,
                         &gpubuf.contact_left_col_indices, &gpubuf.contact_left_row_ptr, &gpubuf.contact_left_nnz,
                         &gpubuf.contact_right_col_indices, &gpubuf.contact_right_row_ptr, &gpubuf.contact_right_nnz);
-
 }
+
 
 
 // check that sparse and dense versions are the same

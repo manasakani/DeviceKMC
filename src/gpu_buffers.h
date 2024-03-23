@@ -73,16 +73,6 @@ public:
     // void copy_atom_CB_edge_to_GPU();        ///IMPLEMENT THIS BEFORE DOING MULTIPLE V POINTS
     void copy_Tbg_toGPU(double new_T_bg);
 
-    // MPI data split
-    MPI_Comm comm;
-    int rank, size;
-
-    // Distribution of sites without boundaries
-    int *count_K_device = nullptr;
-    int *displ_K_device = nullptr;
-    // Distribution of sites with boundaries
-    int *count_sites = nullptr;
-    int *displ_sites = nullptr;
     Distributed_matrix *K_distributed = nullptr;
     Distributed_vector *K_p_distributed = nullptr;            // vector for SPMV of K*p
     int *left_row_ptr_d = nullptr;                            // CSR representation of the matrix which represents connectivity of the left contact
@@ -93,12 +83,8 @@ public:
     
 
     // buffers used for the T matrix:
-    int *count_T_device = nullptr;
-    int *displ_T_device = nullptr;
-    Distributed_matrix *T_distributed = nullptr;              // matrix for the full sparsity of T
-    Distributed_vector *T_p_distributed = nullptr;            // rhs for the T matrix
-    // Distributed_matrix *T_distributed_neighbor = nullptr;     // matrix for the neighbor sparsity of T
-    // Distributed_vector *T_p_distributed_neighbor = nullptr;   // rhs for the neighbor sparsity of T
+    Distributed_matrix *T_distributed = nullptr;
+    Distributed_vector *T_p_distributed = nullptr;            // vector for SPMV of T*p
 
     // constructor allocates nothing (used for CPU-only code):
     GPUBuffers(){};
@@ -108,7 +94,7 @@ public:
                std::vector<double> site_x_in,  std::vector<double> site_y_in,  std::vector<double> site_z_in,
                int nn, double sigma_in, double k_in, std::vector<double> lattice_in, 
                std::vector<int> neigh_idx_in, std::vector<int> cutoff_window_in, std::vector<int> cutoff_idx_in,
-               std::vector<ELEMENT> metals, int num_metals_types, MPI_Comm comm, int N_contact) {
+               std::vector<ELEMENT> metals, int num_metals_types, int N_contact) {
             
         this->N_ = N;
         this->N_atom_ = N_atom;
@@ -126,101 +112,6 @@ public:
         }
         int num_layers = layers.size();
 
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        // allocate MPI data split for sites
-        MPI_Comm_rank(comm, &rank);
-        MPI_Comm_size(comm, &size);
-        this->comm = comm;
-
-        // divide K matrix between ranks and store the distribution
-        count_K_device = new int[size];
-        displ_K_device = new int[size];
-        int rows_per_rank_K_device = (N - 2*N_contact) / size;
-        for (int i = 0; i < size; ++i) {
-            if(i < (N - 2*N_contact) % size){
-                count_K_device[i] = rows_per_rank_K_device+1;
-            }
-            else{
-                count_K_device[i] = rows_per_rank_K_device;
-            }
-        }
-        displ_K_device[0] = 0;
-        for (int i = 1; i < size; ++i) {
-            displ_K_device[i] = displ_K_device[i-1] + count_K_device[i-1];
-        }
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        // TODO better split
-        count_sites = new int[size];
-        displ_sites = new int[size];
-        for(int i = 0; i < size; ++i){
-            count_sites[i] = count_K_device[i];
-        }
-        count_sites[0] += N_contact;
-        count_sites[size-1] += N_contact;
-        displ_sites[0] = 0;
-        for (int i = 1; i < size; ++i) {
-            displ_sites[i] = displ_sites[i-1] + count_sites[i-1];
-        }
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        // *** divide T matrix between ranks and store the distribution ***
-        count_T_device = new int[size];
-        displ_T_device = new int[size];
-        int rows_per_rank_T_device = N_sub_ / size;
-        for (int i = 0; i < size; ++i) {
-            if(i < N_sub_ % size){
-                count_T_device[i] = rows_per_rank_T_device+1;
-                displ_T_device[i] = i * (rows_per_rank_T_device+1);
-            } 
-            else {
-                count_T_device[i] = rows_per_rank_T_device;
-                displ_T_device[i] = i * rows_per_rank_T_device + N_sub_ % size;
-            }
-        }
-
-        MPI_Barrier(MPI_COMM_WORLD);
-
-        // print count and displacement for each rank
-        std::cout << "printing things\n";
-        std::cout << "rank " << rank << " count_Tdevice: ";
-        for(int i = 0; i < size; ++i){
-            std::cout << count_T_device[i] << " ";
-        }
-        std::cout << std::endl;
-        std::cout << "rank " << rank << "displ_Tdevice: ";
-        for(int i = 0; i < size; ++i){
-            std::cout << displ_T_device[i] << " ";
-        }
-        std::cout << std::endl;
-        std::cout << "rank " << rank << " count_Kdevice: ";
-        for(int i = 0; i < size; ++i){
-            std::cout << count_K_device[i] << " ";
-        }
-        std::cout << std::endl;
-        std::cout << "rank " << rank << "displ_Kdevice: "; 
-        for(int i = 0; i < size; ++i){
-            std::cout << displ_K_device[i] << " ";
-        }
-        // std::cout << std::endl;   
-        // MPI_Barrier(MPI_COMM_WORLD);
-        // exit(1);
-
-        // initialize CUDA library handles (not used)
-        // hipsparseCreate(&cusparse_handle);
-        // hipsparseSetPointerMode(cusparse_handle, HIPSPARSE_POINTER_MODE_DEVICE);
-        // CreateCublasHandle(cublas_handle, 0);
-        // hipblasSetPointerMode(cublas_handle, HIPBLAS_POINTER_MODE_DEVICE);
-        // CreateCusolverDnHandle(cusolver_handle, 0);
- 
-        // small lists and variables to store in GPU cache
-        // copytoConstMemory(E_gen_host, E_rec_host, E_Vdiff_host, E_Odiff_host);       //COMMENTED OUT
-        // hipPeekAtLastError();
-        // hipDeviceSynchronize();
-        
         // member variables of the KMCProcess 
         gpuErrchk( hipMalloc((void**)&site_layer, N_ * sizeof(int)) );
 
@@ -252,17 +143,9 @@ public:
         gpuErrchk( hipMalloc((void **)&atom_CB_edge, N_atom_ * sizeof(double)) );
         gpuErrchk( hipMalloc((void **)&atom_charge, N_ * sizeof(int)) );
 
-        // host vectors used for the collection and sum of the distributed potential
-        gpuErrchk( hipHostMalloc((void **)&potential_local_h, count_sites[rank] * sizeof(double)) );
-        gpuErrchk( hipHostMalloc((void **)&potential_h, N_ * sizeof(double)) );
-            
-        hipDeviceSynchronize();
-
         // virtual potentials initial guess to store (solution vector for dissipated power solver):
         gpuErrchk( hipMalloc((void **)&atom_virtual_potentials, (N_atom_ + 2) * sizeof(double)) );
         gpuErrchk( hipMemset(atom_virtual_potentials, 0, (N_atom_ + 2) * sizeof(double)) );                          // initialize the solution vector for the dissipated power                                 
-
-        hipDeviceSynchronize();
 
         // fixed parameters which can be copied from the beginning:
         gpuErrchk( hipMemcpy(site_layer, site_layer_in.data(), N_ * sizeof(int), hipMemcpyHostToDevice) );
@@ -277,15 +160,7 @@ public:
         gpuErrchk( hipMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(cutoff_window, cutoff_window_in.data(), N_ * 2 * sizeof(int), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(cutoff_idx, cutoff_idx_in.data(), (size_t)N_ * (size_t)N_cutoff_ * sizeof(int), hipMemcpyHostToDevice) );
-    
-        hipDeviceSynchronize();
-        
     }
-
-    // ~GPUBuffers() {
-    //     delete[] count_sites;
-    //     delete[] displ_sites;
-    // }
 
     void freeGPUmemory();
 

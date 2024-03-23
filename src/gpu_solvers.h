@@ -32,6 +32,7 @@
 #include <hipsolver.h>
 #include <hipblas.h>
 #include "rocsparse.h"
+#include "KMC_comm.h"
 
 #include "../dist_iterative/dist_conjugate_gradient.h"
 #include "../dist_iterative/dist_spmv.h"
@@ -56,10 +57,11 @@ void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::v
 //***************************************************
 
 // Initialize the buffer and the indices of the non-zeros in the matrix which represent neighbor connectivity
-void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact);
+void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact, KMC_comm &kmc_comm);
+void initialize_sparsity_CB(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_atoms_contact);
 
 // Initialize the sparsity of the T matrix (neighbor)
-void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact);
+void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact, KMC_comm &kmc_comm);
 // void initialize_sparsity_T_split(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact);
 
 int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact, 
@@ -180,7 +182,7 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
                           const int *cutoff_window, const int *cutoff_idx, const int N_cutoff);
 
 // sums the site_potential_boundary and site_potential_charge into the site_potential_charge
-void sum_and_gather_potential(GPUBuffers &gpubuf);
+void sum_and_gather_potential(GPUBuffers &gpubuf, int num_atoms_first_layer, KMC_comm &kmc_comm);
 
 //**************************************************
 // Current solver functions / current_solver_gpu.cu

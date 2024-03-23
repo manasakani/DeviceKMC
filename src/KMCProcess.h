@@ -17,7 +17,7 @@ class KMCProcess{
 		std::vector<int> site_layer;													// layerID for each site
 		//std::string method;															// simulation type: rejection or rejection free?
 		double freq;                                                   	 				// attempt frequency of this set of events
-		
+		RandomNumberGenerator random_generator;											// random number generator object for this KMC process
 		std::vector<int> affected_neighborhood;											// indices of the site-neighbor pairs
 
 		KMCProcess(Device &device, double freq_); 										// constructor divides the device up into layers and initializes events
@@ -28,8 +28,6 @@ class KMCProcess{
 		void update_affected_neighborhood(int event_idx, Device &device);				// updates the affected_neighborhood of the KMC step
 		std::map<std::string, double>  executeKMCStep(GPUBuffers gpubuf, Device &device, double *step_time);		// executes one step on the device and updates kmc_time with the event time
 		
-	private:
-		RandomNumberGenerator random_generator;											// random number generator object for this KMC process
 		
 		// Physical Constants
 		double kB = 8.617333262e-5;        // [eV/K]

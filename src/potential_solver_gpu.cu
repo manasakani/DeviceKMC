@@ -1073,14 +1073,6 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
         max_iterations,
         A_distributed->comm);
 
-    // TODO: remove the reset inside each bias point
-    // 3. Re-fix the boundary (for changes in applied potential across an IV sweep)
-    thrust::device_ptr<double> left_boundary = thrust::device_pointer_cast(gpubuf.site_potential_boundary);
-    thrust::fill(left_boundary, left_boundary + N_left_tot, -Vd/2);
-    thrust::device_ptr<double> right_boundary = thrust::device_pointer_cast(gpubuf.site_potential_boundary + N_left_tot + N_interface);
-    thrust::fill(right_boundary, right_boundary + N_right_tot, Vd/2);
-
-    std::cout << "updated boundary inside K - remove this later\n";
 
     // hipsparseDestroy(cusparseHandle);
     hipFree(VL);
@@ -1094,48 +1086,27 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
 
 }
 
-void sum_and_gather_potential(GPUBuffers &gpubuf)
+void sum_and_gather_potential(GPUBuffers &gpubuf, int num_atoms_first_layer, KMC_comm &kmc_comm)
 {
+    // broadcast in comm_events
+    MPI_Bcast(gpubuf.site_potential_boundary + num_atoms_first_layer,
+        gpubuf.N_ - 2*num_atoms_first_layer,
+        MPI_DOUBLE,
+        kmc_comm.root_K, kmc_comm.comm_events);
+
+    // broadcast in comm_events
+    MPI_Bcast(gpubuf.site_potential_charge,
+        gpubuf.N_,
+        MPI_DOUBLE,
+        kmc_comm.root_pairwise, kmc_comm.comm_events);
     // sum the potential vectors
-    int threads = 512;
-    int blocks = (gpubuf.count_sites[gpubuf.rank] + threads- 1) / threads;
-
+    int threads = 1024;
+    int blocks = ( gpubuf.N_ + threads- 1) / threads;
     // compute the off-diagonal elements of K
-    hipLaunchKernelGGL(sum_AB_into_A, blocks, threads, 0, 0, gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank], 
-                                       gpubuf.site_potential_boundary + gpubuf.displ_sites[gpubuf.rank],
-                                       gpubuf.count_sites[gpubuf.rank]);
-    
-    // copy potential vectors to host
-    double *potential_local_h = (double *)calloc(gpubuf.count_sites[gpubuf.rank], sizeof(double));
-    double *potential_h = (double *)calloc(gpubuf.N_, sizeof(double));
-
-    // gpuErrchk( hipMemcpy(gpubuf.potential_local_h, gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank], 
-    //             gpubuf.count_sites[gpubuf.rank] * sizeof(double), hipMemcpyDeviceToHost) );
-
-    // // allgather potential vector - site_potential_charge contains the sum
-    // MPI_Allgatherv(gpubuf.potential_local_h, gpubuf.count_sites[gpubuf.rank],
-    //     MPI_DOUBLE, gpubuf.potential_h,
-    //     gpubuf.count_sites, gpubuf.displ_sites, MPI_DOUBLE, MPI_COMM_WORLD);
-
-    // // copy potential vector to device    
-    // gpuErrchk( hipMemcpy(gpubuf.site_potential_charge, gpubuf.potential_h,
-    //     gpubuf.N_ * sizeof(double), hipMemcpyHostToDevice) );
-    
-    gpuErrchk( hipMemcpy(potential_local_h, gpubuf.site_potential_charge + gpubuf.displ_sites[gpubuf.rank], 
-                gpubuf.count_sites[gpubuf.rank] * sizeof(double), hipMemcpyDeviceToHost) );
-
-    // allgather potential vector - site_potential_charge contains the sum
-    MPI_Allgatherv(potential_local_h, gpubuf.count_sites[gpubuf.rank],
-        MPI_DOUBLE, potential_h,
-        gpubuf.count_sites, gpubuf.displ_sites, MPI_DOUBLE, MPI_COMM_WORLD);
-
-    // copy potential vector to device    
-    gpuErrchk( hipMemcpy(gpubuf.site_potential_charge, potential_h,
-        gpubuf.N_ * sizeof(double), hipMemcpyHostToDevice) );
-
-    free(potential_local_h);
-    free(potential_h);
-
+    hipLaunchKernelGGL(sum_AB_into_A, blocks, threads, 0, 0,
+        gpubuf.site_potential_charge, 
+        gpubuf.site_potential_boundary,
+        gpubuf.N_);
 }
 
 
@@ -1156,7 +1127,7 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
     double *K_left_reduced_d = NULL;
     double *K_right_reduced_d = NULL;
 
-    std::cout << "mpi rank" << gpubuf.rank << "  before Assemble_A " << std::endl;
+    // std::cout << "mpi rank" << gpubuf.rank << "  before Assemble_A " << std::endl;
 
     // the sparsity of the graph connectivity (which goes into A) is precomputed and stored in the buffers:
     Assemble_A( gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
@@ -1169,7 +1140,7 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
                 &gpubuf.contact_right_col_indices, &gpubuf.contact_right_row_ptr, &gpubuf.contact_left_nnz,
                 &K_left_reduced_d, &K_right_reduced_d );
 
-    std::cout << "mpi rank" << gpubuf.rank << "  after Assemble_A " << std::endl;
+    // std::cout << "mpi rank" << gpubuf.rank << "  after Assemble_A " << std::endl;
 
     // // DEBUG
     // dump A into a text file:
@@ -1197,7 +1168,7 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
     gpuErrchk( hipPeekAtLastError() );
     gpuErrchk( hipDeviceSynchronize() );
 
-    std::cout << "mpi rank" << gpubuf.rank << "  after calc_rhs_for_A " << std::endl;
+    // std::cout << "mpi rank" << gpubuf.rank << "  after calc_rhs_for_A " << std::endl;
     
     // ***********************************
     // 2. Solve system of linear equations 
@@ -1209,14 +1180,14 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
     hipsparseCreate(&cusparseHandle);
     hipsparseSetPointerMode(cusparseHandle, HIPSPARSE_POINTER_MODE_DEVICE);
 
-    std::cout << "mpi rank" << gpubuf.rank << "  going to solve " << std::endl;
+    // std::cout << "mpi rank" << gpubuf.rank << "  going to solve " << std::endl;
 
     // sparse solver with Jacobi preconditioning:
     solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_data_d, gpubuf.Device_row_ptr_d, gpubuf.Device_col_indices_d, gpubuf.Device_nnz, N_interface, rhs, v_soln);
     gpuErrchk( hipPeekAtLastError() );
     gpuErrchk( hipDeviceSynchronize() );
 
-    std::cout << "mpi rank" << gpubuf.rank << "  after solve " << std::endl;
+    // std::cout << "mpi rank" << gpubuf.rank << "  after solve " << std::endl;
 
     // ***************************************************************************
     // 3. Re-fix the boundary (for changes in applied potential across an IV sweep)
@@ -1226,7 +1197,7 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
     thrust::device_ptr<double> right_boundary = thrust::device_pointer_cast(gpubuf.site_potential_boundary + N_left_tot + N_interface);
     thrust::fill(right_boundary, right_boundary + N_right_tot, Vd/2);
 
-    std::cout << "mpi rank" << gpubuf.rank << " refixed the boundary " << std::endl;
+    // std::cout << "mpi rank" << gpubuf.rank << " refixed the boundary " << std::endl;
 
     hipsparseDestroy(cusparseHandle);
     hipFree(A_data_d);
@@ -1237,7 +1208,7 @@ void background_potential_gpu_sparse_local(hipblasHandle_t handle_cublas, hipsol
     hipFree(K_right_reduced_d);
     gpuErrchk( hipPeekAtLastError() );
 
-    std::cout << "mpi rank" << gpubuf.rank << " freed stuff " << std::endl;
+    // std::cout << "mpi rank" << gpubuf.rank << " freed stuff " << std::endl;
     
 }
 
@@ -1623,9 +1594,6 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     gpuErrchk( hipMemset(site_potential_charge, 0, N * sizeof(double)) ); 
     gpuErrchk( hipDeviceSynchronize() );
 
-    // auto t1 = std::chrono::steady_clock::now();
-    // this num_threads should be equal to NUM_THREADS
-
     // // naive implementation, all-to-all
     // calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, NUM_THREADS, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice,
     //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank]);
@@ -1647,25 +1615,4 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     gpuErrchk( hipDeviceSynchronize() );
     gpuErrchk( hipPeekAtLastError() );
 
-    // // element-wise: only checks sites which were precomputed to be within the cutoff radius
-    // calculate_pairwise_interaction_indexed<NUM_THREADS><<<num_blocks, NUM_THREADS, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice,
-    //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_idx, cutoff_dists, N_cutoff);
-    // gpuErrchk( hipPeekAtLastError() );
-    // gpuErrchk( hipDeviceSynchronize() );
-    // gpuErrchk( hipPeekAtLastError() );
-
-    // auto t2 = std::chrono::steady_clock::now();
-    // std::chrono::duration<double> dt2 = t2 - t1;
-
-    // std::cout << "time for pairwise interaction: " << dt2.count() << "\n";
-    // exit(1);
-
-    // double* host_site_potential_charge = new double[N];
-    // hipMemcpy(host_site_potential_charge, site_potential_charge, N * sizeof(double), hipMemcpyDeviceToHost);
-    // double sum = 0.0;
-    // for (int i = 0; i < N; ++i) {
-    //     sum += host_site_potential_charge[i];
-    // }
-    // std::cout << "Sum of site_potential_charge: " << sum << std::endl;
-    // exit(1);
 }

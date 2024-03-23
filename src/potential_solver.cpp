@@ -143,6 +143,8 @@ std::map<std::string, double> Device::updateCharge(GPUBuffers gpubuf, std::vecto
 {
     std::map<std::string, double> result;
 
+    // TODO if charge diistributed, change comm
+    MPI_Barrier(MPI_COMM_WORLD);
     auto t0 = std::chrono::steady_clock::now();
 
     // gpubuf.sync_HostToGPU(*this); // remove once full while loop is completed
@@ -155,6 +157,7 @@ std::map<std::string, double> Device::updateCharge(GPUBuffers gpubuf, std::vecto
     // gpubuf.sync_GPUToHost(*this); // remove once full while loop is completed
 
     auto t1 = std::chrono::steady_clock::now();
+    MPI_Barrier(MPI_COMM_WORLD);
     std::chrono::duration<double> dt = t1 - t0;
 
     result["Z - calculation time - charge [s]"] = dt.count();
@@ -237,73 +240,76 @@ std::map<std::string, double> Device::updateCharge(GPUBuffers gpubuf, std::vecto
 // }
 
 
-// update the potential of each site
-std::map<std::string, double> Device::updatePotential(hipblasHandle_t handle_cublas, hipsolverHandle_t handle_cusolver, 
-                                                      GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count)
-{
-    std::map<std::string, double> result;
+// // update the potential of each site
+// std::map<std::string, double> Device::updatePotential(hipblasHandle_t handle_cublas, hipsolverHandle_t handle_cusolver, 
+//                                                       GPUBuffers &gpubuf, KMCParameters &p, double Vd, int kmc_step_count)
+// {
+//     std::map<std::string, double> result;
 
-#ifdef USE_CUDA
-    bool sparse_iterative_solver = 1;
+// #ifdef USE_CUDA
+//     bool sparse_iterative_solver = 1;
 
-    int N_left_tot = p.num_atoms_first_layer; 
-    int N_right_tot = p.num_atoms_first_layer; 
+//     int N_left_tot = p.num_atoms_first_layer; 
+//     int N_right_tot = p.num_atoms_first_layer; 
 
-    auto t0 = MPI_Wtime(); 
+//     MPI_Barrier(gpubuf.comm);
+//     auto t0 = MPI_Wtime(); 
 
-    // gpubuf.sync_HostToGPU(*this); // comment out to avoid memory copy in GPU-only implementation
+//     // gpubuf.sync_HostToGPU(*this); // comment out to avoid memory copy in GPU-only implementation
 
-    if (sparse_iterative_solver) 
-    {
-        background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-                                        Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
-        // background_potential_gpu_sparse_local(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-        //                                Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
-    } else {
-        background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
-                                 Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
-    }
-    auto t1 = MPI_Wtime(); 
-    std::cout << "time for background potential: " << t1 - t0 << std::endl;
+//     if (sparse_iterative_solver) 
+//     {
+//         background_potential_gpu_sparse(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+//                                         Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
+//         // background_potential_gpu_sparse_local(handle_cublas, handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+//         //                                Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
+//     } else {
+//         background_potential_gpu(handle_cusolver, gpubuf, N, N_left_tot, N_right_tot,
+//                                  Vd, pbc, p.high_G, p.low_G, nn_dist, p.metals.size(), kmc_step_count);
+//     }
+//     auto t1 = MPI_Wtime(); 
+//     MPI_Barrier(gpubuf.comm);
+//     std::cout << "time for background potential: " << t1 - t0 << std::endl;
 
-    // Update site_potential_boundary with the sum from the charges
-    poisson_gridless_gpu(p.num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
-                         gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                         gpubuf.site_charge, gpubuf.site_potential_charge,
-                         gpubuf.rank, gpubuf.size, gpubuf.count_sites, gpubuf.displ_sites, 
-                         gpubuf.cutoff_window, gpubuf.cutoff_idx, gpubuf.N_cutoff_); 
+//     // Update site_potential_boundary with the sum from the charges
+//     poisson_gridless_gpu(p.num_atoms_contact, pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
+//                          gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+//                          gpubuf.site_charge, gpubuf.site_potential_charge,
+//                          gpubuf.rank, gpubuf.size, gpubuf.count_sites, gpubuf.displ_sites, 
+//                          gpubuf.cutoff_window, gpubuf.cutoff_idx, gpubuf.N_cutoff_); 
 
-    // Allgather the potential vector into site_potential_charge
-    sum_and_gather_potential(gpubuf);
+//     // Allgather the potential vector into site_potential_charge
+//     sum_and_gather_potential(gpubuf);
      
-    // gpubuf.sync_GPUToHost(*this); // comment out to avoid memory copy in GPU-only implementation
-
-    auto t2 = MPI_Wtime();
-    std::cout << "time for poisson gridless: " << t2 - t1 << std::endl;
-
-    result["Z - calculation time - potential from boundaries [s]"] =  t1 - t0 ;
-    result["Z - calculation time - potential from charges [s]"] = t2 - t1 ;
-
-
-#else
-    auto t0 = std::chrono::steady_clock::now();
-    // circuit-model-based potential solver
-    background_potential(handle_cusolver, p.num_atoms_contact, Vd, lattice, p.G_coeff, p.high_G, p.low_G, p.metals, kmc_step_count);
-    auto t1 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt1 = t1 - t0;
-
-    // gridless Poisson equation solver (using sum of gaussian charge distribution solutions)
-    poisson_gridless(p.num_atoms_contact, p.lattice);
-    auto t2 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt2 = t2 - t1;
-
-    result["Z - calculation time - potential from boundaries [s]"] = dt1.count();
-    result["Z - calculation time - potential from charges [s]"] = dt2.count();
+//     // gpubuf.sync_GPUToHost(*this); // comment out to avoid memory copy in GPU-only implementation
     
-#endif
+//     MPI_Barrier(gpubuf.comm);
+//     auto t2 = MPI_Wtime();
+//     std::cout << "time for poisson gridless: " << t2 - t1 << std::endl;
 
-    return result;
-}
+//     result["Z - calculation time - potential from boundaries [s]"] =  t1 - t0 ;
+//     result["Z - calculation time - potential from charges [s]"] = t2 - t1 ;
+
+
+// #else
+//     auto t0 = std::chrono::steady_clock::now();
+//     // circuit-model-based potential solver
+//     background_potential(handle_cusolver, p.num_atoms_contact, Vd, lattice, p.G_coeff, p.high_G, p.low_G, p.metals, kmc_step_count);
+//     auto t1 = std::chrono::steady_clock::now();
+//     std::chrono::duration<double> dt1 = t1 - t0;
+
+//     // gridless Poisson equation solver (using sum of gaussian charge distribution solutions)
+//     poisson_gridless(p.num_atoms_contact, p.lattice);
+//     auto t2 = std::chrono::steady_clock::now();
+//     std::chrono::duration<double> dt2 = t2 - t1;
+
+//     result["Z - calculation time - potential from boundaries [s]"] = dt1.count();
+//     result["Z - calculation time - potential from charges [s]"] = dt2.count();
+    
+// #endif
+
+//     return result;
+// }
 
 
 // update the potential of each site
