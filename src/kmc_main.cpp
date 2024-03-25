@@ -171,13 +171,16 @@ int main(int argc, char **argv)
     //******************************
     // Initialize the KMC Simulation
     //******************************
-   
+    std::cout << "Rank: " << kmc_comm.rank_events << ", Constructing KMC process" << std::endl;
+    MPI_Barrier(MPI_COMM_WORLD);
+
     KMCProcess sim(device, p.freq);                                                // stores the division of the device into KMC 'layers' with different EA
 
     //*****************************
     // Setup GPU memory management
     //*****************************
 
+    std::cout << "Rank: " << kmc_comm.rank_events << ", Constructing GPU buffers" << std::endl;
     MPI_Barrier(MPI_COMM_WORLD);
     GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,                         
                       device.N, device.N_atom, device.site_x, device.site_y, device.site_z,
@@ -187,12 +190,20 @@ int main(int argc, char **argv)
     gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
 
 
-    if (p.solve_potential || p.solve_current)
+    if (p.solve_potential)
     {
         if (kmc_comm.comm_K != MPI_COMM_NULL) {
+            std::cout << "Rank: " << kmc_comm.rank_K << ", Initialize sparisity K" << std::endl;                                                             // [1] fraction of power dissipated as heat
             initialize_sparsity_K(
                 gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer, kmc_comm);
         }
+    }
+    
+    MPI_Barrier(MPI_COMM_WORLD);
+
+    if (p.solve_current && kmc_comm.comm_T != MPI_COMM_NULL)   
+    { 
+        std::cout << "Rank: " << kmc_comm.rank_T << ", Initialize sparisity T" << std::endl;                                                             // [1] fraction of power dissipated as heat
         initialize_sparsity_CB(gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer);
 
         std::cout << "Initialized sparsity pattern of K\n";
@@ -222,6 +233,9 @@ int main(int argc, char **argv)
     // std::map<std::string, double> resultMap;                                                        // dictionary of output quantities which are dumped to output.log
     std::chrono::duration<double> diff, diff_pot, diff_power, diff_temp, diff_perturb;              // track computation time of the different modules
 
+
+    std::cout << "Rank: " << kmc_comm.rank_events << ", Starting simulation" << std::endl;
+    MPI_Barrier(MPI_COMM_WORLD);
     auto tcode_start = std::chrono::steady_clock::now();
     for (int vt_counter = 0; vt_counter < p.V_switch.size(); vt_counter++)
     {
@@ -238,6 +252,7 @@ int main(int argc, char **argv)
         // solve the Laplace Equation to get the CB edge energy at this voltage
         if (p.solve_current && kmc_comm.comm_T != MPI_COMM_NULL)
         {
+            std::cout << "Rank: " << kmc_comm.rank_T << ", CB bandedge and sparsity T" << std::endl;                                                            
             device.setLaplacePotential(handle, handle_cusolver, gpubuf, p, Vd);                     // homogenous poisson equation with contact BC
             initialize_sparsity_T(gpubuf, 
                 p.pbc, p.nn_dist, p.num_atoms_first_layer, p.num_atoms_first_layer, p.num_layers_contact, kmc_comm);
@@ -307,7 +322,7 @@ int main(int argc, char **argv)
             if (p.solve_potential)
             {
                 // Update site-resolved charges
-                MPI_Barrier(kmc_comm.comm_events);
+                MPI_Barrier(kmc_comm.comm_events); // TODO distribute
                 t_charge_update_start = MPI_Wtime();
 
                 update_charge_gpu(gpubuf.site_element,
@@ -325,6 +340,7 @@ int main(int argc, char **argv)
                 // Update site-resolved potential from boundary
                 
                 if (kmc_comm.comm_K != MPI_COMM_NULL) {
+                    std::cout << "Rank: " << kmc_comm.rank_K << ", Start potential from boundaries" << std::endl;                                                             // [1] fraction of power dissipated as heat
                     MPI_Barrier(kmc_comm.comm_K);
                     t_boundary_start = MPI_Wtime();
                     background_potential_gpu_sparse(handle, handle_cusolver, gpubuf, device.N, p.num_atoms_first_layer, p.num_atoms_first_layer,
@@ -355,6 +371,7 @@ int main(int argc, char **argv)
                 }
                 
                 if (kmc_comm.comm_pairwise != MPI_COMM_NULL) {
+                    std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Start potential from charges" << std::endl;                                                             // [1] fraction of power dissipated as heat
                     MPI_Barrier(kmc_comm.comm_pairwise);
                     // Update site-resolved potential from charges
                     t_charge_start = MPI_Wtime();
@@ -394,16 +411,30 @@ int main(int argc, char **argv)
             if (p.solve_current)
             {   
                 if (kmc_comm.comm_T != MPI_COMM_NULL) {
+
+                    double loop_G = p.high_G*10000000;                                                      // 'conductance' of the driver term for the NESS (converge to high value)
+                    double high_G = p.high_G*100000;                                                        // 'conductance' between metallic connections
+                    double low_G = p.low_G;  
+                    double scale = 1e-5;
+
+                    double G0 = 2 * 3.8612e-5 * scale;                                                      // G0 = (q^2 / h_bar), G = G0 * Tij
+                    double tol = p.q * 0.01;                                                                // [eV] tolerance after which the barrier slope is considered
+                    int num_source_inj = p.num_atoms_first_layer;                                           // number of injection nodes (tied to source)
+                    int num_ground_ext = p.num_atoms_first_layer;                                           // number of extraction nodes (tied to ground)
+                    double alpha = 1;     
+                    std::cout << "Rank: " << kmc_comm.rank_T << ", Start T matrix" << std::endl;                                                             // [1] fraction of power dissipated as heat
+                    MPI_Barrier(kmc_comm.comm_T);
                     t_current_start = MPI_Wtime();
-                    // update_power_gpu_sparse_dist(handle, handle_cusolver, gpubuf, num_source_inj, num_ground_ext, p.num_layers_contact,
-                    //                         Vd, pbc, high_G, low_G, loop_G, G0, tol,
-                    //                         nn_dist, p.m_e, p.V0, p.metals.size(), &device.imacro, p.solve_heating_local, p.solve_heating_global, alpha);
+                    update_power_gpu_sparse_dist(handle, handle_cusolver, gpubuf, num_source_inj, num_ground_ext, p.num_layers_contact,
+                                            Vd, high_G, low_G, loop_G, G0, tol,
+                                            device.nn_dist, p.m_e, p.V0, p.metals.size(), &device.imacro,
+                                            p.solve_heating_local, p.solve_heating_global, alpha);
                     t_current_end = MPI_Wtime();
                     outputBuffer << "Z - calculation time - potential from charges [s]" << t_current_end - t_current_start << "\n";
                 }
             }
 
-
+            // TODO measure this overhead
             if (p.solve_potential)
             {
                 // sum potential terms into charge potential buffer
@@ -413,6 +444,7 @@ int main(int argc, char **argv)
 
             // Execute events and update kmc_time
             if (p.perturb_structure){     
+                std::cout << "Rank: " << kmc_comm.rank_events << ", Start events" << std::endl;                                                             // [1] fraction of power dissipated as heat
                 MPI_Barrier(kmc_comm.comm_events);
                 t_events_start = MPI_Wtime();
 
@@ -513,7 +545,7 @@ int main(int argc, char **argv)
     //***********************************
     // Finalize MPI
     //***********************************
-    std::cout << "Finished simulation" << std::endl;
+    std::cout << "Rank: " << kmc_comm.rank_events << ", Finished simulation" << std::endl;
     MPI_Barrier(MPI_COMM_WORLD);
 
     // kmc_comm.~KMC_comm();

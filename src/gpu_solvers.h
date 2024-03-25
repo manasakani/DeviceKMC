@@ -62,12 +62,14 @@ void initialize_sparsity_CB(GPUBuffers &gpubuf, int pbc, const double nn_dist, i
 
 // Initialize the sparsity of the T matrix (neighbor)
 void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact, KMC_comm &kmc_comm);
-// void initialize_sparsity_T_split(GPUBuffers &gpubuf, int pbc, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact);
 
 int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact, 
                                  const double high_G, const double low_G, const double loop_G, const double Vd, const double m_e, const double V0,
-                                 Distributed_subblock_sparse &T_tunnel, Distributed_matrix *T_neighbor, double *&diag_tunnel_local, int *&tunnel_indices_local_d);
-                                
+                                 Distributed_subblock_sparse &T_tunnel, Distributed_matrix *T_neighbor, double *&diag_tunnel_local,
+                                 int *&tunnel_indices_local_d, int *&row_ptr_subblock_d, 
+                                 int *&col_indices_subblock_d, double *&data_d, int &nnz_subblock_local, int *&counts_subblock, int *&displ_subblock,
+                                 int &num_tunnel_points_global);
+                         
 // check that sparse and dense versions are the same
 void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal);
 
@@ -215,7 +217,9 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverDnHandle_t handle_c
 // distributed version which calls the CG library function
 void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
                                   const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
-                                  const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+                                  const double Vd,
+                                  const double high_G, const double low_G, const double loop_G, const double G0,
+                                  const double tol,
                                   const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
                                   const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp);
 

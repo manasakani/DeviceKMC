@@ -252,8 +252,7 @@ __global__ void populate_data_T_neighbor(const double *posx_d, const double *pos
                 if (i == col_indices_d[j])
                 {
                     double dist_angstrom = site_dist_gpu(posx_d[i - 2], posy_d[i - 2], posz_d[i - 2],
-                                                         posx_d[N_atom-1], posy_d[N_atom-1], posz_d[N_atom-1], 
-                                                         lattice[0], lattice[1], lattice[2], pbc);                                   
+                                                         posx_d[N_atom-1], posy_d[N_atom-1], posz_d[N_atom-1]);                                   
                     bool neighboring_ground = (dist_angstrom < nn_dist);
                     
                     if (neighboring_ground) 
@@ -346,8 +345,7 @@ __global__ void populate_data_T_tunnel(double *X, const double *posx, const doub
         ELEMENT element_j = element[tunnel_indices[j]];
 
         double dist_angstrom = site_dist_gpu(posx_i, posy_i, posz_i, 
-                                             posx_j, posy_j, posz_j, 
-                                             lattice[0], lattice[1], lattice[2], pbc);
+                                             posx_j, posy_j, posz_j);
 
         bool neighbor = (dist_angstrom < nn_dist) && (i != j);
 
@@ -626,6 +624,17 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverHandle_t handle_cus
     // exit(1);
     // // end debug
 
+    // copy back and print tunnel_indices  to file:
+    // int *tunnel_indices_h = new int[num_tunnel_points];
+    // gpuErrchk( hipMemcpy(tunnel_indices_h, tunnel_indices, num_tunnel_points * sizeof(int), hipMemcpyDeviceToHost) );
+    // std::ofstream tunnel_indices_file("tunnel_indices.txt");
+    // for (int i = 0; i < num_tunnel_points; i++)
+    // {
+    //     tunnel_indices_file << tunnel_indices_h[i] << "\n";
+    // }
+    // tunnel_indices_file.close();
+    // exit(1);
+
     // **************************************************************************
     // 3. Assemble the sparsity pattern of the sparse neighbor matrix
     int Nfull = N_atom + 2;
@@ -740,6 +749,26 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverHandle_t handle_cus
     gpuErrchk( hipPeekAtLastError() );
     hipDeviceSynchronize();
 
+    // output sparsity of neighbor connections
+    // dump_csr_matrix_txt(submatrix_size, neighbor_nnz, neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_data_d, 0);
+    // std::cout << "dumped sparse neighbor matrix\n";
+    // exit(1);
+
+
+    // double *diagonal_inv_h = (double *)calloc(submatrix_size, sizeof(double));
+    // gpuErrchk( hipMemcpy(diagonal_inv_h, diagonal_d, submatrix_size * sizeof(double), hipMemcpyDeviceToHost) );
+    // std::ofstream file("neighbor_diag_soln.txt");
+    // if (file.is_open()) {
+    //     for (int i = 0; i < submatrix_size; i++) {
+    //         file << diagonal_inv_h[i] << " ";
+    //     }
+    //     file.close();
+    // } else {
+    //     std::cout << "Unable to open file";
+    // }
+    // std::cout << "dumped diag aolution\n";
+    // exit(1);
+
     auto txx3 = std::chrono::steady_clock::now();
     std::chrono::duration<double> dtxx3 = txx3 - txx2;
     std::cout << "--> time to reduce the diagonal of the sparse matrix (included): " << dtxx3.count() << "\n";
@@ -765,6 +794,7 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverHandle_t handle_cus
     gpuErrchk( hipPeekAtLastError() );
     hipDeviceSynchronize();
 
+
     auto txx5x = std::chrono::steady_clock::now();
     std::chrono::duration<double> dtxx5x = txx5x - txx4x;
     std::cout << "--> --> time for write_to_diag_T (included): " << dtxx5x.count() << "\n";
@@ -789,6 +819,41 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverHandle_t handle_cus
     std::chrono::duration<double> dtxx5 = txx5 - txx4;
     std::cout << "--> time to extract the diagonal for the preconditioner (included): " << dtxx5.count() << "\n";
 
+    // // dump diagonal_d to file:
+    // double *diagonal_inv_h = (double *)calloc(submatrix_size, sizeof(double));
+    // gpuErrchk( hipMemcpy(diagonal_inv_h, diagonal_d, submatrix_size * sizeof(double), hipMemcpyDeviceToHost) );
+    // std::ofstream file("neighbor_diag_soln.txt");
+    // if (file.is_open()) {
+    //     for (int i = 0; i < submatrix_size; i++) {
+    //         file << diagonal_inv_h[i] << " ";
+    //     }
+    //     file.close();
+    // } else {
+    //     std::cout << "Unable to open file";
+    // }
+    // std::cout << "dumped diag aolution\n";
+    // exit(1);
+    
+
+
+    // debug
+    // double *cpu_T = new double[num_tunnel_points * num_tunnel_points];
+    // hipMemcpy(cpu_T, tunnel_matrix_d, sizeof(double) * num_tunnel_points * num_tunnel_points, hipMemcpyDeviceToHost);
+    // std::cout << "printing tunnel matrix\n";
+    // std::ofstream fout2("T.txt");
+    // int row, col;
+    // for (row = 0; row < num_tunnel_points; row++) {
+    // for (col = 0; col < num_tunnel_points; col++) {
+    //     fout2 << cpu_T[row * num_tunnel_points + col] << ' ';
+    // }
+    // fout2 << '\n';
+    // }
+    // fout2.close(); 
+    // // debug end
+    // std::cout << "seomthing" << std::endl;
+    // exit(1);
+    // debug
+    
     double *diagonal_inv_d = diagonal_d;
 
     auto tx4 = std::chrono::steady_clock::now();
@@ -810,22 +875,23 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverHandle_t handle_cus
     // // output sparsity of neighbor connections
     // dump_csr_matrix_txt(submatrix_size, neighbor_nnz, neighbor_row_ptr_d, neighbor_col_indices_d, neighbor_data_d, 0);
     // std::cout << "dumped sparse neighbor matrix\n";
+    // exit(1);
 
     // debug
-    double *cpu_T = new double[num_tunnel_points * num_tunnel_points];
-    hipMemcpy(cpu_T, tunnel_matrix_d, sizeof(double) * num_tunnel_points * num_tunnel_points, hipMemcpyDeviceToHost);
-    std::cout << "printing tunnel matrix\n";
-    std::ofstream fout2("T.txt");
-    int row, col;
-    for (row = 0; row < num_tunnel_points; row++) {
-    for (col = 0; col < num_tunnel_points; col++) {
-        fout2 << cpu_T[row * num_tunnel_points + col] << ' ';
-    }
-    fout2 << '\n';
-    }
-    fout2.close(); 
-    // debug end
-    exit(1);
+    // double *cpu_T = new double[num_tunnel_points * num_tunnel_points];
+    // hipMemcpy(cpu_T, tunnel_matrix_d, sizeof(double) * num_tunnel_points * num_tunnel_points, hipMemcpyDeviceToHost);
+    // std::cout << "printing tunnel matrix\n";
+    // std::ofstream fout2("T.txt");
+    // int row, col;
+    // for (row = 0; row < num_tunnel_points; row++) {
+    // for (col = 0; col < num_tunnel_points; col++) {
+    //     fout2 << cpu_T[row * num_tunnel_points + col] << ' ';
+    // }
+    // fout2 << '\n';
+    // }
+    // fout2.close(); 
+    // // debug end
+    // exit(1);
 
     //debug
     // int *check_tunnel_inds = new int[num_tunnel_points];
@@ -886,6 +952,19 @@ void update_power_gpu_split(hipblasHandle_t handle, hipsolverHandle_t handle_cus
 
     std::cout << "done system solve\n";
     // exit(1);
+
+    // print solution vector to file:
+    double *solution = (double *)malloc(Nfull * sizeof(double));
+    gpuErrchk( hipMemcpy(solution, gpu_virtual_potentials, Nfull * sizeof(double), hipMemcpyDeviceToHost) );
+    std::ofstream fout("virtual_potential_solution.txt");
+    for (int i = 0; i < Nfull; i++)
+    {
+        fout << solution[i] << "\n";
+    }
+    fout.close();
+    std::cout << "solution vectordumped to file\n";
+    exit(1);
+
 
     // auto t4 = std::chrono::steady_clock::now();
     // std::chrono::duration<double> dt3 = t4 - t3;
@@ -1013,13 +1092,14 @@ __global__ void populate_T_dist(const double *posx_d, const double *posy_d, cons
             // injection boundary (row)
             if(i == 1)
             {
-                // loop connection (1, 0)
+                // loop connection (1, 0) 
                 if (j == 0)
                 {
                     data_d[jd] = -loop_G;
                 }
                 // injection connections to the device
-                else
+                // else
+                if ( j > 1 )
                 {
                     data_d[jd] = -high_G;
                 } 
@@ -1049,6 +1129,7 @@ __global__ void populate_T_dist(const double *posx_d, const double *posy_d, cons
 
                 // injection boundary (column)
                 if ( (j == 1) && (i > 1) && (i < num_source_inj + 2) )
+                // if ( (j == 1) && (i < num_source_inj + 2) )
                 {
                     data_d[jd] = -high_G;
                 }
@@ -1208,7 +1289,7 @@ __global__ void calc_diagonal_T(
         //reduce the elements in the row
         double tmp = 0.0;
         for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
-            if (i != col_indices[j] || this_ranks_block != 0)
+            if (i != col_indices[j] || this_ranks_block != 0) // check for multiple nodes
             {
                 tmp += data[j];
             }
@@ -1258,7 +1339,6 @@ __global__ void invert_diag(double *diagonal_local_d, int rows_this_rank)
 // updates the atom arrays by filtering the sites:
 void update_atom_arrays(GPUBuffers &gpubuf)
 {
-    auto t0 = std::chrono::steady_clock::now();
     int *gpu_index;
     int *atom_gpu_index;
     gpuErrchk( hipMalloc((void **)&gpu_index, gpubuf.N_ * sizeof(int)) );                                           // indices of the site array
@@ -1278,10 +1358,6 @@ void update_atom_arrays(GPUBuffers &gpubuf)
     thrust::copy_if(thrust::device, gpubuf.site_element, gpubuf.site_element + gpubuf.N_, gpubuf.site_element, gpubuf.atom_element, is_defect());
     thrust::copy_if(thrust::device, gpubuf.site_CB_edge, gpubuf.site_CB_edge + gpubuf.N_, gpubuf.site_element, gpubuf.atom_CB_edge, is_defect());
     thrust::copy_if(thrust::device, gpu_index, gpu_index + gpubuf.N_, gpubuf.site_element, atom_gpu_index, is_defect());
-
-    auto t1 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt = t1 - t0;
-    std::cout << "time to update atom arrays: " << dt.count() << "\n";
 
     hipFree(gpu_index);
     hipFree(atom_gpu_index);
@@ -1322,9 +1398,6 @@ void populate_data_T_neighbor(GPUBuffers &gpubuf, const double nn_dist, const do
             disp_neighbour);
 
     }
-
-    hipDeviceSynchronize();
-    
 }
 
 // reduces the rows of the input sparse matrix into the diagonals, and collects the resulting diagonal vector to be used for preconditioning
@@ -1349,25 +1422,28 @@ void update_diagonal_sparse(GPUBuffers &gpubuf, double *diagonal_local_d)
                         T_distributed->row_ptr_d[0],
                         T_distributed->data_d[0], diagonal_local_d, T_distributed->rows_this_rank);
 
-    gpuErrchk( hipPeekAtLastError() );
 }
 
 
 // full sparse matrix assembly
 void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t handle_cusolver, GPUBuffers &gpubuf, 
                                   const int num_source_inj, const int num_ground_ext, const int num_layers_contact,
-                                  const double Vd, const int pbc, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
+                                  const double Vd, const double high_G, const double low_G, const double loop_G, const double G0, const double tol,
                                   const double nn_dist, const double m_e, const double V0, int num_metals, double *imacro,
                                   const bool solve_heating_local, const bool solve_heating_global, const double alpha_disp)
 {
     int N_atom = gpubuf.N_atom_;
-    int Nsub = N_atom + 1;            
+    int Nsub = N_atom + 1;    
+    int rank;
+    int size;
+    
     Distributed_matrix *T_distributed = gpubuf.T_distributed;
-    int rank = T_distributed->rank;
-    int size = T_distributed->size;
-    int rows_this_rank = T_distributed->rows_this_rank;
-    int disp_this_rank = T_distributed->displacements[rank];
 
+    MPI_Comm comm = T_distributed->comm;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+    int rows_this_rank = T_distributed->rows_this_rank;
+    int disp_this_rank = T_distributed->displacements[T_distributed->rank];
 
     // ***************************************************************************************
     // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
@@ -1375,8 +1451,8 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
 
     // ***************************************************************************************
     // 2. Populate the sparse neighbor matrix of T:                                                                     // N_full minus the ground node which is cut from the graph
-    populate_data_T_neighbor(gpubuf, nn_dist, tol, high_G, low_G, loop_G, Vd, m_e, V0, num_source_inj, num_ground_ext, num_layers_contact, num_metals, Nsub);
-    MPI_Barrier(MPI_COMM_WORLD);
+    populate_data_T_neighbor(gpubuf, nn_dist, tol, high_G, low_G, loop_G, Vd, m_e, V0,
+        num_source_inj, num_ground_ext, num_layers_contact, num_metals, Nsub);
 
     // ***************************************************************************************
     // 3. Update the diagonal for the sparse neighbor matrix and collect the preconditioner
@@ -1385,10 +1461,7 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     gpuErrchk( hipMemset(diagonal_local_d, 0, rows_this_rank * sizeof(double)) );
 
     update_diagonal_sparse(gpubuf, diagonal_local_d);
-    gpuErrchk( hipDeviceSynchronize() );    // remove synchronization later
-    MPI_Barrier(MPI_COMM_WORLD);
 
-    // std::cout << "rank: " << rank << "done updating diagonal\n";
     // dump_csr_matrix_txt(Nsub, T_distributed->nnz, T_distributed->row_ptr_d[0], T_distributed->col_indices_d[0], T_distributed->data_d[0], 0);
     // std::cout << "dumped matrix" << std::endl;
     // exit(1); 
@@ -1396,20 +1469,95 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     // ***************************************************************************************
     // 3. Assemble the sparsity for and populate the tunnel submatrix
 
-    std::cout << "rank: " << rank << "going to make submatrix" << std::endl;
     Distributed_subblock_sparse T_tunnel_distributed;
     double *diagonal_tunnel_local_d;
+    int *row_ptr_subblock_d;
+    int *col_indices_subblock_d;
+    double *data_d;
     int *tunnel_indices_local_d; // [1, 4...] after shift by 2
+    int nnz_subblock_local, num_tunnel_points_global;
+    int *counts_subblock = new int[size];
+    int *displ_subblock = new int[size];
     int rows_this_rank_tunnel = assemble_sparse_T_submatrix(gpubuf, N_atom, nn_dist, num_source_inj, num_ground_ext, num_layers_contact,
                                                             high_G, low_G, loop_G, Vd, m_e, V0,
-                                                            T_tunnel_distributed, T_distributed, diagonal_tunnel_local_d, tunnel_indices_local_d);
-    std::cout << "rank: " << rank << "done making submatrix" << std::endl;
-    std::cout << "rank: " << rank << "rows_this_rank_tunnel: " << rows_this_rank_tunnel << "\n";
-    fflush(stdout);
-    MPI_Barrier(MPI_COMM_WORLD);
+                                                            T_tunnel_distributed, T_distributed, 
+                                                            diagonal_tunnel_local_d, tunnel_indices_local_d,
+                                                            row_ptr_subblock_d, col_indices_subblock_d, data_d, nnz_subblock_local,
+                                                            counts_subblock, displ_subblock, num_tunnel_points_global);
 
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // exit(1);
+    // subblock creation
+    double *tmp_in_d;
+    double *tmp_out_d;
+    hipMalloc(&tmp_in_d, num_tunnel_points_global * sizeof(double));
+    hipMalloc(&tmp_out_d, counts_subblock[rank] * sizeof(double));
+
+    // load data into subblock struct:
+    rocsparse_spmat_descr subblock_descriptor;
+    rocsparse_dnvec_descr subblock_vector_descriptor_in;
+    rocsparse_dnvec_descr subblock_vector_descriptor_out;
+
+    rocsparse_create_dnvec_descr(&subblock_vector_descriptor_in,
+                                num_tunnel_points_global,
+                                tmp_in_d,
+                                rocsparse_datatype_f64_r);
+
+    // Create dense vector Y
+    rocsparse_create_dnvec_descr(&subblock_vector_descriptor_out,
+                                counts_subblock[rank],
+                                tmp_out_d,
+                                rocsparse_datatype_f64_r);
+
+    rocsparse_spmv_alg algo = rocsparse_spmv_alg_csr_adaptive;
+    size_t subblock_buffersize;
+
+    rocsparse_create_csr_descr(&subblock_descriptor,
+                                counts_subblock[rank],
+                                num_tunnel_points_global,
+                                nnz_subblock_local,
+                                row_ptr_subblock_d,
+                                col_indices_subblock_d,
+                                data_d,
+                                rocsparse_indextype_i32,
+                                rocsparse_indextype_i32,
+                                rocsparse_index_base_zero,
+                                rocsparse_datatype_f64_r);
+
+
+    rocsparse_handle rocsparse_handle;
+    rocsparse_create_handle(&rocsparse_handle);
+
+    double alpha = 1.0;
+    double beta = 0.0;
+    rocsparse_spmv(rocsparse_handle,
+                    rocsparse_operation_none,
+                    &alpha,
+                    subblock_descriptor,
+                    subblock_vector_descriptor_in,
+                    &beta,
+                    subblock_vector_descriptor_out,
+                    rocsparse_datatype_f64_r,
+                    algo,
+                    &subblock_buffersize,
+                    nullptr);
+    double *subblock_buffer_d;
+    hipMalloc(&subblock_buffer_d, subblock_buffersize);
+
+    // Distributed_subblock_sparse A_subblock;
+    T_tunnel_distributed.subblock_indices_local_d = tunnel_indices_local_d;
+    T_tunnel_distributed.descriptor = &subblock_descriptor;
+    T_tunnel_distributed.algo = algo;
+    T_tunnel_distributed.buffersize = &subblock_buffersize;
+    T_tunnel_distributed.buffer_d = subblock_buffer_d;
+    T_tunnel_distributed.subblock_size = num_tunnel_points_global;
+    T_tunnel_distributed.count_subblock_h = counts_subblock;
+    T_tunnel_distributed.displ_subblock_h = displ_subblock;
+    T_tunnel_distributed.send_subblock_requests = new MPI_Request[size-1];
+    T_tunnel_distributed.recv_subblock_requests = new MPI_Request[size-1];
+    T_tunnel_distributed.streams_recv_subblock = new hipStream_t[size-1];
+    for(int i = 0; i < size-1; i++){
+        hipStreamCreate(&T_tunnel_distributed.streams_recv_subblock[i]);
+    }
+    // subblock creation done
 
     // ***************************************************************************************
     // 4. Collect the preconditioner (diagonal of the full system)
@@ -1418,27 +1566,15 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     // diagonal_tunnel_local_d is the diagonal of the sparse neighbor matrix
     // tunnel_indices_local_d are where this rank inserts its diag into diagonal_local_d for the preconditioning
 
-    int* count_subblock_h_host;
-    hipMallocHost((void**)&count_subblock_h_host, sizeof(int));
-    hipMemcpy(count_subblock_h_host, T_tunnel_distributed.count_subblock_h+rank, size*sizeof(int), hipMemcpyDeviceToHost);
-
     int threads = 1024;
     int blocks = (T_tunnel_distributed.count_subblock_h[rank] + threads - 1) / threads;
     hipLaunchKernelGGL(assemble_preconditioner, blocks, threads, 0, 0, 
-                       diagonal_local_d, diagonal_tunnel_local_d, tunnel_indices_local_d, count_subblock_h_host[0]);
+                       diagonal_local_d, diagonal_tunnel_local_d, tunnel_indices_local_d, T_tunnel_distributed.count_subblock_h[rank]);
         
-    std::cout << "rank: " << rank << "assembled preconditioner" << std::endl;
-    MPI_Barrier(MPI_COMM_WORLD);
-
     // invert the diagonal for the preconditioner
     blocks = (rows_this_rank + threads - 1) / threads;
     hipLaunchKernelGGL(invert_diag, blocks, threads, 0, 0, 
                        diagonal_local_d, rows_this_rank);
-
-    std::cout << "rank: " << rank << "inverted diag" << std::endl;
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    // diag_inv_local_d should contain the diag of the full matrix (sparse + sparse)
 
     // ***************************************************************************************
     // 5. Make the rhs (M) which represents the current inflow/outflow
@@ -1453,34 +1589,18 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
         thrust::fill(m_ptr, m_ptr + 1, -loop_G * Vd);                                                           // max Current extraction (ground)                          
         thrust::fill(m_ptr + 1, m_ptr + 2, loop_G * Vd);                                                        // max Current injection (source)
     }
-    std::cout << "rank: " << rank << "made rhs" << std::endl;
-    MPI_Barrier(MPI_COMM_WORLD);
 
     // ************************************************************
     // 2. Solve system of linear equations 
-    // remove the tunneling terms from the neighbor matrix!
 
     // the initial guess for the solution is the current site-resolved potential inside the device
     double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials + disp_this_rank;                                       // [V] Virtual potential vector  
     
     // TODO: remove the MPI barrier inside
-    double relative_tolerance = 1e-20 * N_atom;
+    double relative_tolerance = 1e-19 * N_atom;
     int max_iterations = 50000;
 
-    // iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing>(
-    //     *gpubuf.T_distributed,
-    //     *gpubuf.T_p_distributed,
-    //     gpu_m,
-    //     gpu_virtual_potentials,
-    //     inv_diagonal_local_d,
-    //     relative_tolerance,
-    //     max_iterations,
-    //     T_distributed->comm);
-
-    std::cout << "rank: " << rank << "going to solver" << std::endl;
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse2>(
+    iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse1>(
                     T_tunnel_distributed,
                     *gpubuf.T_distributed,
                     *gpubuf.T_p_distributed,
@@ -1489,36 +1609,31 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
                     diagonal_local_d,
                     relative_tolerance,
                     max_iterations,
-                    T_distributed->comm);
-
-    std::cout << "rank: " << rank <<"back from solver" << std::endl;
-    MPI_Barrier(MPI_COMM_WORLD);
-    
+                    comm);
 
     double *virtual_potentials_global_d;
     hipMalloc((void**)&virtual_potentials_global_d, Nsub * sizeof(double));
 
-    std::cout << "allocated memory" << std::endl;
-
-    // ALLGATHER THE SOLUTION VECTOR
-
-    // allgather the solution vector
-    // MPI_Allgatherv(gpu_virtual_potentials, rows_this_rank, MPI_DOUBLE, virtual_potentials_global_d, T_distributed->counts, T_distributed->displacements, MPI_DOUBLE, MPI_COMM_WORLD);
 
     // this rank updates the global solution vector to use for the next superstep
-    MPI_Gatherv(gpu_virtual_potentials, rows_this_rank, MPI_DOUBLE, virtual_potentials_global_d, T_distributed->counts, T_distributed->displacements, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-    if (!rank)
-    {
-        // copy back and print the solution vector gpu_virtual_potentials out to a file;
-        double *virtual_potentials_global_h = (double *)calloc(Nsub, sizeof(double));
-        gpuErrchk( hipMemcpy(virtual_potentials_global_h, virtual_potentials_global_d, Nsub * sizeof(double), hipMemcpyDeviceToHost) );
-        std::ofstream file("gpu_virtual_potentials.txt");
-        for (int i = 0; i < Nsub; i++){
-            file << virtual_potentials_global_h[i] << " ";
-        }
-        file.close();
-        std::cout << "dumped the solution vector from sparse_dist version\n";
-    }
+    MPI_Gatherv(gpu_virtual_potentials, rows_this_rank, MPI_DOUBLE, virtual_potentials_global_d,
+        T_distributed->counts, T_distributed->displacements, MPI_DOUBLE, 0, comm);
+    
+    // debug for solution vector
+    // if (!rank)
+    // {
+    //     // copy back and print the solution vector gpu_virtual_potentials out to a file;
+    //     double *virtual_potentials_global_h = (double *)calloc(Nsub, sizeof(double));
+    //     gpuErrchk( hipMemcpy(virtual_potentials_global_h, virtual_potentials_global_d, Nsub * sizeof(double), hipMemcpyDeviceToHost) );
+    //     std::ofstream file("gpu_virtual_potentials3.txt");
+    //     for (int i = 0; i < Nsub; i++){
+    //         file << virtual_potentials_global_h[i] << " ";
+    //     }
+    //     file.close();
+    //     std::cout << "dumped the solution vector from sparse_dist version\n";
+    // }
+    // MPI_Barrier(MPI_COMM_WORLD);
+    // std::cout << "exiting after solving\n"; exit(1);
 
     // // ****************************************************
     // // 3. Calculate the net current flowing into the device
@@ -1542,37 +1657,35 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     // std::cout << "I_macro: " << *imacro * (1e6) << "\n";
     // std::cout << "exiting after I_macro\n"; exit(1);
 
-    MPI_Barrier(MPI_COMM_WORLD);
-
     hipFree(gpu_imacro);
-    std::cout << "1" << std::endl;
     hipFree(gpu_m);
-    std::cout << "2" << std::endl;
     hipFree(diagonal_local_d);
-    std::cout << "3" << std::endl;
     hipFree(T_tunnel_distributed.subblock_indices_local_d);
-    std::cout << "4" << std::endl;
     rocsparse_destroy_spmat_descr(*T_tunnel_distributed.descriptor);
-    std::cout << "5" << std::endl;
     hipFree(T_tunnel_distributed.buffer_d);
-    std::cout << "6" << std::endl;
     delete[] T_tunnel_distributed.count_subblock_h;
-    std::cout << "7" << std::endl;
     delete[] T_tunnel_distributed.displ_subblock_h;
-    std::cout << "8" << std::endl;
     delete[] T_tunnel_distributed.send_subblock_requests;
-    std::cout << "9" << std::endl;
     delete[] T_tunnel_distributed.recv_subblock_requests;
 
-    std::cout << "10" << std::endl;
     for (int i = 0; i < size; i++)
     {
         hipStreamDestroy(T_tunnel_distributed.streams_recv_subblock[i]);
     }
-    std::cout << "11" << std::endl;
-    delete[] T_tunnel_distributed.streams_recv_subblock;std::cout << "9" << std::endl;
+    delete[] T_tunnel_distributed.streams_recv_subblock;
 
-    MPI_Barrier(MPI_COMM_WORLD);
+    rocsparse_destroy_handle(rocsparse_handle);
+    hipFree(tmp_in_d);
+    hipFree(tmp_out_d);
+    rocsparse_destroy_dnvec_descr(subblock_vector_descriptor_in);
+    rocsparse_destroy_dnvec_descr(subblock_vector_descriptor_out);
+    
+    hipFree(row_ptr_subblock_d);
+    hipFree(col_indices_subblock_d);
+    hipFree(data_d);
+    hipFree(tunnel_indices_local_d);
+    hipFree(diagonal_tunnel_local_d);
+    
 }
 
 

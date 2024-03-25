@@ -7,11 +7,13 @@ public:
     int rank_K;
     int rank_T;
     int rank_pairwise;
+    int rank_events;
 
     int size_global;
     int size_K;
     int size_T;
     int size_pairwise;
+    int size_events;
 
     int root_K;
     int root_T;
@@ -54,9 +56,13 @@ public:
         } 
         else {
             int frac = size_global / 3;
-            size_K = 4; //frac;
-            size_T = 1; //frac + size_global % 3;
-            size_pairwise = 3; // frac;
+            // size_K = 4; //frac;
+            // size_T = 1; //frac + size_global % 3;
+            // size_pairwise = 3; // frac;
+            size_K = frac;
+            size_T = frac + size_global % 3;
+            size_pairwise = frac;
+
         }
         if(size_K + size_T + size_pairwise != size_global){
             std::cerr << "Error in splitting the communicator" << std::endl;
@@ -103,10 +109,27 @@ public:
         MPI_Group_size(group_K, &size_K);
         MPI_Group_size(group_T, &size_T);
         MPI_Group_size(group_pairwise, &size_pairwise);
+        MPI_Group_size(group_global, &size_events);
         MPI_Group_rank(group_K, &rank_K);
         MPI_Group_rank(group_T, &rank_T);
         MPI_Group_rank(group_pairwise, &rank_pairwise);
+        MPI_Group_rank(group_global, &rank_events);
 
+        root_T = 0;
+        root_K = 0;
+        root_pairwise = 0;
+        rank_K = rank_global;
+        rank_T = rank_global;
+        rank_pairwise = rank_global;
+        rank_events = rank_global;
+        size_K = size_global;
+        size_T = size_global;
+        size_pairwise = size_global;
+        size_events = size_global;
+        comm_K = comm_global;
+        comm_T = comm_global;
+        comm_pairwise = comm_global;
+        comm_events = comm_global;
 
         if (comm_K != MPI_COMM_NULL) {
             counts_K = new int[size_K];
