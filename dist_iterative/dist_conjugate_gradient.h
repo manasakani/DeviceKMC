@@ -62,6 +62,21 @@ void conjugate_gradient_jacobi2(
     int max_iterations,
     MPI_Comm comm);
 
+template <void (*distributed_spmv)(
+    Distributed_matrix&,
+    Distributed_vector&,
+    rocsparse_dnvec_descr&,
+    hipStream_t&,
+    rocsparse_handle&)>
+void conjugate_gradient_jacobi3(
+    Distributed_matrix &A_distributed,
+    Distributed_vector &p_distributed,
+    double *r_local_d,
+    double *x_local_d,
+    double *diag_inv_local_d,
+    double relative_tolerance,
+    int max_iterations,
+    MPI_Comm comm);
 
 template <void (*distributed_spmv_split)
     (Distributed_subblock &,

@@ -1063,16 +1063,152 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     // TODO: remove the MPI barrier inside
     double relative_tolerance = 1e-10 * N_interface;
     int max_iterations = 50000;
-    iterative_solver::conjugate_gradient_jacobi2<dspmv::gpu_packing_cam>(
-        *gpubuf.K_distributed,
-        *gpubuf.K_p_distributed,
-        rhs_local_d,
-        v_soln,
-        inv_diagonal_d,
-        relative_tolerance,
-        max_iterations,
-        A_distributed->comm);
 
+    int measurements = 110;
+    double *time_method_1 = new double[measurements];
+    double *time_method_2 = new double[measurements];
+    double *time_method_3 = new double[measurements];
+    double *time_method_4 = new double[measurements];
+
+    double *rhs_local_d_copy;
+    gpuErrchk( hipMalloc((void **)&rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double)) );
+    gpuErrchk( hipMemcpy(rhs_local_d_copy, rhs_local_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice) );
+    double *starting_guess_copy_d;
+    gpuErrchk( hipMalloc((void **)&starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double)) );
+    gpuErrchk( hipMemcpy(starting_guess_copy_d, v_soln, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice) );
+
+    for(int i = 0; i < measurements; i++){
+
+        hipMemcpy(rhs_local_d, rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        hipMemcpy(v_soln, starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        MPI_Barrier(A_distributed->comm);
+        hipDeviceSynchronize();
+        auto time_start = std::chrono::high_resolution_clock::now();
+        iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing_cam>(
+            *gpubuf.K_distributed,
+            *gpubuf.K_p_distributed,
+            rhs_local_d,
+            v_soln,
+            inv_diagonal_d,
+            relative_tolerance,
+            max_iterations,
+            A_distributed->comm);
+        auto time_end = std::chrono::high_resolution_clock::now();
+        MPI_Barrier(A_distributed->comm);
+        time_method_1[i] = std::chrono::duration<double>(time_end - time_start).count();
+        if(A_distributed->rank == 0){
+            std::cout << "Time method 1: " << time_method_1[i] << std::endl;
+        }
+    }
+
+    for(int i = 0; i < measurements; i++){
+
+        hipMemcpy(rhs_local_d, rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        hipMemcpy(v_soln, starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        MPI_Barrier(A_distributed->comm);
+        hipDeviceSynchronize();
+        auto time_start = std::chrono::high_resolution_clock::now();
+        iterative_solver::conjugate_gradient_jacobi2<dspmv::gpu_packing_cam>(
+            *gpubuf.K_distributed,
+            *gpubuf.K_p_distributed,
+            rhs_local_d,
+            v_soln,
+            inv_diagonal_d,
+            relative_tolerance,
+            max_iterations,
+            A_distributed->comm);
+        auto time_end = std::chrono::high_resolution_clock::now();
+        MPI_Barrier(A_distributed->comm);
+        time_method_2[i] = std::chrono::duration<double>(time_end - time_start).count();
+        if(A_distributed->rank == 0){
+            std::cout << "Time method 2: " << time_method_2[i] << std::endl;
+        }
+    }
+
+    for(int i = 0; i < measurements; i++){
+
+        hipMemcpy(rhs_local_d, rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        hipMemcpy(v_soln, starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        MPI_Barrier(A_distributed->comm);
+        hipDeviceSynchronize();
+        auto time_start = std::chrono::high_resolution_clock::now();
+        iterative_solver::conjugate_gradient_jacobi3<dspmv::gpu_packing_cam>(
+            *gpubuf.K_distributed,
+            *gpubuf.K_p_distributed,
+            rhs_local_d,
+            v_soln,
+            inv_diagonal_d,
+            relative_tolerance,
+            max_iterations,
+            A_distributed->comm);
+        auto time_end = std::chrono::high_resolution_clock::now();
+        MPI_Barrier(A_distributed->comm);
+        time_method_3[i] = std::chrono::duration<double>(time_end - time_start).count();
+        if(A_distributed->rank == 0){
+            std::cout << "Time method 3: " << time_method_3[i] << std::endl;
+        }
+    }
+
+    for(int i = 0; i < measurements; i++){
+
+        hipMemcpy(rhs_local_d, rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        hipMemcpy(v_soln, starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        MPI_Barrier(A_distributed->comm);
+        hipDeviceSynchronize();
+        auto time_start = std::chrono::high_resolution_clock::now();
+        iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing>(
+            *gpubuf.K_distributed,
+            *gpubuf.K_p_distributed,
+            rhs_local_d,
+            v_soln,
+            inv_diagonal_d,
+            relative_tolerance,
+            max_iterations,
+            A_distributed->comm);
+        auto time_end = std::chrono::high_resolution_clock::now();
+        MPI_Barrier(A_distributed->comm);
+        time_method_4[i] = std::chrono::duration<double>(time_end - time_start).count();
+        if(A_distributed->rank == 0){
+            std::cout << "Time method 4: " << time_method_4[i] << std::endl;
+        }
+    }
+
+    if(A_distributed->rank == 0){
+        // dump time to txt file
+        std::ofstream time_file;
+        std::string name1 = "time_1_"+ std::to_string(A_distributed->size) +".txt";
+        time_file.open(name1);
+        for(int i = 0; i < measurements; i++){
+            time_file << time_method_1[i] << std::endl;
+        }
+        time_file.close();
+
+        std::string name2 = "time_2_"+ std::to_string(A_distributed->size) +".txt";
+        time_file.open(name2);
+        for(int i = 0; i < measurements; i++){
+            time_file << time_method_2[i] << std::endl;
+        }
+        time_file.close();
+
+        std::string name3 = "time_3_"+ std::to_string(A_distributed->size) +".txt";
+        time_file.open(name3);
+        for(int i = 0; i < measurements; i++){
+            time_file << time_method_3[i] << std::endl;
+        }
+        time_file.close();
+
+        std::string name4 = "time_4_"+ std::to_string(A_distributed->size) +".txt";
+        time_file.open(name4);
+        for(int i = 0; i < measurements; i++){
+            time_file << time_method_4[i] << std::endl;
+        }
+        time_file.close();
+    }
+
+
+
+    MPI_Barrier(A_distributed->comm);
+    exit(1);
 
     // hipsparseDestroy(cusparseHandle);
     hipFree(VL);
@@ -1609,10 +1745,10 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     // gpuErrchk( hipPeekAtLastError() );
 
     // row-wise: only checks sites which were precomputed to be within the cutoff radius
-    hipLaunchKernelGGL(calculate_pairwise_interaction_indexed, num_blocks, num_threads, 0, 0, posx, posy, posz, lattice,
-        pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_idx, N_cutoff);
-    gpuErrchk( hipPeekAtLastError() );
-    gpuErrchk( hipDeviceSynchronize() );
-    gpuErrchk( hipPeekAtLastError() );
+    // hipLaunchKernelGGL(calculate_pairwise_interaction_indexed, num_blocks, num_threads, 0, 0, posx, posy, posz, lattice,
+    //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_idx, N_cutoff);
+    // gpuErrchk( hipPeekAtLastError() );
+    // gpuErrchk( hipDeviceSynchronize() );
+    // gpuErrchk( hipPeekAtLastError() );
 
 }

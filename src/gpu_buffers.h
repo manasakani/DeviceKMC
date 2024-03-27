@@ -129,7 +129,7 @@ public:
         gpuErrchk( hipMalloc((void**)&site_charge, N_ * sizeof(int)) );
         gpuErrchk( hipMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );
         gpuErrchk( hipMalloc((void**)&cutoff_window, N_ * 2 * sizeof(int)) );
-        gpuErrchk( hipMalloc((void**)&cutoff_idx, (size_t)N_ * (size_t)N_cutoff_ * sizeof(int)) );
+        // gpuErrchk( hipMalloc((void**)&cutoff_idx, (size_t)N_ * (size_t)N_cutoff_ * sizeof(int)) );
         gpuErrchk( hipMalloc((void**)&T_bg, 1 * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&sigma, 1 * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&k, 1 * sizeof(double)) );
@@ -159,7 +159,7 @@ public:
         gpuErrchk( hipMemcpy(lattice, lattice_in.data(), 3 * sizeof(double), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(cutoff_window, cutoff_window_in.data(), N_ * 2 * sizeof(int), hipMemcpyHostToDevice) );
-        gpuErrchk( hipMemcpy(cutoff_idx, cutoff_idx_in.data(), (size_t)N_ * (size_t)N_cutoff_ * sizeof(int), hipMemcpyHostToDevice) );
+        // gpuErrchk( hipMemcpy(cutoff_idx, cutoff_idx_in.data(), (size_t)N_ * (size_t)N_cutoff_ * sizeof(int), hipMemcpyHostToDevice) );
     }
 
     void freeGPUmemory();

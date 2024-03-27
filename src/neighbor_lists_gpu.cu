@@ -356,15 +356,15 @@ void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::v
     std::cout << "N: " << N << " max_num_cutoff: " << max_num_cutoff << std::endl;
     std::cout << (size_t)N * (size_t)max_num_cutoff << "\n";
 
-    int *d_cutoff_idx;
-    gpuErrchk( hipMalloc((void**)&d_cutoff_idx, (size_t)N * (size_t)max_num_cutoff * sizeof(int)) );
-    gpuErrchk( hipMemset(d_cutoff_idx, -1, (size_t)N * (size_t)max_num_cutoff * sizeof(int)) );     // unused neighbor elements are set to -1
-    gpuErrchk( hipDeviceSynchronize() );
+    // int *d_cutoff_idx;
+    // gpuErrchk( hipMalloc((void**)&d_cutoff_idx, (size_t)N * (size_t)max_num_cutoff * sizeof(int)) );
+    // gpuErrchk( hipMemset(d_cutoff_idx, -1, (size_t)N * (size_t)max_num_cutoff * sizeof(int)) );     // unused neighbor elements are set to -1
+    // gpuErrchk( hipDeviceSynchronize() );
 
-    // num_blocks = (N + num_threads - 1) / num_threads;
-    populate_cutoff_idx<<<num_blocks, num_threads>>>(d_cutoff_idx, d_element, d_posx, d_posy, d_posz, cutoff_radius, N, max_num_cutoff);
-    gpuErrchk( hipPeekAtLastError() );
-    gpuErrchk( hipDeviceSynchronize() );
+    // // num_blocks = (N + num_threads - 1) / num_threads;
+    // populate_cutoff_idx<<<num_blocks, num_threads>>>(d_cutoff_idx, d_element, d_posx, d_posy, d_posz, cutoff_radius, N, max_num_cutoff);
+    // gpuErrchk( hipPeekAtLastError() );
+    // gpuErrchk( hipDeviceSynchronize() );
 
     if (!mpi_rank) 
     {
@@ -389,7 +389,7 @@ void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::v
     hipMemcpy(neigh_idx, d_neigh_idx, (size_t)N * (size_t)max_num_neighbors * sizeof(int), hipMemcpyDeviceToHost);
     hipMemcpy(cutoff_window, d_cutoff_window, N * 2 * sizeof(int), hipMemcpyDeviceToHost);
     cutoff_idx.resize((size_t)N * (size_t)max_num_cutoff, 0);
-    hipMemcpy(cutoff_idx.data(), d_cutoff_idx, (size_t)N * (size_t)max_num_cutoff * sizeof(int), hipMemcpyDeviceToHost);
+    // hipMemcpy(cutoff_idx.data(), d_cutoff_idx, (size_t)N * (size_t)max_num_cutoff * sizeof(int), hipMemcpyDeviceToHost);
 
     // mpi rank 0 pauses for a second so that smi will update
     // if (!mpi_rank) 
@@ -413,7 +413,7 @@ void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::v
     hipFree(d_neigh_idx);
     hipFree(d_cutoff_window);
     hipFree(d_num_cutoff_idx);
-    hipFree(d_cutoff_idx);
+    // hipFree(d_cutoff_idx);
     
     gpuErrchk( hipPeekAtLastError() );
     //synchronize gpu
