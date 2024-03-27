@@ -1597,7 +1597,7 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials + disp_this_rank;                                       // [V] Virtual potential vector  
     
     // TODO: remove the MPI barrier inside
-    double relative_tolerance = 1e-19 * N_atom;
+    double relative_tolerance = 1e-15 * N_atom;
     int max_iterations = 50000;
 
     iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse1>(

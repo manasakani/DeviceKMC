@@ -65,7 +65,7 @@ void gpu_packing(
                 default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
                 &alpha, vecAp_local, rocsparse_datatype_f64_r,
-                A_distributed.algo,
+                A_distributed.algos_generic[i],
                 &A_distributed.buffer_size[i],
                 A_distributed.buffer_d[i]);
 
@@ -80,7 +80,7 @@ void gpu_packing(
                 default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
                 &beta, vecAp_local, rocsparse_datatype_f64_r,
-                A_distributed.algo,
+                A_distributed.algos_generic[i],
                 &A_distributed.buffer_size[i],
                 A_distributed.buffer_d[i]);
         }
@@ -113,6 +113,10 @@ void gpu_packing_cam(
 
     double alpha = 1.0;
     double beta = 0.0;
+
+
+    double *values;
+    rocsparse_dnvec_get_values(vecAp_local, (void**) &values);
 
     // pinned memory
     // streams_recv
@@ -154,33 +158,58 @@ void gpu_packing_cam(
             cudaErrchk(hipStreamWaitEvent(default_stream, A_distributed.events_recv[i], 0));
         }
         if(i > 0){
-            // cusparseErrchk(hipsparseSpMV(
-            //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
-            //     A_distributed.descriptors[i], p_distributed.descriptors[i],
-            //     &alpha, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
-
             rocsparse_spmv(
                 default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
                 &alpha, vecAp_local, rocsparse_datatype_f64_r,
-                A_distributed.algo,
+                A_distributed.algos_generic[i],
                 &A_distributed.buffer_size[i],
                 A_distributed.buffer_d[i]);
 
+
+            // rocsparse_dcsrmv(
+            //     default_rocsparseHandle,
+            //     rocsparse_operation_none,
+            //     A_distributed.rows_this_rank,
+            //     A_distributed.counts[A_distributed.neighbours[i]],
+            //     A_distributed.nnz_per_neighbour[i],
+            //     &alpha,
+            //     A_distributed.descr_low[i],
+            //     A_distributed.data_d[i],
+            //     A_distributed.row_ptr_d[i],
+            //     A_distributed.col_indices_d[i],
+            //     A_distributed.infos_low[i],
+            //     p_distributed.vec_d[i],
+            //     &alpha,
+            //     values);
+
         }
         else{
-            // cusparseErrchk(hipsparseSpMV(
-            //     default_cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha,
-            //     A_distributed.descriptors[i], p_distributed.descriptors[i],
-            //     &beta, vecAp_local, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, A_distributed.buffer_d[i]));
-
             rocsparse_spmv(
                 default_rocsparseHandle, rocsparse_operation_none, &alpha,
                 A_distributed.descriptors[i], p_distributed.descriptors[i],
                 &beta, vecAp_local, rocsparse_datatype_f64_r,
-                A_distributed.algo,
+                A_distributed.algos_generic[i],
                 &A_distributed.buffer_size[i],
                 A_distributed.buffer_d[i]);
+
+
+
+            // rocsparse_dcsrmv(
+            //     default_rocsparseHandle,
+            //     rocsparse_operation_none,
+            //     A_distributed.rows_this_rank,
+            //     A_distributed.counts[A_distributed.neighbours[i]],
+            //     A_distributed.nnz_per_neighbour[i],
+            //     &alpha,
+            //     A_distributed.descr_low[i],
+            //     A_distributed.data_d[i],
+            //     A_distributed.row_ptr_d[i],
+            //     A_distributed.col_indices_d[i],
+            //     A_distributed.infos_low[i],
+            //     p_distributed.vec_d[i],
+            //     &beta,
+            //     values);
 
         }
 

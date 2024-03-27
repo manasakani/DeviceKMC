@@ -20,7 +20,7 @@ Distributed_matrix::Distributed_matrix(
     this->matrix_size = matrix_size;
     this->nnz = nnz;
     this->comm = comm;
-    this->algo = algo;
+    // this->algo = algo;
 
     this->counts = new int[size];
     this->displacements = new int[size];
@@ -86,7 +86,7 @@ Distributed_matrix::Distributed_matrix(
     this->matrix_size = matrix_size;
     this->comm = comm;
     this->number_of_neighbours = number_of_neighbours;
-    this->algo = algo;
+    // this->algo = algo;
 
     nnz = 0;
     rows_this_rank = counts_in[rank];
@@ -215,6 +215,16 @@ Distributed_matrix::~Distributed_matrix(){
     delete[] events_recv;
     delete[] events_send;
     cudaErrchk(hipEventDestroy(event_default_finished));
+
+    for (int i = 0; i < number_of_neighbours; i++){
+        rocsparse_destroy_mat_descr(descr_low[i]);
+        rocsparse_destroy_mat_info(infos_low[i]);
+    }
+
+    delete[] algos_generic;
+    delete[] infos_low;
+    delete[] descr_low;
+
 }
 
 void Distributed_matrix::find_neighbours(
@@ -575,6 +585,15 @@ void Distributed_matrix::prepare_spmv(){
     rocsparse_handle rocsparseHandle;
     rocsparse_create_handle(&rocsparseHandle);
 
+    algos_generic = new rocsparse_spmv_alg[number_of_neighbours];
+    infos_low = new rocsparse_mat_info[number_of_neighbours];
+    descr_low = new rocsparse_mat_descr[number_of_neighbours];
+
+    algos_generic[0] = rocsparse_spmv_alg_csr_adaptive;
+    for(int k = 1; k < number_of_neighbours; k++){
+        algos_generic[k] = rocsparse_spmv_alg_csr_stream;
+    }
+
     for(int k = 0; k < number_of_neighbours; k++){
         int neighbour_idx = neighbours[k];
 
@@ -591,20 +610,6 @@ void Distributed_matrix::prepare_spmv(){
             rows_this_rank, vec_out_d, rocsparse_datatype_f64_r);
 
 
-        /* Wrap raw data into cuSPARSE generic API objects */
-        // cusparseErrchk(hipsparseCreateCsr(
-        //     &descriptors[k],
-        //     rows_this_rank,
-        //     counts[neighbour_idx],
-        //     nnz_per_neighbour[k],
-        //     row_ptr_d[k],
-        //     col_indices_d[k],
-        //     data_d[k],
-        //     HIPSPARSE_INDEX_32I,
-        //     HIPSPARSE_INDEX_32I,
-        //     HIPSPARSE_INDEX_BASE_ZERO,
-        //     HIP_R_64F
-        // ));
         rocsparse_create_csr_descr(
             &descriptors[k],
             rows_this_rank,
@@ -620,10 +625,7 @@ void Distributed_matrix::prepare_spmv(){
 
         double alpha = 1.0;
         double beta = 0.0;
-        // cusparseErrchk(hipsparseSpMV_bufferSize(
-        //     cusparseHandle, HIPSPARSE_OPERATION_NON_TRANSPOSE, &alpha, descriptors[k],
-        //     vec_in,
-        //     &beta, vec_out, HIP_R_64F, HIPSPARSE_SPMV_ALG_DEFAULT, &buffer_size[k]));
+
         rocsparseErrchk(rocsparse_spmv(
             rocsparseHandle,
             rocsparse_operation_none,
@@ -633,7 +635,7 @@ void Distributed_matrix::prepare_spmv(){
             &beta,
             vec_out,
             rocsparse_datatype_f64_r,
-            algo,
+            algos_generic[k],
             &buffer_size[k],
             nullptr));
         cudaErrchk(hipMalloc(&buffer_d[k], buffer_size[k]));
@@ -642,6 +644,22 @@ void Distributed_matrix::prepare_spmv(){
         rocsparse_destroy_dnvec_descr(vec_out);
         cudaErrchk(hipFree(vec_in_d));
         cudaErrchk(hipFree(vec_out_d));
+
+        rocsparse_create_mat_descr(&descr_low[k]);
+        rocsparse_create_mat_info(&infos_low[k]);
+
+        rocsparse_dcsrmv_analysis(
+            rocsparseHandle,
+            rocsparse_operation_none,
+            rows_this_rank,
+            counts[neighbour_idx],
+            nnz_per_neighbour[k],
+            descr_low[k],
+            data_d[k],
+            row_ptr_d[k],
+            col_indices_d[k],
+            infos_low[k]);
+
     }
 
     rocsparse_destroy_handle(rocsparseHandle);

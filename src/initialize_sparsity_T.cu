@@ -447,7 +447,7 @@ __global__ void populate_T_tunnel_dist(const double *posx, const double *posy, c
                         double energy_window = fabs(local_E_drop);                      // [eV] energy window for tunneling from the contacts
                         double dV = 0.01;                                               // [V] energy spacing for numerical integration
                         // double dE = eV_to_J * dV;                                       // [eV] energy spacing for numerical integration
-                        double dE = eV_to_J * dV * 10; // NOTE: @Manasa this is a temporary fix to avoid MPI issues!
+                        double dE = eV_to_J * dV * 10000000000; // NOTE: @Manasa this is a temporary fix to avoid MPI issues!
 
 
                         // integrate over all the occupied energy levels in the contact
@@ -549,11 +549,12 @@ __global__ void calc_diagonal_T_tunnel( int *col_indices, int *row_ptr, double *
                 tmp += data[j];
             }
         }
+        diagonal[i] = -tmp; //data[j];
+
         //write the sum of the off-diagonals onto the existing diagonal element
         for(int j = row_ptr[i]; j < row_ptr[i+1]; j++){
             if(i + displacement == col_indices[j]){
                 data[j] = -tmp;
-                diagonal[i] = data[j];
             }
         }
     }

@@ -1063,7 +1063,7 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     // TODO: remove the MPI barrier inside
     double relative_tolerance = 1e-10 * N_interface;
     int max_iterations = 50000;
-    iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing>(
+    iterative_solver::conjugate_gradient_jacobi2<dspmv::gpu_packing_cam>(
         *gpubuf.K_distributed,
         *gpubuf.K_p_distributed,
         rhs_local_d,

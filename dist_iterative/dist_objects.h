@@ -99,7 +99,11 @@ class Distributed_matrix{
         int **col_indices_d;
         int **row_ptr_d;
         rocsparse_spmat_descr *descriptors;
-        rocsparse_spmv_alg algo;
+        // rocsparse_spmv_alg algo;
+        rocsparse_spmv_alg *algos_generic;
+
+        rocsparse_mat_info *infos_low;
+        rocsparse_mat_descr *descr_low;
 
         // Data types for MPI
         // assumes symmetric matrix

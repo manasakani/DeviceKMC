@@ -51,8 +51,8 @@ public:
         MPI_Comm_size(comm_global, &size_global);
         //TODO determine better fractions
         if(size_global < 3){
-            std::cerr << "Need at least 3 ranks to split the communicator" << std::endl;
-            exit(1);
+            // std::cerr << "Need at least 3 ranks to split the communicator" << std::endl;
+            // exit(1);
         } 
         else {
             int frac = size_global / 3;
@@ -65,8 +65,8 @@ public:
 
         }
         if(size_K + size_T + size_pairwise != size_global){
-            std::cerr << "Error in splitting the communicator" << std::endl;
-            exit(1);
+            // std::cerr << "Error in splitting the communicator" << std::endl;
+            // exit(1);
         }
 
         int ranks_K[size_K], ranks_T[size_T], ranks_pairwise[size_pairwise];

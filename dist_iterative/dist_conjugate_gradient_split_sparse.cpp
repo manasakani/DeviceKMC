@@ -226,38 +226,5 @@ void conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_spars
     double relative_tolerance,
     int max_iterations,
     MPI_Comm comm);
-template
-void conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse3>(
-    Distributed_subblock_sparse &A_subblock,
-    Distributed_matrix &A_distributed,
-    Distributed_vector &p_distributed,
-    double *r_local_d,
-    double *x_local_d,
-    double *diag_inv_local_d,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm);
-template
-void conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse4>(
-    Distributed_subblock_sparse &A_subblock,
-    Distributed_matrix &A_distributed,
-    Distributed_vector &p_distributed,
-    double *r_local_d,
-    double *x_local_d,
-    double *diag_inv_local_d,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm);
-template
-void conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse5>(
-    Distributed_subblock_sparse &A_subblock,
-    Distributed_matrix &A_distributed,
-    Distributed_vector &p_distributed,
-    double *r_local_d,
-    double *x_local_d,
-    double *diag_inv_local_d,
-    double relative_tolerance,
-    int max_iterations,
-    MPI_Comm comm);
 
 } // namespace iterative_solver

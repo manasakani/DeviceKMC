@@ -91,7 +91,7 @@ int main(int argc, char **argv)
     }
 
     hipError_t hipStatus;
-    int device_id = localid; 
+    int device_id = 0; 
     hipStatus = hipSetDevice(device_id);
 
     hipDeviceProp_t dprop;
@@ -315,7 +315,10 @@ int main(int argc, char **argv)
         {
             outputBuffer << "--------------\n";
             outputBuffer << "KMC step count: " << kmc_step_count << "\n";
-
+            if(rank_global == 0){
+                std::cout << "KMC step count: " << kmc_step_count << "\n";
+            }
+            MPI_Barrier(MPI_COMM_WORLD);
             t_superstep_start = MPI_Wtime();
 
             // Update potential
@@ -399,11 +402,12 @@ int main(int argc, char **argv)
                             0, kmc_comm.comm_pairwise);
                     }
                     t_charge_end = MPI_Wtime();
+
+                    outputBuffer << "Z - calculation time - charge [s]" <<  t_charge_update_end - t_charge_update_start << "\n";
+                    outputBuffer << "Z - calculation time - potential from boundaries [s]" <<  t_boundary_end - t_boundary_start << "\n";
+                    outputBuffer << "Z - calculation time - potential from charges [s]" << t_charge_end - t_charge_start << "\n";
                 }
 
-                outputBuffer << "Z - calculation time - charge [s]" <<  t_charge_update_end - t_charge_update_start << "\n";
-                outputBuffer << "Z - calculation time - potential from boundaries [s]" <<  t_boundary_end - t_boundary_start << "\n";
-                outputBuffer << "Z - calculation time - potential from charges [s]" << t_charge_end - t_charge_start << "\n";
 
             }
 
@@ -495,7 +499,7 @@ int main(int argc, char **argv)
             outputBuffer << "--------------------------------------";
 
             // DEBUG
-            if (kmc_step_count > 10)
+            if (kmc_step_count > 0)
             {
                 std::cout << "kmc step count limit for debug\n";
                 break;
