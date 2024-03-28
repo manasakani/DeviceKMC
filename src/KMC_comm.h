@@ -80,9 +80,10 @@ public:
             ranks_pairwise[i] = i + size_T + size_K;
         }
         if(ranks_pairwise[size_pairwise-1] != size_global - 1){
-            std::cerr << "Error in splitting the communicator" << std::endl;
-            exit(1);
+            // std::cerr << "Error in splitting the communicator" << std::endl;
+            // exit(1);
         }
+
         root_T = 0;
         root_K = size_T;
         root_pairwise = size_T + size_K;
@@ -134,7 +135,10 @@ public:
         if (comm_K != MPI_COMM_NULL) {
             counts_K = new int[size_K];
             displs_K = new int[size_K];
+
             int rows_per_rank_K = nrows_K / size_K;
+
+
             for (int i = 0; i < size_K; ++i) {
                 if(i < nrows_K % size_K){
                     counts_K[i] = rows_per_rank_K+1;
@@ -147,6 +151,72 @@ public:
             for (int i = 1; i < size_K; ++i) {
                 displs_K[i] = displs_K[i-1] + counts_K[i-1];
             }
+
+
+            // if(size_K == 1){
+            //     counts_K[0] = nrows_K;
+            //     displs_K[0] = 0;
+            // }
+            // else if(size_K == 2){
+            //     int rows_per_rank_K = nrows_K / size_K;
+            //     for (int i = 0; i < size_K; ++i) {
+            //         if(i < nrows_K % size_K){
+            //             counts_K[i] = rows_per_rank_K+1;
+            //         }
+            //         else{
+            //             counts_K[i] = rows_per_rank_K;
+            //         }
+            //     }
+            //     displs_K[0] = 0;
+            //     for (int i = 1; i < size_K; ++i) {
+            //         displs_K[i] = displs_K[i-1] + counts_K[i-1];
+            //     }
+
+            // }
+            // else{
+            //     int rows_per_rank_K_boundary = nrows_K / size_K + 0.1 * (nrows_K / size_K);
+            //     int rows_rest = nrows_K - 2*rows_per_rank_K_boundary;
+            //     int rows_per_rank_K_middle = rows_rest / (size_K - 2);
+            //     counts_K[0] = rows_per_rank_K_boundary;
+            //     counts_K[size_K-1] = rows_per_rank_K_boundary;
+            //     for (int i = 1; i < size_K-1; ++i) {
+            //         if(i - 1< rows_rest % (size_K - 2)){
+            //             counts_K[i] = rows_per_rank_K_middle+1;
+            //         }
+            //         else{
+            //             counts_K[i] = rows_per_rank_K_middle;
+            //         }
+            //     }
+            //     displs_K[0] = 0;
+            //     for (int i = 1; i < size_K; ++i) {
+            //         displs_K[i] = displs_K[i-1] + counts_K[i-1];
+            //     }
+
+                
+            // }
+            int sum = 0;
+            for (int i = 0; i < size_K; ++i) {
+                sum += counts_K[i];
+            }
+
+            if(sum != nrows_K){
+                if(rank_K == 0){
+                    for (int i = 0; i < size_K; ++i) {
+                        std::cout << counts_K[i] << " ";
+                    }
+                    std::cout << std::endl;
+                    for (int i = 0; i < size_K; ++i) {
+                        std::cout << displs_K[i] << " ";
+                    }
+                    std::cout << std::endl;
+                    std::cout << nrows_K << std::endl;
+                }
+                MPI_Barrier(comm_K);
+                std::cerr << "Error in splitting the communicator" << std::endl;
+                exit(1);
+            }
+
+
         }
 
         if (comm_T != MPI_COMM_NULL) {
@@ -164,6 +234,27 @@ public:
             displs_T[0] = 0;
             for (int i = 1; i < size_T; ++i) {
                 displs_T[i] = displs_T[i-1] + counts_T[i-1];
+            }
+
+            int sum = 0;
+            for (int i = 0; i < size_T; ++i) {
+                sum += counts_T[i];
+            }
+            if(sum != nrows_T){
+                if(rank_T == 0){
+                    for (int i = 0; i < size_T; ++i) {
+                        std::cout << counts_T[i] << " ";
+                    }
+                    std::cout << std::endl;
+                    for (int i = 0; i < size_T; ++i) {
+                        std::cout << displs_T[i] << " ";
+                    }
+                    std::cout << std::endl;
+                    std::cout << nrows_T << std::endl;
+                }
+                MPI_Barrier(comm_T);
+                std::cerr << "Error in splitting the communicator" << std::endl;
+                exit(1);
             }
         }
 
@@ -183,6 +274,27 @@ public:
             for (int i = 1; i < size_pairwise; ++i) {
                 displs_pairwise[i] = displs_pairwise[i-1] + counts_pairwise[i-1];
             }
+            int sum = 0;
+            for (int i = 0; i < size_pairwise; ++i) {
+                sum += counts_pairwise[i];
+            }
+            if(sum != nrows_pairwise){
+                if(rank_pairwise == 0){
+                    for (int i = 0; i < size_pairwise; ++i) {
+                        std::cout << counts_pairwise[i] << " ";
+                    }
+                    std::cout << std::endl;
+                    for (int i = 0; i < size_pairwise; ++i) {
+                        std::cout << displs_pairwise[i] << " ";
+                    }
+                    std::cout << std::endl;
+                    std::cout << nrows_pairwise << std::endl;
+                }
+                MPI_Barrier(comm_pairwise);
+                std::cerr << "Error in splitting the communicator" << std::endl;
+                exit(1);
+            }
+
         }
         counts_events = new int[size_global];
         displs_events = new int[size_global];
@@ -198,6 +310,14 @@ public:
         displs_events[0] = 0;
         for (int i = 1; i < size_global; ++i) {
             displs_events[i] = displs_events[i-1] + counts_events[i-1];
+        }
+        int sum = 0;
+        for (int i = 0; i < size_global; ++i) {
+            sum += counts_events[i];
+        }
+        if(sum != nrows_events){
+            std::cerr << "Error in splitting the communicator" << std::endl;
+            exit(1);
         }
 
 

@@ -64,6 +64,7 @@ Distributed_matrix::Distributed_matrix(
     }
     prepare_spmv();
 
+    create_cg_overhead();
 }
 
 
@@ -134,6 +135,8 @@ Distributed_matrix::Distributed_matrix(
     // check_sorted();
     construct_mpi_data_types();
     create_events_streams();
+
+    create_cg_overhead();
 }
 
 
@@ -224,6 +227,8 @@ Distributed_matrix::~Distributed_matrix(){
     delete[] algos_generic;
     delete[] infos_low;
     delete[] descr_low;
+
+    destroy_cg_overhead();
 
 }
 
@@ -663,4 +668,33 @@ void Distributed_matrix::prepare_spmv(){
     }
 
     rocsparse_destroy_handle(rocsparseHandle);
+}
+
+void Distributed_matrix::create_cg_overhead(
+){
+    // initialize cuda
+    cublasErrchk(hipblasCreate(&default_cublasHandle));
+    cusparseErrchk(hipsparseCreate(&default_cusparseHandle));    
+    rocsparse_create_handle(&default_rocsparseHandle);
+    cudaErrchk(hipStreamCreate(&default_stream));
+    cusparseErrchk(hipsparseSetStream(default_cusparseHandle, default_stream));
+    cublasErrchk(hipblasSetStream(default_cublasHandle, default_stream));
+    rocsparse_set_stream(default_rocsparseHandle, default_stream);
+    cudaErrchk(hipMalloc((void **)&Ap_local_d, rows_this_rank * sizeof(double)));
+    rocsparse_create_dnvec_descr(&vecAp_local,
+                                rows_this_rank,
+                                Ap_local_d,
+                                rocsparse_datatype_f64_r);
+    cudaErrchk(hipMalloc((void **)&z_local_d, rows_this_rank * sizeof(double)));    
+}
+
+void Distributed_matrix::destroy_cg_overhead(
+){
+    rocsparse_destroy_handle(default_rocsparseHandle);
+    cusparseErrchk(hipsparseDestroy(default_cusparseHandle));
+    cublasErrchk(hipblasDestroy(default_cublasHandle));
+    cudaErrchk(hipStreamDestroy(default_stream));
+    rocsparse_destroy_dnvec_descr(vecAp_local);
+    cudaErrchk(hipFree(Ap_local_d));    
+    cudaErrchk(hipFree(z_local_d));
 }

@@ -900,122 +900,20 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
                                      const int num_metals, int kmc_step_count)
 {
 
-    // *********************************************************************
-    // 1. Assemble the device conductance matrix (A) and the boundaries (rhs)
-    // based on the precalculated sparsity of the neighbor connections (CSR rows/cols)
-
-    // device submatrix size
-    int N_interface = N - (N_left_tot + N_right_tot);
-
-    // ** prepare the matrix (fill in the sparsity pattern)
     Distributed_matrix *A_distributed = gpubuf.K_distributed;
     int rows_this_rank = A_distributed->rows_this_rank;
     int disp_this_rank = A_distributed->displacements[A_distributed->rank];
+    // device submatrix size
+    int N_interface = N - (N_left_tot + N_right_tot);
 
-    // TODO switch to COO format to assemble faster
-    int threads = 1024;
-    int blocks = (A_distributed->rows_this_rank + threads - 1) / threads;   
- 
-    for(int i = 0; i < A_distributed->number_of_neighbours; i++){
-
-        int rows_neighbour = A_distributed->counts[A_distributed->neighbours[i]];
-        int disp_neighbour = A_distributed->displacements[A_distributed->neighbours[i]];
-
-        //maybe remove it
-        gpuErrchk(hipMemset(A_distributed->data_d[i], 0,
-            A_distributed->nnz_per_neighbour[i] * sizeof(double)) );
-
-        hipLaunchKernelGGL(calc_off_diagonal_dist, blocks, threads, 0, 0, 
-            gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
-            rows_this_rank,
-            rows_neighbour,
-            N_left_tot + disp_this_rank,
-            N_left_tot + disp_neighbour,
-            num_metals,
-            high_G, low_G,
-            A_distributed->col_indices_d[i],
-            A_distributed->row_ptr_d[i],
-            A_distributed->data_d[i]);
-    }
-
-
-    // ** update the diagonal
-
-    // compute the local pieces of the diagonal
-    double *diagonal_local_d;
-    gpuErrchk( hipMalloc((void **)&diagonal_local_d, A_distributed->rows_this_rank* sizeof(double)) );
-    gpuErrchk( hipMemset(diagonal_local_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
-
-    // contribution to diagonal from left boundary
-    double *left_boundary_d;
-    gpuErrchk( hipMalloc((void **)&left_boundary_d, A_distributed->rows_this_rank * sizeof(double)) );
-    gpuErrchk( hipMemset(left_boundary_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
+    double *rhs_local_d;
+    gpuErrchk( hipMalloc((void **)&rhs_local_d, A_distributed->rows_this_rank * sizeof(double)) );
     
-    // contribution to diagonal from right boundary
-    double *right_boundary_d;
-    gpuErrchk( hipMalloc((void **)&right_boundary_d, A_distributed->rows_this_rank * sizeof(double)) );
-    gpuErrchk( hipMemset(right_boundary_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
+    // the initial guess for the solution is the current site-resolved potential inside the device
+    double *v_soln = gpubuf.site_potential_boundary + N_left_tot + disp_this_rank;
+    double *inv_diagonal_d;
+    gpuErrchk( hipMalloc((void **)&inv_diagonal_d, A_distributed->rows_this_rank * sizeof(double)) );
 
-    // sum the sub-blocks of the matrix owned by this rank into its diagonal
-    for(int i = 0; i < A_distributed->number_of_neighbours; i++){
-        // needs that the diagonal element is zero
-        hipLaunchKernelGGL(reduce_rows_into_diag, blocks, threads, 0, 0, 
-            A_distributed->col_indices_d[i],
-            A_distributed->row_ptr_d[i],
-            A_distributed->data_d[i],
-            diagonal_local_d,
-            A_distributed->rows_this_rank
-            );
-    }
-
-    // update the diagonal with the terms corresponding to the left boundary
-    hipLaunchKernelGGL(reduce_contact_into_diag, blocks, threads, 0, 0, 
-        gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
-        A_distributed->rows_this_rank,
-        N_left_tot,
-        N_left_tot + disp_this_rank,
-        0,
-        num_metals,
-        high_G, low_G,        
-        gpubuf.left_col_indices_d,
-        gpubuf.left_row_ptr_d,
-        left_boundary_d
-    );
-
-    // update the diagonal with the terms corresponding to the right boundary
-    hipLaunchKernelGGL(reduce_contact_into_diag, blocks, threads, 0, 0, 
-        gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
-        A_distributed->rows_this_rank,
-        N_right_tot,
-        N_left_tot + disp_this_rank,
-        N_left_tot + N_interface,
-        num_metals,
-        high_G, low_G,        
-        gpubuf.right_col_indices_d,
-        gpubuf.right_row_ptr_d,
-        right_boundary_d
-    );
-
-    // insert the diagonal elements into the matrix
-    hipLaunchKernelGGL(insert_into_diag, blocks, threads, 0, 0, 
-        diagonal_local_d,
-        left_boundary_d,
-        right_boundary_d,
-        A_distributed->col_indices_d[0],
-        A_distributed->row_ptr_d[0],
-        A_distributed->data_d[0],
-        A_distributed->rows_this_rank
-    );
-
-    // // DEBUG
-    // dump A into a text file:
-    // dump_csr_matrix_txt(N_interface, A_distributed->nnz, A_distributed->row_ptr_d[0],  A_distributed->col_indices_d[0], A_distributed->data_d[0], 0);
-    // std::cout << "dumped csr matrix\n";
-    // exit(1);
-    // // DEBUG
-
-    // Prepare the RHS vector: rhs = -K_left_interface * VL - K_right_interface * VR
-    // we take the negative and do rhs = K_left_interface * VL + K_right_interface * VR to account for a sign change in v_soln
     double *VL, *VR;
     double Vl_h = -Vd/2;
     double Vr_h = Vd/2;
@@ -1024,51 +922,199 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     gpuErrchk( hipMemcpy(VL, &Vl_h, 1 * sizeof(double), hipMemcpyHostToDevice) );
     gpuErrchk( hipMemcpy(VR, &Vr_h, 1 * sizeof(double), hipMemcpyHostToDevice) );
 
-    // ***********************************
-    // 2. Solve system of linear equations 
-
-    // the initial guess for the solution is the current site-resolved potential inside the device
-    double *v_soln = gpubuf.site_potential_boundary + N_left_tot + disp_this_rank;
-
-    hipsparseHandle_t cusparseHandle;
-    hipsparseCreate(&cusparseHandle);
-    hipsparseSetPointerMode(cusparseHandle, HIPSPARSE_POINTER_MODE_DEVICE);
-
-    // //debug - calls local solver
-    // double *rhs_local_d;
-    // gpuErrchk( hipMalloc((void **)&rhs_local_d, A_distributed->rows_this_rank * sizeof(double)) );
-    // gpuErrchk( hipMemset(rhs_local_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
-    // hipLaunchKernelGGL(calc_rhs_for_A, blocks, threads, 0, 0, left_boundary_d, right_boundary_d, VL, VR,
-    //     rhs_local_d, A_distributed->rows_this_rank, N_left_tot, N_right_tot);
-    // solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_distributed->data_d[0], A_distributed->row_ptr_d[0], A_distributed->col_indices_d[0], A_distributed->nnz, N_interface, rhs_local_d, v_soln);
-    // //debug
-
-    double *inv_diagonal_d;
-    gpuErrchk( hipMalloc((void **)&inv_diagonal_d, A_distributed->rows_this_rank * sizeof(double)) );
-
-    hipLaunchKernelGGL(inverse_diag, blocks, threads, 0, 0, 
-        inv_diagonal_d,
-        diagonal_local_d,
-        left_boundary_d,
-        right_boundary_d,
-        A_distributed->rows_this_rank);
-
-    double *rhs_local_d;
-    gpuErrchk( hipMalloc((void **)&rhs_local_d, A_distributed->rows_this_rank * sizeof(double)) );
-    gpuErrchk( hipMemset(rhs_local_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
-
-    hipLaunchKernelGGL(calc_rhs_for_A, blocks, threads, 0, 0, left_boundary_d, right_boundary_d, VL, VR,
-        rhs_local_d, A_distributed->rows_this_rank, N_left_tot, N_right_tot);
-
-    // TODO: remove the MPI barrier inside
-    double relative_tolerance = 1e-10 * N_interface;
-    int max_iterations = 50000;
+    // compute the local pieces of the diagonal
+    double *diagonal_local_d;
+    gpuErrchk( hipMalloc((void **)&diagonal_local_d, A_distributed->rows_this_rank* sizeof(double)) );
+    // contribution to diagonal from left boundary
+    double *left_boundary_d;
+    gpuErrchk( hipMalloc((void **)&left_boundary_d, A_distributed->rows_this_rank * sizeof(double)) );      
+    // contribution to diagonal from right boundary
+    double *right_boundary_d;
+    gpuErrchk( hipMalloc((void **)&right_boundary_d, A_distributed->rows_this_rank * sizeof(double)) );  
 
     int measurements = 110;
-    double *time_method_1 = new double[measurements];
-    double *time_method_2 = new double[measurements];
-    double *time_method_3 = new double[measurements];
-    double *time_method_4 = new double[measurements];
+
+    double time_assembly[measurements];
+    
+    for(int i = 0; i < measurements; i++){
+
+        gpuErrchk( hipMemset(rhs_local_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
+        gpuErrchk( hipMemset(inv_diagonal_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
+        gpuErrchk( hipMemset(diagonal_local_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
+        gpuErrchk( hipMemset(left_boundary_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
+        gpuErrchk( hipMemset(right_boundary_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
+
+
+        hipDeviceSynchronize();
+        MPI_Barrier(A_distributed->comm);
+        auto time_start = std::chrono::high_resolution_clock::now();
+
+
+        // *********************************************************************
+        // 1. Assemble the device conductance matrix (A) and the boundaries (rhs)
+        // based on the precalculated sparsity of the neighbor connections (CSR rows/cols)
+
+        // ** prepare the matrix (fill in the sparsity pattern)
+        // TODO switch to COO format to assemble faster
+        int threads = 1024;
+        int blocks = (A_distributed->rows_this_rank + threads - 1) / threads;   
+    
+        for(int i = 0; i < A_distributed->number_of_neighbours; i++){
+
+            int rows_neighbour = A_distributed->counts[A_distributed->neighbours[i]];
+            int disp_neighbour = A_distributed->displacements[A_distributed->neighbours[i]];
+
+            //maybe remove it
+            gpuErrchk(hipMemset(A_distributed->data_d[i], 0,
+                A_distributed->nnz_per_neighbour[i] * sizeof(double)) );
+
+            hipLaunchKernelGGL(calc_off_diagonal_dist, blocks, threads, 0, 0, 
+                gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
+                rows_this_rank,
+                rows_neighbour,
+                N_left_tot + disp_this_rank,
+                N_left_tot + disp_neighbour,
+                num_metals,
+                high_G, low_G,
+                A_distributed->col_indices_d[i],
+                A_distributed->row_ptr_d[i],
+                A_distributed->data_d[i]);
+        }
+
+
+        // ** update the diagonal
+        // sum the sub-blocks of the matrix owned by this rank into its diagonal
+        for(int i = 0; i < A_distributed->number_of_neighbours; i++){
+            // needs that the diagonal element is zero
+            hipLaunchKernelGGL(reduce_rows_into_diag, blocks, threads, 0, 0, 
+                A_distributed->col_indices_d[i],
+                A_distributed->row_ptr_d[i],
+                A_distributed->data_d[i],
+                diagonal_local_d,
+                A_distributed->rows_this_rank
+                );
+        }
+
+        // update the diagonal with the terms corresponding to the left boundary
+        hipLaunchKernelGGL(reduce_contact_into_diag, blocks, threads, 0, 0, 
+            gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
+            A_distributed->rows_this_rank,
+            N_left_tot,
+            N_left_tot + disp_this_rank,
+            0,
+            num_metals,
+            high_G, low_G,        
+            gpubuf.left_col_indices_d,
+            gpubuf.left_row_ptr_d,
+            left_boundary_d
+        );
+
+        // update the diagonal with the terms corresponding to the right boundary
+        hipLaunchKernelGGL(reduce_contact_into_diag, blocks, threads, 0, 0, 
+            gpubuf.metal_types, gpubuf.site_element, gpubuf.site_charge,
+            A_distributed->rows_this_rank,
+            N_right_tot,
+            N_left_tot + disp_this_rank,
+            N_left_tot + N_interface,
+            num_metals,
+            high_G, low_G,        
+            gpubuf.right_col_indices_d,
+            gpubuf.right_row_ptr_d,
+            right_boundary_d
+        );
+
+        // insert the diagonal elements into the matrix
+        hipLaunchKernelGGL(insert_into_diag, blocks, threads, 0, 0, 
+            diagonal_local_d,
+            left_boundary_d,
+            right_boundary_d,
+            A_distributed->col_indices_d[0],
+            A_distributed->row_ptr_d[0],
+            A_distributed->data_d[0],
+            A_distributed->rows_this_rank
+        );
+
+        // // DEBUG
+        // dump A into a text file:
+        // dump_csr_matrix_txt(N_interface, A_distributed->nnz, A_distributed->row_ptr_d[0],  A_distributed->col_indices_d[0], A_distributed->data_d[0], 0);
+        // std::cout << "dumped csr matrix\n";
+        // exit(1);
+        // // DEBUG
+
+        // Prepare the RHS vector: rhs = -K_left_interface * VL - K_right_interface * VR
+        // we take the negative and do rhs = K_left_interface * VL + K_right_interface * VR to account for a sign change in v_soln
+
+
+        // ***********************************
+        // 2. Solve system of linear equations 
+
+
+
+        // hipsparseHandle_t cusparseHandle;
+        // hipsparseCreate(&cusparseHandle);
+        // hipsparseSetPointerMode(cusparseHandle, HIPSPARSE_POINTER_MODE_DEVICE);
+
+        // //debug - calls local solver
+        // double *rhs_local_d;
+        // gpuErrchk( hipMalloc((void **)&rhs_local_d, A_distributed->rows_this_rank * sizeof(double)) );
+        // gpuErrchk( hipMemset(rhs_local_d, 0, A_distributed->rows_this_rank * sizeof(double)) );
+        // hipLaunchKernelGGL(calc_rhs_for_A, blocks, threads, 0, 0, left_boundary_d, right_boundary_d, VL, VR,
+        //     rhs_local_d, A_distributed->rows_this_rank, N_left_tot, N_right_tot);
+        // solve_sparse_CG_Jacobi(handle_cublas, cusparseHandle, A_distributed->data_d[0], A_distributed->row_ptr_d[0], A_distributed->col_indices_d[0], A_distributed->nnz, N_interface, rhs_local_d, v_soln);
+        // //debug
+
+
+        hipLaunchKernelGGL(inverse_diag, blocks, threads, 0, 0, 
+            inv_diagonal_d,
+            diagonal_local_d,
+            left_boundary_d,
+            right_boundary_d,
+            A_distributed->rows_this_rank);
+
+
+
+        hipLaunchKernelGGL(calc_rhs_for_A, blocks, threads, 0, 0, left_boundary_d, right_boundary_d, VL, VR,
+            rhs_local_d, A_distributed->rows_this_rank, N_left_tot, N_right_tot);
+        
+        hipDeviceSynchronize();
+        MPI_Barrier(A_distributed->comm);
+        
+        auto time_end = std::chrono::high_resolution_clock::now();
+
+        time_assembly[i] = std::chrono::duration<double>(time_end - time_start).count();
+        if(A_distributed->rank == 0){
+            std::cout << "Time assembly: " << time_assembly[i] << std::endl;
+        }
+    }
+
+    if(A_distributed->rank == 0){
+        std::string base_path =  "cg_assembly/";
+
+        // dump time to txt file
+        std::ofstream time_file;
+        std::string name1 = base_path + "time_assembly_"+ std::to_string(A_distributed->size) +".txt";
+        time_file.open(name1);
+        for(int i = 0; i < measurements; i++){
+            time_file << time_assembly[i] << std::endl;
+        }
+        time_file.close();
+
+    }
+
+    // TODO: remove the MPI barrier inside
+    double relative_tolerance = 1e-14 * N_interface;
+    int max_iterations = 1000;
+
+
+    // iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing_cam>(
+    //     *gpubuf.K_distributed,
+    //     *gpubuf.K_p_distributed,
+    //     rhs_local_d,
+    //     v_soln,
+    //     inv_diagonal_d,
+    //     relative_tolerance,
+    //     max_iterations,
+    //     A_distributed->comm);
 
     double *rhs_local_d_copy;
     gpuErrchk( hipMalloc((void **)&rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double)) );
@@ -1077,12 +1123,15 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     gpuErrchk( hipMalloc((void **)&starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double)) );
     gpuErrchk( hipMemcpy(starting_guess_copy_d, v_soln, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice) );
 
+    double *time_method_1 = new double[measurements];
+    double *time_method_4 = new double[measurements];
+
     for(int i = 0; i < measurements; i++){
 
         hipMemcpy(rhs_local_d, rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
         hipMemcpy(v_soln, starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
-        MPI_Barrier(A_distributed->comm);
         hipDeviceSynchronize();
+        MPI_Barrier(A_distributed->comm);
         auto time_start = std::chrono::high_resolution_clock::now();
         iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing_cam>(
             *gpubuf.K_distributed,
@@ -1093,68 +1142,22 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
             relative_tolerance,
             max_iterations,
             A_distributed->comm);
-        auto time_end = std::chrono::high_resolution_clock::now();
+        hipDeviceSynchronize();
         MPI_Barrier(A_distributed->comm);
+        auto time_end = std::chrono::high_resolution_clock::now();
         time_method_1[i] = std::chrono::duration<double>(time_end - time_start).count();
         if(A_distributed->rank == 0){
             std::cout << "Time method 1: " << time_method_1[i] << std::endl;
         }
     }
 
-    for(int i = 0; i < measurements; i++){
-
-        hipMemcpy(rhs_local_d, rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
-        hipMemcpy(v_soln, starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
-        MPI_Barrier(A_distributed->comm);
-        hipDeviceSynchronize();
-        auto time_start = std::chrono::high_resolution_clock::now();
-        iterative_solver::conjugate_gradient_jacobi2<dspmv::gpu_packing_cam>(
-            *gpubuf.K_distributed,
-            *gpubuf.K_p_distributed,
-            rhs_local_d,
-            v_soln,
-            inv_diagonal_d,
-            relative_tolerance,
-            max_iterations,
-            A_distributed->comm);
-        auto time_end = std::chrono::high_resolution_clock::now();
-        MPI_Barrier(A_distributed->comm);
-        time_method_2[i] = std::chrono::duration<double>(time_end - time_start).count();
-        if(A_distributed->rank == 0){
-            std::cout << "Time method 2: " << time_method_2[i] << std::endl;
-        }
-    }
 
     for(int i = 0; i < measurements; i++){
 
         hipMemcpy(rhs_local_d, rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
         hipMemcpy(v_soln, starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        hipDeviceSynchronize(); 
         MPI_Barrier(A_distributed->comm);
-        hipDeviceSynchronize();
-        auto time_start = std::chrono::high_resolution_clock::now();
-        iterative_solver::conjugate_gradient_jacobi3<dspmv::gpu_packing_cam>(
-            *gpubuf.K_distributed,
-            *gpubuf.K_p_distributed,
-            rhs_local_d,
-            v_soln,
-            inv_diagonal_d,
-            relative_tolerance,
-            max_iterations,
-            A_distributed->comm);
-        auto time_end = std::chrono::high_resolution_clock::now();
-        MPI_Barrier(A_distributed->comm);
-        time_method_3[i] = std::chrono::duration<double>(time_end - time_start).count();
-        if(A_distributed->rank == 0){
-            std::cout << "Time method 3: " << time_method_3[i] << std::endl;
-        }
-    }
-
-    for(int i = 0; i < measurements; i++){
-
-        hipMemcpy(rhs_local_d, rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
-        hipMemcpy(v_soln, starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
-        MPI_Barrier(A_distributed->comm);
-        hipDeviceSynchronize();
         auto time_start = std::chrono::high_resolution_clock::now();
         iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing>(
             *gpubuf.K_distributed,
@@ -1165,50 +1168,39 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
             relative_tolerance,
             max_iterations,
             A_distributed->comm);
+        hipDeviceSynchronize(); 
+        MPI_Barrier(A_distributed->comm);    
         auto time_end = std::chrono::high_resolution_clock::now();
-        MPI_Barrier(A_distributed->comm);
         time_method_4[i] = std::chrono::duration<double>(time_end - time_start).count();
         if(A_distributed->rank == 0){
             std::cout << "Time method 4: " << time_method_4[i] << std::endl;
         }
     }
 
-    if(A_distributed->rank == 0){
-        // dump time to txt file
-        std::ofstream time_file;
-        std::string name1 = "time_1_"+ std::to_string(A_distributed->size) +".txt";
-        time_file.open(name1);
-        for(int i = 0; i < measurements; i++){
-            time_file << time_method_1[i] << std::endl;
-        }
-        time_file.close();
+    // if(A_distributed->rank == 0){
+    //     std::string base_path = std::to_string(max_iterations) + "/";
 
-        std::string name2 = "time_2_"+ std::to_string(A_distributed->size) +".txt";
-        time_file.open(name2);
-        for(int i = 0; i < measurements; i++){
-            time_file << time_method_2[i] << std::endl;
-        }
-        time_file.close();
+    //     // dump time to txt file
+    //     std::ofstream time_file;
+    //     std::string name1 = base_path + "time_1_"+ std::to_string(A_distributed->size) +".txt";
+    //     time_file.open(name1);
+    //     for(int i = 0; i < measurements; i++){
+    //         time_file << time_method_1[i] << std::endl;
+    //     }
+    //     time_file.close();
 
-        std::string name3 = "time_3_"+ std::to_string(A_distributed->size) +".txt";
-        time_file.open(name3);
-        for(int i = 0; i < measurements; i++){
-            time_file << time_method_3[i] << std::endl;
-        }
-        time_file.close();
-
-        std::string name4 = "time_4_"+ std::to_string(A_distributed->size) +".txt";
-        time_file.open(name4);
-        for(int i = 0; i < measurements; i++){
-            time_file << time_method_4[i] << std::endl;
-        }
-        time_file.close();
-    }
+    //     std::string name4 = base_path + "time_4_"+ std::to_string(A_distributed->size) +".txt";
+    //     time_file.open(name4);
+    //     for(int i = 0; i < measurements; i++){
+    //         time_file << time_method_4[i] << std::endl;
+    //     }
+    //     time_file.close();
+    // }
 
 
 
-    MPI_Barrier(A_distributed->comm);
-    exit(1);
+    // MPI_Barrier(A_distributed->comm);
+    // exit(1);
 
     // hipsparseDestroy(cusparseHandle);
     hipFree(VL);

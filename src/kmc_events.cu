@@ -568,11 +568,9 @@ double execute_kmc_step_mpi(
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
 
-    // **************************
-    // **** Build Event List ****
-    // **************************
-
-    double time_event_list = 0.0;
+    int measurements = 110;
+    double time_list[measurements];
+    double time_events[measurements];
 
     // the KMC event list arrays only exist in gpu memory
     EVENTTYPE *event_type_local_d; 
@@ -583,29 +581,6 @@ double execute_kmc_step_mpi(
     gpuErrchk( hipMalloc((void**)&event_prob_cum_local_d, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
     double *event_prob_cum_global_h;
     gpuErrchk( hipMallocHost((void**)&event_prob_cum_global_h, size * sizeof(double)));
-       
-
-    int num_threads = 1024;
-    int num_blocks = ((size_t)count[rank] * (size_t)nn - 1) / num_threads + 1;
-
-    // populate the event_type and event_prob arrays:
-    // only your part of the event list
-    // TODO use COO
-    build_event_list_split<<<num_blocks, num_threads>>>(N,
-                                                count[rank], displs[rank],
-                                                nn, neigh_idx, 
-                                                site_layer, lattice, pbc,
-                                                T_bg, freq, sigma, k,
-                                                posx, posy, posz, 
-                                                site_potential_charge, site_temperature, 
-                                                site_element, site_charge,
-                                                event_type_local_d, event_prob_local_d);
-
-    // **************************
-    // ** Event Execution Loop **
-    // **************************
-
-    int threads_single_block = 64;
 
     int ijevent_to_delete[3];
     int *ijevent_to_delete_d;
@@ -617,87 +592,193 @@ double execute_kmc_step_mpi(
     double *Psum_host;
     gpuErrchk(hipMallocHost((void**)&Psum_host, 1 * sizeof(double)));
 
+    // **************************
+    // **** Build Event List ****
+    // **************************
 
-    double freq_h;
-    gpuErrchk( hipMemcpy(&freq_h, freq, 1 * sizeof(double), hipMemcpyDeviceToHost) );
-    while (event_time < 1 / freq_h) {
-        event_counter++;  
 
-        // get the cumulative sum of the probabilities
-        thrust::inclusive_scan(thrust::device, event_prob_local_d, event_prob_local_d + (size_t)count[rank] * (size_t)nn, event_prob_cum_local_d);
+    for(int i = 0; i < measurements; i++){
 
+        gpuErrchk( hipMemset(event_prob_local_d, 0, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
+        gpuErrchk( hipMemset(event_type_local_d, 0, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE)) );
+
+
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);
+
+        auto start = std::chrono::high_resolution_clock::now();
+
+
+        int num_threads = 1024;
+        int num_blocks = ((size_t)count[rank] * (size_t)nn - 1) / num_threads + 1;
+
+        // populate the event_type and event_prob arrays:
+        // only your part of the event list
+        // TODO use COO
+        build_event_list_split<<<num_blocks, num_threads>>>(N,
+                                                    count[rank], displs[rank],
+                                                    nn, neigh_idx, 
+                                                    site_layer, lattice, pbc,
+                                                    T_bg, freq, sigma, k,
+                                                    posx, posy, posz, 
+                                                    site_potential_charge, site_temperature, 
+                                                    site_element, site_charge,
+                                                    event_type_local_d, event_prob_local_d);
+
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);
         
-        // select an event
-
-        // allgather with host pointers
-        gpuErrchk( hipMemcpy(Psum_host, event_prob_cum_local_d + (size_t)count[rank] * (size_t)nn - 1, sizeof(double), hipMemcpyDeviceToHost) );
-        MPI_Allgather(Psum_host, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
-
-        // allgather with device pointers:
-        // MPI_Allgather(event_prob_cum_local_d + count[rank] * nn - 1, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
-
-        for (int i = 1; i < size; i++){
-            event_prob_cum_global_h[i] += event_prob_cum_global_h[i-1];
+        auto end = std::chrono::high_resolution_clock::now();
+        time_list[i] = std::chrono::duration<double>(end - start).count();
+        if(rank == 0){
+            std::cout << "Time to build event list: " << time_list[i] << std::endl;
         }
 
-        //TODO: cuda random number
-        double number = rng.getRandomNumber() * event_prob_cum_global_h[size-1];
-        // figure out which rank has the number
-        int source_rank;
-        for (int i = 0; i < size; i++){
-            if (number < event_prob_cum_global_h[i]){
-                source_rank = i;
-                break;
-            }
-        }
+    }
 
-        if(rank == source_rank){
-            // shift random number to the correct range
-            if(rank > 0){
-                number -= event_prob_cum_global_h[rank-1];
-            }
+    EVENTTYPE *event_type_local_d_copy; 
+    double    *event_prob_local_d_copy; 
+    gpuErrchk( hipMalloc((void**)&event_type_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE)) );
+    gpuErrchk( hipMalloc((void**)&event_prob_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
+
+    gpuErrchk( hipMemcpy(event_type_local_d_copy, event_type_local_d, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE), hipMemcpyDeviceToDevice) );
+    gpuErrchk( hipMemcpy(event_prob_local_d_copy, event_prob_local_d, (size_t)count[rank] * (size_t)nn * sizeof(double), hipMemcpyDeviceToDevice) );
+
+
+    // **************************
+    // ** Event Execution Loop **
+    // **************************
+    for(int i = 0; i < measurements; i++){
+
+        event_time = 0.0;
+        event_time = 0.0;
+        event_counter = 0;
+
+        gpuErrchk( hipMemcpy(event_type_local_d, event_type_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE), hipMemcpyDeviceToDevice) );
+        gpuErrchk( hipMemcpy(event_prob_local_d, event_prob_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(double), hipMemcpyDeviceToDevice) );
+
+        gpuErrchk( hipMemset(event_prob_cum_local_d, 0, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
+
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);
         
-            int event_idx = thrust::upper_bound(thrust::device, event_prob_cum_local_d, event_prob_cum_local_d + (size_t)count[rank] * (size_t)nn, number) - event_prob_cum_local_d;
-            // std::cout << "selected event: " << event_idx << "\n";
 
-            read_out_event<<<1,threads_single_block>>>(
-                ijevent_to_delete_d,
-                event_idx / nn + displs[rank],
-                neigh_idx + displs[rank]*nn + event_idx,
-                event_type_local_d + event_idx);
+        auto start = std::chrono::high_resolution_clock::now();
+
+        int threads_single_block = 64;
+
+
+
+        double freq_h;
+        gpuErrchk( hipMemcpy(&freq_h, freq, 1 * sizeof(double), hipMemcpyDeviceToHost) );
+        // while (event_time < 1 / freq_h) {
+        while (event_counter < 2000) {
+            event_counter++;  
+
+            // get the cumulative sum of the probabilities
+            thrust::inclusive_scan(thrust::device, event_prob_local_d, event_prob_local_d + (size_t)count[rank] * (size_t)nn, event_prob_cum_local_d);
             
-            gpuErrchk( hipMemcpy(ijevent_to_delete,
-                ijevent_to_delete_d, 3 * sizeof(int), hipMemcpyDeviceToHost) );
+            // select an event
 
-            MPI_Bcast(ijevent_to_delete, 3, MPI_INT, source_rank, comm);
+            // allgather with host pointers
+            gpuErrchk( hipMemcpy(Psum_host, event_prob_cum_local_d + (size_t)count[rank] * (size_t)nn - 1, sizeof(double), hipMemcpyDeviceToHost) );
+            MPI_Allgather(Psum_host, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
+
+            // allgather with device pointers:
+            // MPI_Allgather(event_prob_cum_local_d + count[rank] * nn - 1, 1, MPI_DOUBLE, event_prob_cum_global_h, 1, MPI_DOUBLE, comm);
+
+            for (int i = 1; i < size; i++){
+                event_prob_cum_global_h[i] += event_prob_cum_global_h[i-1];
+            }
+
+            //TODO: cuda random number
+            double number = rng.getRandomNumber() * event_prob_cum_global_h[size-1];
+            // figure out which rank has the number
+            int source_rank;
+            for (int i = 0; i < size; i++){
+                if (number < event_prob_cum_global_h[i]){
+                    source_rank = i;
+                    break;
+                }
+            }
+
+            if(rank == source_rank){
+                // shift random number to the correct range
+                if(rank > 0){
+                    number -= event_prob_cum_global_h[rank-1];
+                }
+            
+                int event_idx = thrust::upper_bound(thrust::device, event_prob_cum_local_d, event_prob_cum_local_d + (size_t)count[rank] * (size_t)nn, number) - event_prob_cum_local_d;
+                // std::cout << "selected event: " << event_idx << "\n";
+
+                read_out_event<<<1,threads_single_block>>>(
+                    ijevent_to_delete_d,
+                    event_idx / nn + displs[rank],
+                    neigh_idx + displs[rank]*nn + event_idx,
+                    event_type_local_d + event_idx);
+                
+                gpuErrchk( hipMemcpy(ijevent_to_delete,
+                    ijevent_to_delete_d, 3 * sizeof(int), hipMemcpyDeviceToHost) );
+
+                MPI_Bcast(ijevent_to_delete, 3, MPI_INT, source_rank, comm);
+            }
+            else{
+                MPI_Bcast(ijevent_to_delete, 3, MPI_INT, source_rank, comm);
+                // memcpy to device
+                gpuErrchk( hipMemcpy(ijevent_to_delete_d, ijevent_to_delete, 3 * sizeof(int), hipMemcpyHostToDevice) );
+            }
+
+
+            // execute the event on the SoA
+
+            execute_event<<<1, threads_single_block>>>(site_element, site_charge, ijevent_to_delete_d);
+            
+            // TODO ijevent_to_delete only on device
+            int i_host = ijevent_to_delete[0];
+            int j_host = ijevent_to_delete[1];
+
+            int threads = 1024;
+            int blocks = ((size_t)count[rank] * (size_t)nn + threads - 1) / threads;
+            zero_out_events_split<<<blocks, threads>>>(event_type_local_d, event_prob_local_d, neigh_idx,
+                count[rank], displs[rank],
+                nn, i_host, j_host);
+            event_time = -log(rng.getRandomNumber()) / event_prob_cum_global_h[size-1];
         }
-        else{
-            MPI_Bcast(ijevent_to_delete, 3, MPI_INT, source_rank, comm);
-            // memcpy to device
-            gpuErrchk( hipMemcpy(ijevent_to_delete_d, ijevent_to_delete, 3 * sizeof(int), hipMemcpyHostToDevice) );
-        }
-
-
-        // execute the event on the SoA
-
-        execute_event<<<1, threads_single_block>>>(site_element, site_charge, ijevent_to_delete_d);
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);
         
-        // TODO ijevent_to_delete only on device
-        int i_host = ijevent_to_delete[0];
-        int j_host = ijevent_to_delete[1];
+        auto end = std::chrono::high_resolution_clock::now();
+        time_events[i] = std::chrono::duration<double>(end - start).count();
 
-        int threads = 1024;
-        int blocks = ((size_t)count[rank] * (size_t)nn + threads - 1) / threads;
-        zero_out_events_split<<<blocks, threads>>>(event_type_local_d, event_prob_local_d, neigh_idx,
-            count[rank], displs[rank],
-            nn, i_host, j_host);
-        event_time = -log(rng.getRandomNumber()) / event_prob_cum_global_h[size-1];
+        if(rank == 0){
+            std::cout << "Time to execute events: " << time_events[i] << std::endl;
+            std::cout << "Number of KMC events: " << event_counter << "\n";
+            std::cout << "Event time: " << event_time << "\n";
+        }
     }
 
-    if(rank == 0){
-        std::cout << "Number of KMC events: " << event_counter << "\n";
-        std::cout << "Event time: " << event_time << "\n";
-    }
+    // if(rank == 0){
+    //     std::string base_path =  "events/";
+    //     std::ofstream time_file;
+    //     std::string time_file_name = base_path + "time_list_"+ std::to_string(size) +".txt";
+    //     time_file.open(time_file_name);
+    //     for(int i = 0; i < measurements; i++){
+    //         time_file << time_list[i] << "\n";
+    //     }
+    //     time_file.close();
+
+    //     std::ofstream time_file_events;
+    //     std::string time_file_events_name = base_path + "time_events_"+ std::to_string(size) +".txt";
+    //     time_file_events.open(time_file_events_name);
+    //     for(int i = 0; i < measurements; i++){
+    //         time_file_events << time_events[i] << "\n";
+    //     }
+    //     time_file_events.close();
+    // }
+
+
+    MPI_Barrier(comm);
+    exit(0);
 
 
     gpuErrchk( hipFree(event_prob_cum_local_d) );

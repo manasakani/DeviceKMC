@@ -141,6 +141,15 @@ class Distributed_matrix{
 
         hipEvent_t event_default_finished;
 
+        // initialize cuda
+        hipStream_t default_stream;
+        hipblasHandle_t default_cublasHandle;
+        hipsparseHandle_t default_cusparseHandle;
+        rocsparse_handle default_rocsparseHandle;
+        double *Ap_local_d;
+        rocsparse_dnvec_descr vecAp_local;
+        double *z_local_d;
+
     // construct the distributed matrix
     // input is the whol count[rank] * matrix size
     // csr part of the matrix
@@ -214,5 +223,9 @@ class Distributed_matrix{
         void create_device_memory();
 
         void prepare_spmv();
+
+        void create_cg_overhead();
+
+        void destroy_cg_overhead();
 
 };
