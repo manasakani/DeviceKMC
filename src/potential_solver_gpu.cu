@@ -14,128 +14,74 @@ __global__ void update_charge(const ELEMENT *element,
                               const int *neigh_idx, 
                               const int N, 
                               const int nn,
-                              const ELEMENT* metals, const int num_metals){
+                              const ELEMENT* metals, const int num_metals, 
+                              const int row_start, const int row_end){
 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int Vnn = 0;
 
     // each thread gets a different site to evaluate
-    for (int idx = tid; idx < N; idx += blockDim.x * gridDim.x) {
-        if (tid < N && element[tid] == VACANCY){
-            charge[tid] = 2;    
+    for (int idx = tid; idx < (row_end - row_start); idx += blockDim.x * gridDim.x) {
+
+        int i = idx + row_start;
+
+        if (element[i] == VACANCY){
+            charge[i] = 2;    
 
             // iterate over the neighbors
-            for (int j = tid * nn; j < (tid + 1) * nn; ++j){
+            for (int j = idx * nn; j < (idx + 1) * nn; ++j){
                 if (neigh_idx[j] >= 0)
                 {
                     if (element[neigh_idx[j]] == VACANCY){
                         Vnn++;
                     }
                     if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
-                        charge[tid] = 0;
+                        charge[i] = 0;
                     }
                     if (Vnn >= 2){
-                        charge[tid] = 0;
+                        charge[i] = 0;
                     }
                 }
             }
         }
 
-        if (tid < N && element[tid] == OXYGEN_DEFECT){
-            charge[tid] = -2;
+        if (element[i] == OXYGEN_DEFECT){
+            charge[i] = -2;
 
             // iterate over the neighbors
-            for (int j = tid * nn; j < (tid + 1) * nn; ++j){
+            for (int j = idx * nn; j < (idx + 1) * nn; ++j){
                 if (neigh_idx[j] >= 0)
                 {
                     if (is_in_array_gpu(metals, element[neigh_idx[j]], num_metals)){
-                        charge[tid] = 0;
+                        charge[i] = 0;
                     }
                 }
             }
         }
+        
     }
 }
-
-
-// __global__ void update_charge_by_dist(const double *posx,  const double *posy, const double *posz, 
-//                                     const ELEMENT *element, const int *cutoff_window, int N_cutoff,
-//                                     int *charge, 
-//                                     const int N, 
-//                                     const int nn_dist,
-//                                     const ELEMENT* metals, const int num_metals){
-
-//     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-//     int Vnn = 0;
-
-//     // each thread gets a different site to evaluate
-//     for (int idx = tid; idx < N; idx += blockDim.x * gridDim.x) {
-//         if (idx < N && element[idx] == VACANCY){
-//             charge[idx] = 2;    
-//             // atomicExch(&charge[tid], 2);     
-
-//             int col_start = cutoff_window[2*i];
-//             int col_end = cutoff_window[2*i + 1];   
-
-//             // iterate over the neighbors
-//             for (int j = col_start; j < col_end; j++){
-
-//                 double dist = site_dist_gpu(posx[i], posy[i], posz[i], 
-//                                             posx[j], posy[j], posz[j]);
-                
-//                 if (dist < nn_dist)
-//                 {
-//                     if (element[j] == VACANCY){
-//                         Vnn++;
-//                     }
-//                     if (is_in_array_gpu(metals, element[j], num_metals)){
-//                         charge[idx] = 0;
-//                         // atomicExch(&charge[tid], 0);
-//                     }
-//                     if (Vnn >= 2){
-//                         charge[idx] = 0;
-//                         // atomicExch(&charge[tid], 0);
-//                     }
-//                 }
-//             }
-//         }
-
-//         if (tid < N && element[tid] == OXYGEN_DEFECT){
-//             charge[tid] = -2;
-//             // atomicExch(&charge[tid], -2);
-
-//             int col_start = cutoff_window[2*i];
-//             int col_end = cutoff_window[2*i + 1];   
-
-//             // iterate over the neighbors
-//             for (int j = col_start; j < col_end; j++){
-//                 double dist = site_dist_gpu(posx[i], posy[i], posz[i], 
-//                                             posx[j], posy[j], posz[j]);
-//                 if (dist < nn_dist)
-//                 {
-//                     if (is_in_array_gpu(metals, element[j], num_metals)){
-//                         charge[tid] = 0;
-//                         // atomicExch(&charge[tid], 0);
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// }
 
 
 void update_charge_gpu(ELEMENT *d_site_element, 
                        int *d_site_charge,
                        int *d_neigh_idx, int N, int nn, 
-                       const ELEMENT *d_metals, const int num_metals){
+                       const ELEMENT *d_metals, const int num_metals, 
+                       const int *count, const int *displ, int rank){
 
     int num_threads = 1024;
     int num_blocks = ((size_t)N * (size_t)nn + num_threads - 1) / num_threads;
 
-    // hipLaunchKernelGGL(update_charge, num_blocks, num_threads, 0, 0, d_site_element, d_site_charge, d_neigh_idx, N, nn, d_metals, num_metals);
-    update_charge<<<num_blocks, num_threads>>>(d_site_element, d_site_charge, d_neigh_idx, N, nn, d_metals, num_metals); 
+    update_charge<<<num_blocks, num_threads>>>(d_site_element, d_site_charge, d_neigh_idx, N, nn, d_metals, num_metals,
+                                               displ[rank], displ[rank] + count[rank]);
+    hipDeviceSynchronize();
+
+    // update the site charge on every rank
+    MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL,
+               d_site_charge, count, displ, MPI_INT, MPI_COMM_WORLD);
 
 }
+
 
 
 //**************************************************************************
@@ -932,7 +878,10 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     double *right_boundary_d;
     gpuErrchk( hipMalloc((void **)&right_boundary_d, A_distributed->rows_this_rank * sizeof(double)) );  
 
-    int measurements = 110;
+    // TODO: remove the MPI barrier inside
+    double relative_tolerance = 1e-14 * N_interface;
+    int max_iterations = 3000;
+    int measurements = 1;
 
     double time_assembly[measurements];
     
@@ -1087,23 +1036,21 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
         }
     }
 
-    if(A_distributed->rank == 0){
-        std::string base_path =  "cg_assembly/";
+    // if(A_distributed->rank == 0){
+    //     std::string base_path =  "cg_assembly/";
 
-        // dump time to txt file
-        std::ofstream time_file;
-        std::string name1 = base_path + "time_assembly_"+ std::to_string(A_distributed->size) +".txt";
-        time_file.open(name1);
-        for(int i = 0; i < measurements; i++){
-            time_file << time_assembly[i] << std::endl;
-        }
-        time_file.close();
+    //     // dump time to txt file
+    //     std::ofstream time_file;
+    //     std::string name1 = base_path + "time_assembly_"+ std::to_string(A_distributed->size) +".txt";
+    //     time_file.open(name1);
+    //     for(int i = 0; i < measurements; i++){
+    //         time_file << time_assembly[i] << std::endl;
+    //     }
+    //     time_file.close();
 
-    }
+    // }
 
-    // TODO: remove the MPI barrier inside
-    double relative_tolerance = 1e-14 * N_interface;
-    int max_iterations = 1000;
+
 
 
     // iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing_cam>(
@@ -1613,34 +1560,34 @@ __global__ void calculate_pairwise_interaction_indexed(const double* posx, const
                                                        const double *lattice, const int pbc, 
                                                        const int N, const double *sigma, const double *k, 
                                                        const int *charge, double* potential,
-                                                       const int row_start, const int row_end, const int *cutoff_idx, const int N_cutoff){
+                                                       const int counts_this_rank, const int displ_this_rank, const int *cutoff_idx, const int N_cutoff){
 
     // Version without reduction, where every thread evaluates a row
     int num_threads = blockDim.x;
-    int blocks_per_row = (N + num_threads - 1) / num_threads;
+    // int blocks_per_row = (N + num_threads - 1) / num_threads;
     int block_id = blockIdx.x;
 
-    int row = block_id / blocks_per_row + row_start;
+    // int row = block_id / blocks_per_row + row_start;
 
     int tid_total = blockIdx.x * blockDim.x + threadIdx.x;
     int num_threads_total = blockDim.x * gridDim.x;
-    
 
-    for (int i = tid_total + row_start; i < row_end; i += num_threads_total)
+    for (int idx = tid_total; idx < counts_this_rank; idx += num_threads_total)
     {
         int j;
         double local_potential = 0.0;
+        int i = idx + displ_this_rank;
 
         for (int j_idx = 0; j_idx < N_cutoff; j_idx++)
         {
-            long int idx_next = (size_t)i*(size_t)N_cutoff + (size_t)j_idx;
+            // long int idx_next = (long int)(i-row_start)*(long int)N_cutoff + (long int)j_idx;
+            long int idx_next = (size_t)idx*(size_t)N_cutoff + (size_t)j_idx;
             j = cutoff_idx[idx_next];
             // j = cutoff_idx[i*N_cutoff + j_idx];
 
-            if (j >= 0 && i != j && charge[j] != 0) {
+            if (j >= 0 && i != j && charge[j] != 0) {           // the padding in the cutoff list is -1
                 double dist = 1e-10 * site_dist_gpu(posx[i], posy[i], posz[i], 
-                                                    posx[j], posy[j], posz[j], 
-                                                    lattice[0], lattice[1], lattice[2], pbc);
+                                                    posx[j], posy[j], posz[j]);
 
                 local_potential += v_solve_gpu(dist, charge[j], sigma, k);
             }
@@ -1734,13 +1681,11 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
     //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_window);
     // gpuErrchk( hipPeekAtLastError() );
     // gpuErrchk( hipDeviceSynchronize() );
-    // gpuErrchk( hipPeekAtLastError() );
+    // gpuErrchk( hipPeekAtLastError() );    
 
-    // row-wise: only checks sites which were precomputed to be within the cutoff radius
-    // hipLaunchKernelGGL(calculate_pairwise_interaction_indexed, num_blocks, num_threads, 0, 0, posx, posy, posz, lattice,
-    //     pbc, N, sigma, k, site_charge, site_potential_charge, displ[rank], displ[rank] + count[rank], cutoff_idx, N_cutoff);
-    // gpuErrchk( hipPeekAtLastError() );
-    // gpuErrchk( hipDeviceSynchronize() );
-    // gpuErrchk( hipPeekAtLastError() );
+     // only checks sites which were precomputed to be within the cutoff radius
+    hipLaunchKernelGGL(calculate_pairwise_interaction_indexed, num_blocks, num_threads, 0, 0, posx, posy, posz, lattice,
+        pbc, N, sigma, k, site_charge, site_potential_charge, count[rank], displ[rank], cutoff_idx, N_cutoff);
+    gpuErrchk( hipDeviceSynchronize() );
 
 }

@@ -64,125 +64,125 @@ KMCProcess::KMCProcess(Device &device, double _freq)
 }
 
 
-void KMCProcess::update_events_and_rates(Device &device, EVENTTYPE *event_type, double *event_prob)
-{
+// void KMCProcess::update_events_and_rates(Device &device, EVENTTYPE *event_type, double *event_prob)
+// {
     
-    int num_sites = device.N;
-    int num_neigh = device.max_num_neighbors;
+//     int num_sites = device.N;
+//     int num_neigh = device.max_num_neighbors;
 
-    // iterates through all possible site-neighbor pairs
-    #pragma omp parallel for
-    for (auto idx = 0; idx < num_sites * num_neigh; ++idx) {
+//     // iterates through all possible site-neighbor pairs
+//     #pragma omp parallel for
+//     for (auto idx = 0; idx < num_sites * num_neigh; ++idx) {
 
-        EVENTTYPE event_type_ = NULL_EVENT;
-        double P = 0;
+//         EVENTTYPE event_type_ = NULL_EVENT;
+//         double P = 0;
 
-        // site-neighbor pair indicies for this element of neigh_idx
-        int i = std::floor(idx / num_neigh);
-        auto j = device.neigh_idx[idx]; 
+//         // site-neighbor pair indicies for this element of neigh_idx
+//         int i = std::floor(idx / num_neigh);
+//         auto j = device.neigh_idx[idx]; 
 
-        // j is -1 if there is no neighbor at this position
-        if (j >= 0 && j < num_sites) { 
+//         // j is -1 if there is no neighbor at this position
+//         if (j >= 0 && j < num_sites) { 
 
-            double r_dist = (1e-10) * site_dist(device.site_x[i], device.site_y[i], device.site_z[i], 
-                                                device.site_x[j], device.site_y[j], device.site_z[j], 
-                                                device.lattice, device.pbc);                                    // [m]
+//             double r_dist = (1e-10) * site_dist(device.site_x[i], device.site_y[i], device.site_z[i], 
+//                                                 device.site_x[j], device.site_y[j], device.site_z[j], 
+//                                                 device.lattice, device.pbc);                                    // [m]
 
-            // Generation
-            if (device.site_element[i] == DEFECT && device.site_element[j] == O_EL)
-            {
+//             // Generation
+//             if (device.site_element[i] == DEFECT && device.site_element[j] == O_EL)
+//             {
 
-                double E = 2 * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
-                              - (device.site_potential_boundary[j] + device.site_potential_charge[j]));
-                double zero_field_energy = layers[site_layer[j]].E_gen_0;
-                event_type_ = VACANCY_GENERATION;
-                double Ekin = 0; //kB * (device.site_temperature[j] - device.T_bg); //double Ekin = kB * (device.site_temperature[j] - device.site_temperature[i]);
-                double EA = zero_field_energy - E - Ekin;
-                P = exp(-1 * EA / (kB * device.T_bg)) * freq;
-            }
+//                 double E = 2 * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
+//                               - (device.site_potential_boundary[j] + device.site_potential_charge[j]));
+//                 double zero_field_energy = layers[site_layer[j]].E_gen_0;
+//                 event_type_ = VACANCY_GENERATION;
+//                 double Ekin = 0; //kB * (device.site_temperature[j] - device.T_bg); //double Ekin = kB * (device.site_temperature[j] - device.site_temperature[i]);
+//                 double EA = zero_field_energy - E - Ekin;
+//                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
+//             }
 
-            // Recombination
-            if (device.site_element[i] == OXYGEN_DEFECT && device.site_element[j] == VACANCY) // ELSE IF
-            {
-                int charge_abs = 2;
-                double self_int_V = v_solve(r_dist, charge_abs, device.sigma, device.k, q);
+//             // Recombination
+//             if (device.site_element[i] == OXYGEN_DEFECT && device.site_element[j] == VACANCY) // ELSE IF
+//             {
+//                 int charge_abs = 2;
+//                 double self_int_V = v_solve(r_dist, charge_abs, device.sigma, device.k, q);
 
-                int charge_state = device.site_charge[i] - device.site_charge[j];
-                double E = charge_state * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
-                                         - (device.site_potential_boundary[j] + device.site_potential_charge[j]) + (charge_state / 2) * self_int_V);
-                double zero_field_energy = layers[site_layer[j]].E_rec_1;
+//                 int charge_state = device.site_charge[i] - device.site_charge[j];
+//                 double E = charge_state * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
+//                                          - (device.site_potential_boundary[j] + device.site_potential_charge[j]) + (charge_state / 2) * self_int_V);
+//                 double zero_field_energy = layers[site_layer[j]].E_rec_1;
 
-                event_type_ = VACANCY_RECOMBINATION;
-                double Ekin = 0; //kB * (device.site_temperature[i] - device.T_bg); //double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
-                double EA = zero_field_energy - E - Ekin;
-                P = exp(-1 * EA / (kB * device.T_bg)) * freq;
-            }
+//                 event_type_ = VACANCY_RECOMBINATION;
+//                 double Ekin = 0; //kB * (device.site_temperature[i] - device.T_bg); //double Ekin = kB * (device.site_temperature[i] - device.site_temperature[j]);
+//                 double EA = zero_field_energy - E - Ekin;
+//                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
+//             }
 
-            // Vacancy diffusion
-            if (device.site_element[i] == VACANCY && device.site_element[j] == O_EL)
-            {
+//             // Vacancy diffusion
+//             if (device.site_element[i] == VACANCY && device.site_element[j] == O_EL)
+//             {
 
-                double self_int_V = 0.0;
-                if (device.site_charge[i] != 0)
-                {
-                    self_int_V = v_solve(r_dist, device.site_charge[i], device.sigma, device.k, q);
-                }
+//                 double self_int_V = 0.0;
+//                 if (device.site_charge[i] != 0)
+//                 {
+//                     self_int_V = v_solve(r_dist, device.site_charge[i], device.sigma, device.k, q);
+//                 }
 
-                event_type_ = VACANCY_DIFFUSION;
-                double E = (device.site_charge[i] - device.site_charge[j]) * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
-                                                                            - (device.site_potential_boundary[j] + device.site_potential_charge[j]) + self_int_V);
-                double zero_field_energy = layers[site_layer[i]].E_diff_2;
-                double Ekin = 0; //kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[j] - device.site_temperature[i]);
-                double EA = zero_field_energy - E - Ekin;
-                // std::cout << "energy for moving this vacancy: " << EA << " : " << zero_field_energy << "\n";
-                P = exp(-1 * EA / (kB * device.T_bg)) * freq;
-            }
+//                 event_type_ = VACANCY_DIFFUSION;
+//                 double E = (device.site_charge[i] - device.site_charge[j]) * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
+//                                                                             - (device.site_potential_boundary[j] + device.site_potential_charge[j]) + self_int_V);
+//                 double zero_field_energy = layers[site_layer[i]].E_diff_2;
+//                 double Ekin = 0; //kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[j] - device.site_temperature[i]);
+//                 double EA = zero_field_energy - E - Ekin;
+//                 // std::cout << "energy for moving this vacancy: " << EA << " : " << zero_field_energy << "\n";
+//                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
+//             }
 
-            // Ion diffusion
-            if (device.site_element[i] == OXYGEN_DEFECT && device.site_element[j] == DEFECT) 
-            {
-                int charge_abs = 2;
-                double self_int_V = 0.0;
-                if (device.site_charge[i] != 0)
-                {
-                    self_int_V = v_solve(r_dist, charge_abs, device.sigma, device.k, q);
-                }
-                double E = (device.site_charge[i] - device.site_charge[j]) * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
-                                                                            - (device.site_potential_boundary[j] + device.site_potential_charge[j])- self_int_V);
-                double zero_field_energy = layers[site_layer[j]].E_diff_3;
+//             // Ion diffusion
+//             if (device.site_element[i] == OXYGEN_DEFECT && device.site_element[j] == DEFECT) 
+//             {
+//                 int charge_abs = 2;
+//                 double self_int_V = 0.0;
+//                 if (device.site_charge[i] != 0)
+//                 {
+//                     self_int_V = v_solve(r_dist, charge_abs, device.sigma, device.k, q);
+//                 }
+//                 double E = (device.site_charge[i] - device.site_charge[j]) * ((device.site_potential_boundary[i] + device.site_potential_charge[i]) 
+//                                                                             - (device.site_potential_boundary[j] + device.site_potential_charge[j])- self_int_V);
+//                 double zero_field_energy = layers[site_layer[j]].E_diff_3;
 
-                event_type_ = ION_DIFFUSION;
+//                 event_type_ = ION_DIFFUSION;
 
-                double Ekin = 0; //kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[i] - device.site_temperature[j]);
-                double EA = zero_field_energy - E - Ekin;
-                P = exp(-1 * EA / (kB * device.T_bg)) * freq;
-            }
-        }
-        event_type[idx] = event_type_;
-        event_prob[idx] = P;
-    }
-}
+//                 double Ekin = 0; //kB * (device.site_temperature[i] - device.T_bg); //kB * (device.site_temperature[i] - device.site_temperature[j]);
+//                 double EA = zero_field_energy - E - Ekin;
+//                 P = exp(-1 * EA / (kB * device.T_bg)) * freq;
+//             }
+//         }
+//         event_type[idx] = event_type_;
+//         event_prob[idx] = P;
+//     }
+// }
 
-void KMCProcess::update_affected_neighborhood(int event_idx, Device &device)
-{
+// void KMCProcess::update_affected_neighborhood(int event_idx, Device &device)
+// {
 
-    int i = std::floor(event_idx / device.max_num_neighbors);
-    int j = device.neigh_idx[event_idx];
+//     int i = std::floor(event_idx / device.max_num_neighbors);
+//     int j = device.neigh_idx[event_idx];
 
-    for (auto nn = 0; nn < device.max_num_neighbors; ++nn){
-        this->affected_neighborhood.push_back(i * device.max_num_neighbors + nn);
-        this->affected_neighborhood.push_back(j * device.max_num_neighbors + nn);
-    }
+//     for (auto nn = 0; nn < device.max_num_neighbors; ++nn){
+//         this->affected_neighborhood.push_back(i * device.max_num_neighbors + nn);
+//         this->affected_neighborhood.push_back(j * device.max_num_neighbors + nn);
+//     }
 
-    for (auto idx = 0; idx < device.N * device.max_num_neighbors; ++idx){
-        int i_ = std::floor(idx / device.max_num_neighbors);
-        int j_ = device.neigh_idx[idx];
+//     for (auto idx = 0; idx < device.N * device.max_num_neighbors; ++idx){
+//         int i_ = std::floor(idx / device.max_num_neighbors);
+//         int j_ = device.neigh_idx[idx];
 
-        if (i == i_ || j == j_ || i == j_ || j == i_){
-            this->affected_neighborhood.push_back(idx);
-        }
-    }
-}
+//         if (i == i_ || j == j_ || i == j_ || j == i_){
+//             this->affected_neighborhood.push_back(idx);
+//         }
+//     }
+// }
 
 void KMCProcess::execute_event(Device &device, EVENTTYPE sel_event_type, int i, int j)
 {

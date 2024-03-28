@@ -55,58 +55,8 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
         }
     }
 
-    double cutoff_radius = 20;                               // [A] interaction cutoff radius for charge contribution to potential
-
-    // *** initialize and construct the neighbor lists ***
-    auto t0 = std::chrono::steady_clock::now();
-    bool build_neighidx_on_gpu = 1;                         // build ONLY (gpu) neigh_idx and NOT (cpu) site_neighbors. 
-                                                            // site_neighbors will remain uninitialized and cannot be used
-    if (build_neighidx_on_gpu)
-    {
-        if (!mpi_rank)  std::cout << "Re-Building the neighbor list on GPU - max_num_neighbors is known!\n";
-        max_num_neighbors = 52; // this should be known, if building the lists on the gpu!
-    
-        neigh_idx.resize(N * max_num_neighbors, -1);
-        cutoff_window.resize(N * 2, 0);
-        construct_site_neighbor_list_gpu(neigh_idx.data(), cutoff_window.data(), cutoff_idx,
-                                         site_element.data(), site_x.data(), site_y.data(), site_z.data(),
-                                         lattice.data(), pbc, nn_dist, cutoff_radius, N, max_num_neighbors);
-        this->N_cutoff = cutoff_idx.size()/N;
-        if (!mpi_rank)  std::cout << "Max number of sites within cutoff: " << N_cutoff << "\n";
- 
-    } else {
-
-        if (!mpi_rank)  std::cout << "Building the neighbor list...\n";
-        site_neighbors.initialize(N);
-        constructSiteNeighborList();
-        if (!mpi_rank)  std::cout << "Maximum number of neighbors in device is: " << this->max_num_neighbors << "\n";
-
-        // check neighbors:
-        for (int i = 0; i < N; i++)
-        {
-            if (site_neighbors.l[i].size() == 0){
-                std::cout << "ERROR: Site with zero neighbors found at index: " << i << " at " << site_x[i] << " " << site_y[i] << " " << site_z[i] << "\n"; 
-            }
-        }
-
-        // neighbor index used in the gpu code
-        neigh_idx.resize(N * max_num_neighbors);
-
-        #pragma omp parallel for
-        for (auto i = 0; i < N; ++i) {
-            int nb = 0;
-            for (auto j: site_neighbors.l[i]) {
-                neigh_idx[i * max_num_neighbors + nb] = j;
-                nb++;
-            }
-            for (auto j = nb; j < max_num_neighbors; ++j) {
-                neigh_idx[i * max_num_neighbors + j] = -1;
-            }
-        }
-    }    
-    auto t1 = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt = t1 - t0;
-    std::cout << "Time to build neighbor list: " << dt.count() << "\n";
+    // double cutoff_radius = 20;                               // [A] interaction cutoff radius for charge contribution to potential
+    max_num_neighbors = 52; // this should be known, if building the lists on the gpu!
 
     // initialize the size of the field vectors
     site_charge.resize(N, 0);
@@ -118,51 +68,50 @@ Device::Device(std::vector<std::string> &xyz_files, KMCParameters &p)
 
     // Re-identify the atomic sites (differentiate from the vacancy sites and oxygen ions)
     updateAtomLists();
-    // atom_CB_edge.resize(N_atom, 0);
 
     std::cout << "Loaded " << N << " sites into device" << " : " << N_atom << " atoms and " << N-N_atom << " interstitials " << "\n";
 
 }
 
-void Device::constructSiteNeighborList()
-{
+// void Device::constructSiteNeighborList()
+// {
     
-    #pragma omp parallel
-    {
-    int local_max_nn = 0;
+//     #pragma omp parallel
+//     {
+//     int local_max_nn = 0;
 
-    // construct neighbor graph for all sites
-    #pragma omp for 
-    for (int i = 0; i < N; i++)
-    {
-        for (int j = 0; j < N; j++)
-        {
-            if (is_neighbor(i, j)) 
-            {
-                site_neighbors.addEdge(i, j);
-            }
-        }
+//     // construct neighbor graph for all sites
+//     #pragma omp for 
+//     for (int i = 0; i < N; i++)
+//     {
+//         for (int j = 0; j < N; j++)
+//         {
+//             if (is_neighbor(i, j)) 
+//             {
+//                 site_neighbors.addEdge(i, j);
+//             }
+//         }
 
-        if (site_neighbors.l[i].size() > local_max_nn) 
-        {
-            local_max_nn = site_neighbors.l[i].size();
-        }
-    }
+//         if (site_neighbors.l[i].size() > local_max_nn) 
+//         {
+//             local_max_nn = site_neighbors.l[i].size();
+//         }
+//     }
 
-    // set the maximum number of neighbors
-    #pragma omp critical
-    {
-    if (local_max_nn > this->max_num_neighbors) 
-    {
-        this->max_num_neighbors = local_max_nn;
-    }
-    }
+//     // set the maximum number of neighbors
+//     #pragma omp critical
+//     {
+//     if (local_max_nn > this->max_num_neighbors) 
+//     {
+//         this->max_num_neighbors = local_max_nn;
+//     }
+//     }
 
-    }
+//     }
 
-    site_neighbors.is_constructed = 1;
-    std::cout << "Maximum number of neighbors in device is: " << this->max_num_neighbors << "\n";
-}
+//     site_neighbors.is_constructed = 1;
+//     std::cout << "Maximum number of neighbors in device is: " << this->max_num_neighbors << "\n";
+// }
 
 void Device::updateAtomLists()
 {
@@ -200,32 +149,32 @@ void Device::updateAtomLists()
 
 }
 
-// returns true if neighbor
-bool Device::is_neighbor(int i, int j)
-{
+// // returns true if neighbor
+// bool Device::is_neighbor(int i, int j)
+// {
 
-    if (site_neighbors.is_constructed){
-        int count = std::count(site_neighbors.l[i].begin(), site_neighbors.l[i].end(), j);
+//     if (site_neighbors.is_constructed){
+//         int count = std::count(site_neighbors.l[i].begin(), site_neighbors.l[i].end(), j);
 
-        if (count > 0){
-            return 1;
-        }
-        return 0;
+//         if (count > 0){
+//             return 1;
+//         }
+//         return 0;
 
-    } else {
+//     } else {
 
-        std::vector<double> pos_i, pos_j;
-        double dist, dist1, dist2;
+//         std::vector<double> pos_i, pos_j;
+//         double dist, dist1, dist2;
 
-        dist = site_dist(site_x[i], site_y[i], site_z[i], site_x[j], site_y[j], site_z[j], lattice, pbc);
+//         dist = site_dist(site_x[i], site_y[i], site_z[i], site_x[j], site_y[j], site_z[j], lattice, pbc);
         
-        if (dist < nn_dist && i != j)
-        {
-            return 1;
-        }
-        return 0;
-    }
-}
+//         if (dist < nn_dist && i != j)
+//         {
+//             return 1;
+//         }
+//         return 0;
+//     }
+// }
 
 // distributes some initial vacancies in the oxide
 void Device::makeSubstoichiometric(double vacancy_concentration)

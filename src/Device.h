@@ -76,10 +76,10 @@ public:
     double imacro = 0.0;                                // macroscopic current
 
     // Neighbor lists:
-    Graph site_neighbors;                               // list of neighbors of each site (including defects)
-    std::vector<int> neigh_idx;                         // neighbors for the event list setup
-    std::vector<int> cutoff_window;                     // Nx2 array of start and end indices for other sites within the cutoff radius
-    std::vector<int> cutoff_idx;                        // Nxx array of all other potential point defects within the cutoff radius of i
+    // Graph site_neighbors;                               // list of neighbors of each site (including defects)
+    // std::vector<int> neigh_idx;                         // neighbors for the event list setup
+    // std::vector<int> cutoff_window;                     // Nx2 array of start and end indices for other sites within the cutoff radius
+    // std::vector<int> cutoff_idx;                        // Nxx array of all other potential point defects within the cutoff radius of i
     // std::vector<double> cutoff_dists;                   // Nxx array of distances to all other potential point defects within the cutoff radius of i
 
     // Site attributes:

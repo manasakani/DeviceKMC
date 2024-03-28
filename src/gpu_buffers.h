@@ -91,17 +91,16 @@ public:
 
     // constructor allocates arrays in GPU memory
     GPUBuffers(std::vector<Layer> layers, std::vector<int> site_layer_in, double freq_in, int N, int N_atom,
-               std::vector<double> site_x_in,  std::vector<double> site_y_in,  std::vector<double> site_z_in,
+               std::vector<ELEMENT> site_element_in, std::vector<double> site_x_in,  std::vector<double> site_y_in,  std::vector<double> site_z_in,
                int nn, double sigma_in, double k_in, std::vector<double> lattice_in, 
-               std::vector<int> neigh_idx_in, std::vector<int> cutoff_window_in, std::vector<int> cutoff_idx_in,
-               std::vector<ELEMENT> metals, int num_metals_types, int N_contact) {
+               std::vector<ELEMENT> metals, int num_metals_types, MPI_Comm comm, int N_contact) {
             
         this->N_ = N;
         this->N_atom_ = N_atom;
         this->N_sub_ = N_atom + 1;                          // size of matrix T
         this->nn_ = nn;
         this->num_metal_types_ = num_metals_types;
-        this->N_cutoff_ = cutoff_idx_in.size()/N_;  
+        // this->N_cutoff_ = cutoff_idx_in.size()/N_;  
 
         // make layer arrays 
         for (auto l : layers){
@@ -127,9 +126,7 @@ public:
         gpuErrchk( hipMalloc((void**)&site_potential_charge, N_ * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&site_temperature, N_ * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&site_charge, N_ * sizeof(int)) );
-        gpuErrchk( hipMalloc((void**)&neigh_idx, N_ * nn_ * sizeof(int)) );
-        gpuErrchk( hipMalloc((void**)&cutoff_window, N_ * 2 * sizeof(int)) );
-        // gpuErrchk( hipMalloc((void**)&cutoff_idx, (size_t)N_ * (size_t)N_cutoff_ * sizeof(int)) );
+        gpuErrchk( hipMalloc((void**)&site_element, N_ * sizeof(ELEMENT)) );
         gpuErrchk( hipMalloc((void**)&T_bg, 1 * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&sigma, 1 * sizeof(double)) );
         gpuErrchk( hipMalloc((void**)&k, 1 * sizeof(double)) );
@@ -152,14 +149,12 @@ public:
         gpuErrchk( hipMemcpy(site_x, site_x_in.data(), N_ * sizeof(double), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(site_y, site_y_in.data(), N_ * sizeof(double), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(site_z, site_z_in.data(), N_ * sizeof(double), hipMemcpyHostToDevice) );
+        gpuErrchk( hipMemcpy(site_element, site_element_in.data(), N_ * sizeof(ELEMENT), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(metal_types, metals.data(), num_metal_types_ * sizeof(ELEMENT), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(sigma, &sigma_in, 1 * sizeof(double), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(k, &k_in, 1 * sizeof(double), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(freq, &freq_in, 1 * sizeof(double), hipMemcpyHostToDevice) );
         gpuErrchk( hipMemcpy(lattice, lattice_in.data(), 3 * sizeof(double), hipMemcpyHostToDevice) );
-        gpuErrchk( hipMemcpy(neigh_idx, neigh_idx_in.data(), N_ * nn_ * sizeof(int), hipMemcpyHostToDevice) );
-        gpuErrchk( hipMemcpy(cutoff_window, cutoff_window_in.data(), N_ * 2 * sizeof(int), hipMemcpyHostToDevice) );
-        // gpuErrchk( hipMemcpy(cutoff_idx, cutoff_idx_in.data(), (size_t)N_ * (size_t)N_cutoff_ * sizeof(int), hipMemcpyHostToDevice) );
     }
 
     void freeGPUmemory();

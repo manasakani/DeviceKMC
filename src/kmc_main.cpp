@@ -183,17 +183,25 @@ int main(int argc, char **argv)
     std::cout << "Rank: " << kmc_comm.rank_events << ", Constructing GPU buffers" << std::endl;
     MPI_Barrier(MPI_COMM_WORLD);
     GPUBuffers gpubuf(sim.layers, sim.site_layer, sim.freq,                         
-                      device.N, device.N_atom, device.site_x, device.site_y, device.site_z,
+                      device.N, device.N_atom, device.site_element, device.site_x, device.site_y, device.site_z,
                       device.max_num_neighbors, device.sigma, device.k, 
-                      device.lattice, device.neigh_idx, device.cutoff_window, device.cutoff_idx, p.metals, p.metals.size(),
-                      p.num_atoms_first_layer);
-    gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
+                      device.lattice, p.metals, p.metals.size(),
+                      MPI_COMM_WORLD, p.num_atoms_first_layer);
+    
+    //******************************
+    // Setup Neighbor Lists
+    //******************************
 
+    compute_neighbor_list(kmc_comm.comm_events, kmc_comm.counts_events, kmc_comm.displs_events, device, gpubuf, p);
+    compute_cutoff_list(kmc_comm.comm_pairwise, kmc_comm.counts_pairwise, kmc_comm.displs_events, device, gpubuf, p);
+    std::cout << "Initialized neighbor lists" << std::endl; fflush(stdout);
+    
+    gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
 
     if (p.solve_potential)
     {
         if (kmc_comm.comm_K != MPI_COMM_NULL) {
-            std::cout << "Rank: " << kmc_comm.rank_K << ", Initialize sparisity K" << std::endl;                                                             // [1] fraction of power dissipated as heat
+            std::cout << "Rank: " << kmc_comm.rank_K << ", Initialize sparsity K" << std::endl;                                                             // [1] fraction of power dissipated as heat
             initialize_sparsity_K(
                 gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer, kmc_comm);
         }
@@ -331,7 +339,8 @@ int main(int argc, char **argv)
                 update_charge_gpu(gpubuf.site_element,
                       gpubuf.site_charge,
                       gpubuf.neigh_idx,
-                      gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_);
+                      gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_,
+                      kmc_comm.counts_events, kmc_comm.displs_events, kmc_comm.rank_events);
 
                 t_charge_update_end = MPI_Wtime();
             }
@@ -459,7 +468,7 @@ int main(int argc, char **argv)
                                             gpubuf.freq, gpubuf.sigma, gpubuf.k,
                                             gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
                                             gpubuf.site_potential_charge, gpubuf.site_temperature,
-                                            gpubuf.site_element, gpubuf.site_charge, sim.random_generator, device.neigh_idx.data());    
+                                            gpubuf.site_element, gpubuf.site_charge, sim.random_generator);    
                 t_events_end = MPI_Wtime();
                 outputBuffer << "Z - calculation time - kmc events [s]" <<  t_events_end - t_events_start << "\n";
 
@@ -499,7 +508,7 @@ int main(int argc, char **argv)
             outputBuffer << "--------------------------------------";
 
             // DEBUG
-            if (kmc_step_count > 0)
+            if (kmc_step_count > 10)
             {
                 std::cout << "kmc step count limit for debug\n";
                 break;

@@ -39,6 +39,8 @@
 
 // forward declaration of gpubuf class          
 class GPUBuffers;
+class KMCParameters;
+class Device;
 
 extern "C" {
 
@@ -46,11 +48,11 @@ extern "C" {
 // Neighbor list creation / neighbor_lists_gpu.cu
 //*****************************************************
 
-// constructs the neighbor lists
-void construct_site_neighbor_list_gpu(int *neigh_idx, int *cutoff_window, std::vector<int> &cutoff_idx,
-                                      const ELEMENT *site_element, const double *posx, const double *posy, const double *posz, 
-                                      const double *lattice, const bool pbc, double nn_dist, double cutoff_radius, int N, int max_num_neighbors);
+// constructs the neighbor index lists
+void compute_neighbor_list(MPI_Comm &event_comm, int *counts, int *displ, Device &device, GPUBuffers &gpubuf, KMCParameters &p);
 
+// uodates the cutoff index list
+void compute_cutoff_list(MPI_Comm &pairwise_comm, int *counts, int *displ, Device &device, GPUBuffers &gpubuf, KMCParameters &p);
 
 //***************************************************
 // Matrix solver utilities / iterative_solvers_gpu.cu
@@ -153,10 +155,11 @@ void update_CB_edge_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnHandle_
                                const int num_metals);
 
 // Updates the site-resolved charge (gpu_site_charge) based on a neighborhood condition
-void update_charge_gpu(ELEMENT *gpu_site_element, 
-                       int *gpu_site_charge,
-                       int *gpu_neigh_idx, int N, int nn, 
-                       const ELEMENT *metals, const int num_metals);
+void update_charge_gpu(ELEMENT *d_site_element, 
+                       int *d_site_charge,
+                       int *d_neigh_idx, int N, int nn, 
+                       const ELEMENT *d_metals, const int num_metals, 
+                       const int *count, const int *displ, int rank);
 
 // Updates the site-resolved potential (gpubuf.site_potential) using a resistive network model 
 // dense matrix with LU solver
@@ -263,19 +266,7 @@ double execute_kmc_step_mpi(
         const double *freq, const double *sigma, const double *k,
         const double *posx, const double *posy, const double *posz, 
         const double *site_potential_charge, const double *site_temperature,
-        ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
-
-double execute_kmc_step_mpi2(
-        MPI_Comm comm,
-        const int N,
-        const int *count,
-        const int *displs,
-        const int nn, const int *neigh_idx, const int *site_layer,
-        const double *lattice, const int pbc, const double *T_bg, 
-        const double *freq, const double *sigma, const double *k,
-        const double *posx, const double *posy, const double *posz, 
-        const double *site_potential_charge, const double *site_temperature,
-        ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng, const int *neigh_idx_host);
+        ELEMENT *site_element, int *site_charge, RandomNumberGenerator &rng);
 
 void copytoConstMemory(std::vector<double> E_gen, std::vector<double> E_rec, std::vector<double> E_Vdiff, std::vector<double> E_Odiff);
 }
