@@ -192,9 +192,18 @@ int main(int argc, char **argv)
     // Setup Neighbor Lists
     //******************************
 
-    compute_neighbor_list(kmc_comm.comm_events, kmc_comm.counts_events, kmc_comm.displs_events, device, gpubuf, p);
-    compute_cutoff_list(kmc_comm.comm_pairwise, kmc_comm.counts_pairwise, kmc_comm.displs_events, device, gpubuf, p);
-    std::cout << "Initialized neighbor lists" << std::endl; fflush(stdout);
+    if (kmc_comm.comm_events != MPI_COMM_NULL) {
+        std::cout << "Rank: " << kmc_comm.rank_events << ", Initialized neighbor lists" << std::endl; fflush(stdout);
+        compute_neighbor_list(kmc_comm.comm_events, kmc_comm.counts_events, kmc_comm.displs_events, device, gpubuf, p);
+    }
+    if (p.solve_potential)
+    {
+        if (kmc_comm.comm_pairwise != MPI_COMM_NULL) {
+            std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Initialized cutoff lists" << std::endl; fflush(stdout);
+            compute_cutoff_list(kmc_comm.comm_pairwise, kmc_comm.counts_pairwise, kmc_comm.displs_pairwise, device, gpubuf, p);
+        }
+    }
+    
     
     gpubuf.sync_HostToGPU(device);                                                                  // initialize the device attributes in gpu memory
 
@@ -317,32 +326,30 @@ int main(int argc, char **argv)
                t_events_start, t_events_end,
                t_superstep_start, t_superstep_end;
 
-        MPI_Barrier(MPI_COMM_WORLD);
 
+        std::cout << "Rank: " << kmc_comm.rank_events << ", Starting KMC loop" << std::endl;
         while (kmc_time < t)
         {
-            outputBuffer << "--------------\n";
-            outputBuffer << "KMC step count: " << kmc_step_count << "\n";
-            if(rank_global == 0){
-                std::cout << "KMC step count: " << kmc_step_count << "\n";
-            }
-            MPI_Barrier(MPI_COMM_WORLD);
+            MPI_Barrier(kmc_comm.comm_events);
             t_superstep_start = MPI_Wtime();
-
             // Update potential
             if (p.solve_potential)
             {
-                // Update site-resolved charges
-                MPI_Barrier(kmc_comm.comm_events); // TODO distribute
-                t_charge_update_start = MPI_Wtime();
+                if (kmc_comm.comm_events != MPI_COMM_NULL) {
+                    // Update site-resolved charges
+                    std::cout << "Rank: " << kmc_comm.rank_events << ", Start charge update" << std::endl; fflush(stdout);        
+                    MPI_Barrier(kmc_comm.comm_events);
 
-                update_charge_gpu(gpubuf.site_element,
-                      gpubuf.site_charge,
-                      gpubuf.neigh_idx,
-                      gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_,
-                      kmc_comm.counts_events, kmc_comm.displs_events, kmc_comm.rank_events);
+                    t_charge_update_start = MPI_Wtime();
 
-                t_charge_update_end = MPI_Wtime();
+                    update_charge_gpu(gpubuf.site_element,
+                        gpubuf.site_charge,
+                        gpubuf.neigh_idx,
+                        gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_,
+                        kmc_comm.counts_events, kmc_comm.displs_events, kmc_comm.comm_events);
+
+                    t_charge_update_end = MPI_Wtime();
+                }
             }
 
             // Update potential
@@ -383,34 +390,58 @@ int main(int argc, char **argv)
                 }
                 
                 if (kmc_comm.comm_pairwise != MPI_COMM_NULL) {
-                    std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Start potential from charges" << std::endl;                                                             // [1] fraction of power dissipated as heat
-                    MPI_Barrier(kmc_comm.comm_pairwise);
-                    // Update site-resolved potential from charges
-                    t_charge_start = MPI_Wtime();
-                    poisson_gridless_gpu(p.num_atoms_contact, p.pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
-                            gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                            gpubuf.site_charge, gpubuf.site_potential_charge,
-                            kmc_comm.rank_pairwise, kmc_comm.size_pairwise, kmc_comm.counts_pairwise, kmc_comm.displs_pairwise, 
-                            gpubuf.cutoff_window, gpubuf.cutoff_idx, gpubuf.N_cutoff_); 
-                    hipDeviceSynchronize();
-                    if(kmc_comm.rank_pairwise == 0){
-                        MPI_Gatherv(MPI_IN_PLACE, NULL, NULL,
-                            gpubuf.site_potential_charge + kmc_comm.displs_pairwise[kmc_comm.rank_pairwise],
-                            kmc_comm.counts_pairwise,
-                            kmc_comm.displs_pairwise,
-                            MPI_DOUBLE,
-                            0, kmc_comm.comm_pairwise);
+                    int measurements = 1;
+                    double time_pairwise[measurements];
+
+        
+                    std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Start potential from charges" << std::endl;
+                    for(int i = 0; i < measurements; i++){
+                        hipDeviceSynchronize();
+                        MPI_Barrier(kmc_comm.comm_pairwise);
+                        
+                        // Update site-resolved potential from charges
+                        auto time_start = std::chrono::high_resolution_clock::now();
+                        poisson_gridless_gpu(p.num_atoms_contact, p.pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
+                                gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+                                gpubuf.site_charge, gpubuf.site_potential_charge,
+                                kmc_comm.rank_pairwise, kmc_comm.size_pairwise, kmc_comm.counts_pairwise, kmc_comm.displs_pairwise, 
+                                gpubuf.cutoff_window, gpubuf.cutoff_idx, gpubuf.N_cutoff_); 
+                        hipDeviceSynchronize();
+                        if(kmc_comm.rank_pairwise == 0){
+                            MPI_Gatherv(MPI_IN_PLACE, NULL, NULL,
+                                gpubuf.site_potential_charge + kmc_comm.displs_pairwise[kmc_comm.rank_pairwise],
+                                kmc_comm.counts_pairwise,
+                                kmc_comm.displs_pairwise,
+                                MPI_DOUBLE,
+                                0, kmc_comm.comm_pairwise);
+                        }
+                        else{
+                            MPI_Gatherv(gpubuf.site_potential_charge + kmc_comm.displs_pairwise[kmc_comm.rank_pairwise],
+                                kmc_comm.counts_pairwise[kmc_comm.rank_pairwise],
+                                MPI_DOUBLE, NULL,
+                                kmc_comm.counts_pairwise,
+                                kmc_comm.displs_pairwise,
+                                MPI_DOUBLE,
+                                0, kmc_comm.comm_pairwise);
+                        }
+                        MPI_Barrier(kmc_comm.comm_pairwise);
+                        auto time_end = std::chrono::high_resolution_clock::now();
+                        time_pairwise[i] = std::chrono::duration<double>(time_end - time_start).count();
+                        if(kmc_comm.rank_pairwise == 0){
+                            std::cout << "Rank: " << kmc_comm.rank_pairwise << " " << time_pairwise[i] << std::endl;
+                        }
                     }
-                    else{
-                        MPI_Gatherv(gpubuf.site_potential_charge + kmc_comm.displs_pairwise[kmc_comm.rank_pairwise],
-                            kmc_comm.counts_pairwise[kmc_comm.rank_pairwise],
-                            MPI_DOUBLE, NULL,
-                            kmc_comm.counts_pairwise,
-                            kmc_comm.displs_pairwise,
-                            MPI_DOUBLE,
-                            0, kmc_comm.comm_pairwise);
-                    }
-                    t_charge_end = MPI_Wtime();
+                    // if(kmc_comm.rank_pairwise == 0){
+                    //     std::string base_path = "pairwise/";
+                    //     std::string file_name = base_path + "time_pairwise_" + std::to_string(kmc_comm.size_pairwise) + ".txt";
+                    //     std::ofstream time_file;
+                    //     time_file.open(file_name);
+                    //     for(int i = 0; i < measurements; i++){
+                    //         time_file << time_pairwise[i] << std::endl;
+                    //     }
+                    //     time_file.close();                            
+                    // }
+
 
                     outputBuffer << "Z - calculation time - charge [s]" <<  t_charge_update_end - t_charge_update_start << "\n";
                     outputBuffer << "Z - calculation time - potential from boundaries [s]" <<  t_boundary_end - t_boundary_start << "\n";
@@ -457,20 +488,22 @@ int main(int argc, char **argv)
 
             // Execute events and update kmc_time
             if (p.perturb_structure){     
-                std::cout << "Rank: " << kmc_comm.rank_events << ", Start events" << std::endl;                                                             // [1] fraction of power dissipated as heat
-                MPI_Barrier(kmc_comm.comm_events);
-                t_events_start = MPI_Wtime();
+                if (kmc_comm.comm_events != MPI_COMM_NULL) {
+                    std::cout << "Rank: " << kmc_comm.rank_events << ", Start events" << std::endl;                                                             // [1] fraction of power dissipated as heat
+                    MPI_Barrier(kmc_comm.comm_events);
+                    t_events_start = MPI_Wtime();
 
-                double event_time = execute_kmc_step_mpi(kmc_comm.comm_events,
-                                            device.N, kmc_comm.counts_events,kmc_comm.displs_events,
-                                            device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
-                                            gpubuf.lattice, device.pbc, gpubuf.T_bg, 
-                                            gpubuf.freq, gpubuf.sigma, gpubuf.k,
-                                            gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
-                                            gpubuf.site_potential_charge, gpubuf.site_temperature,
-                                            gpubuf.site_element, gpubuf.site_charge, sim.random_generator);    
-                t_events_end = MPI_Wtime();
-                outputBuffer << "Z - calculation time - kmc events [s]" <<  t_events_end - t_events_start << "\n";
+                    double event_time = execute_kmc_step_mpi(kmc_comm.comm_events,
+                                                device.N, kmc_comm.counts_events,kmc_comm.displs_events,
+                                                device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
+                                                gpubuf.lattice, device.pbc, gpubuf.T_bg, 
+                                                gpubuf.freq, gpubuf.sigma, gpubuf.k,
+                                                gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
+                                                gpubuf.site_potential_charge, gpubuf.site_temperature,
+                                                gpubuf.site_element, gpubuf.site_charge, sim.random_generator);    
+                    t_events_end = MPI_Wtime();
+                    outputBuffer << "Z - calculation time - kmc events [s]" <<  t_events_end - t_events_start << "\n";
+                }
 
             } else {           
                 // debug:                                                                         // run in IV or field-solver testing

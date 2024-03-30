@@ -68,9 +68,9 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
 int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact, 
                                  const double high_G, const double low_G, const double loop_G, const double Vd, const double m_e, const double V0,
                                  Distributed_subblock_sparse &T_tunnel, Distributed_matrix *T_neighbor, double *&diag_tunnel_local,
-                                 int *&tunnel_indices_local_d, int *&row_ptr_subblock_d, 
-                                 int *&col_indices_subblock_d, double *&data_d, int &nnz_subblock_local, int *&counts_subblock, int *&displ_subblock,
-                                 int &num_tunnel_points_global);
+                                 int *&tunnel_indices_local_d, size_t *&row_ptr_subblock_d, 
+                                 size_t *&col_indices_subblock_d, double *&data_d, size_t &nnz_subblock_local, int *&counts_subblock, int *&displ_subblock,
+                                 size_t &num_tunnel_points_global);
                          
 // check that sparse and dense versions are the same
 void check_sparse_dense_match(int m, int nnz, double *dense_matrix, int* d_csrRowPtr, int* d_csrColInd, double* d_csrVal);
@@ -159,7 +159,7 @@ void update_charge_gpu(ELEMENT *d_site_element,
                        int *d_site_charge,
                        int *d_neigh_idx, int N, int nn, 
                        const ELEMENT *d_metals, const int num_metals, 
-                       const int *count, const int *displ, int rank);
+                       const int *count, const int *displ, MPI_Comm &comm);
 
 // Updates the site-resolved potential (gpubuf.site_potential) using a resistive network model 
 // dense matrix with LU solver
@@ -351,8 +351,12 @@ struct is_not_zero
     {
         return (integer != 0);
     }
-};
 
+    __host__ __device__ bool operator()(const size_t size)
+    {
+        return (size != 0);
+    }
+};
 
 // used to be named 'calc_diagonal_A_gpu' - row reduction into the diagonal elements for a sparse matrix
 __global__ void reduce_rows_into_diag( int *col_indices, int *row_ptr, double *data, int matrix_size );

@@ -1471,11 +1471,11 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
 
     Distributed_subblock_sparse T_tunnel_distributed;
     double *diagonal_tunnel_local_d;
-    int *row_ptr_subblock_d;
-    int *col_indices_subblock_d;
+    size_t *row_ptr_subblock_d;
+    size_t *col_indices_subblock_d;
     double *data_d;
     int *tunnel_indices_local_d; // [1, 4...] after shift by 2
-    int nnz_subblock_local, num_tunnel_points_global;
+    size_t nnz_subblock_local, num_tunnel_points_global;
     int *counts_subblock = new int[size];
     int *displ_subblock = new int[size];
     int rows_this_rank_tunnel = assemble_sparse_T_submatrix(gpubuf, N_atom, nn_dist, num_source_inj, num_ground_ext, num_layers_contact,
@@ -1517,8 +1517,8 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
                                 row_ptr_subblock_d,
                                 col_indices_subblock_d,
                                 data_d,
-                                rocsparse_indextype_i32,
-                                rocsparse_indextype_i32,
+                                rocsparse_indextype_i64,
+                                rocsparse_indextype_i64,
                                 rocsparse_index_base_zero,
                                 rocsparse_datatype_f64_r);
 
@@ -1597,7 +1597,7 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials + disp_this_rank;                                       // [V] Virtual potential vector  
     
     // TODO: remove the MPI barrier inside
-    double relative_tolerance = 1e-15 * N_atom;
+    double relative_tolerance = 1e-23 * N_atom;
     int max_iterations = 50000;
 
     iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse1>(

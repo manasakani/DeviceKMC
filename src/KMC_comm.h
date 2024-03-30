@@ -46,75 +46,85 @@ public:
         int nrows_pairwise,
         int nrows_events
     ){
-        comm_events = comm_global;
         MPI_Comm_rank(comm_global, &rank_global);
         MPI_Comm_size(comm_global, &size_global);
         //TODO determine better fractions
-        if(size_global < 3){
-            // std::cerr << "Need at least 3 ranks to split the communicator" << std::endl;
-            // exit(1);
-        } 
-        else {
-            int frac = size_global / 3;
-            // size_K = 4; //frac;
-            // size_T = 1; //frac + size_global % 3;
-            // size_pairwise = 3; // frac;
-            size_K = frac;
-            size_T = frac + size_global % 3;
-            size_pairwise = frac;
+        // if(size_global < 3){
+        //     std::cerr << "Need at least 3 ranks to split the communicator" << std::endl;
+        //     exit(1);
+        // } 
+        // else {
+        //     int frac = size_global / 3;
+        //     // size_K = 4; //frac;
+        //     // size_T = 1; //frac + size_global % 3;
+        //     // size_pairwise = 3; // frac;
+        //     size_K = frac;
+        //     size_T = frac + size_global % 3;
+        //     size_pairwise = frac;
 
-        }
-        if(size_K + size_T + size_pairwise != size_global){
-            // std::cerr << "Error in splitting the communicator" << std::endl;
-            // exit(1);
-        }
+        // }
+        // if(size_K + size_T + size_pairwise != size_global){
+        //     std::cerr << "Error in splitting the communicator" << std::endl;
+        //     exit(1);
+        // }
 
-        int ranks_K[size_K], ranks_T[size_T], ranks_pairwise[size_pairwise];
-        for (int i = 0; i < size_T; i++){
-            ranks_T[i] = i;
-        }
-        for (int i = 0; i < size_K; i++){
-            ranks_K[i] = i + size_T;
-        }
-        for (int i = 0; i < size_pairwise; i++){
-            ranks_pairwise[i] = i + size_T + size_K;
-        }
-        if(ranks_pairwise[size_pairwise-1] != size_global - 1){
-            // std::cerr << "Error in splitting the communicator" << std::endl;
-            // exit(1);
-        }
+        // int ranks_K[size_K], ranks_T[size_T], ranks_pairwise[size_pairwise];
+        // for (int i = 0; i < size_T; i++){
+        //     ranks_T[i] = i;
+        // }
+        // for (int i = 0; i < size_K; i++){
+        //     ranks_K[i] = i + size_T;
+        // }
+        // for (int i = 0; i < size_pairwise; i++){
+        //     ranks_pairwise[i] = i + size_T + size_K;
+        // }
+        // if(ranks_pairwise[size_pairwise-1] != size_global - 1){
+        //     std::cerr << "Error in splitting the communicator" << std::endl;
+        //     exit(1);
+        // }
 
-        root_T = 0;
-        root_K = size_T;
-        root_pairwise = size_T + size_K;
+        // root_T = 0;
+        // root_K = size_T;
+        // root_pairwise = size_T + size_K;
 
 
-        MPI_Comm_group(comm_global, &group_global);
-        MPI_Group_incl(group_global, size_K, ranks_K, &group_K);
-        MPI_Group_incl(group_global, size_T, ranks_T, &group_T);
-        MPI_Group_incl(group_global, size_pairwise, ranks_pairwise, &group_pairwise);
-        MPI_Comm_create(MPI_COMM_WORLD, group_K, &comm_K);
-        MPI_Comm_create(MPI_COMM_WORLD, group_T, &comm_T);
-        MPI_Comm_create(MPI_COMM_WORLD, group_pairwise, &comm_pairwise);
+        // MPI_Comm_group(comm_global, &group_global);
 
-        if (comm_K != MPI_COMM_NULL) {
-            std::cout << "Rank " << rank_global << " is in comm_K" << std::endl;
-        }
-        if (comm_T != MPI_COMM_NULL) {
-            std::cout << "Rank " << rank_global << " is in comm_T" << std::endl;
-        }
-        if (comm_pairwise != MPI_COMM_NULL) {
-            std::cout << "Rank " << rank_global << " is in comm_pairwise" << std::endl;
-        }
+        // MPI_Group_incl(group_global, size_K, ranks_K, &group_K);
+        // MPI_Group_incl(group_global, size_T, ranks_T, &group_T);
+        // MPI_Group_incl(group_global, size_pairwise, ranks_pairwise, &group_pairwise);
 
-        MPI_Group_size(group_K, &size_K);
-        MPI_Group_size(group_T, &size_T);
-        MPI_Group_size(group_pairwise, &size_pairwise);
-        MPI_Group_size(group_global, &size_events);
-        MPI_Group_rank(group_K, &rank_K);
-        MPI_Group_rank(group_T, &rank_T);
-        MPI_Group_rank(group_pairwise, &rank_pairwise);
-        MPI_Group_rank(group_global, &rank_events);
+        // comm_K = comm_global;
+        // comm_T = comm_global;
+        // comm_pairwise = comm_global;
+        // comm_events = comm_global;
+
+        // MPI_Comm_create_group(comm_global, group_K, 0, &comm_K);
+        // MPI_Comm_create_group(comm_global, group_T, 1, &comm_T);
+        // MPI_Comm_create_group(comm_global, group_pairwise, 2, &comm_pairwise);
+        // MPI_Comm_create_group(comm_global, group_global, 3, &comm_events);
+        
+        // if(comm_events != MPI_COMM_NULL){
+        //     std::cout << "Rank " << rank_global << " is in comm_events" << std::endl;
+        // }
+        // if (comm_K != MPI_COMM_NULL) {
+        //     std::cout << "Rank " << rank_global << " is in comm_K" << std::endl;
+        // }
+        // if (comm_T != MPI_COMM_NULL) {
+        //     std::cout << "Rank " << rank_global << " is in comm_T" << std::endl;
+        // }
+        // if (comm_pairwise != MPI_COMM_NULL) {
+        //     std::cout << "Rank " << rank_global << " is in comm_pairwise" << std::endl;
+        // }
+        
+        // MPI_Group_size(group_K, &size_K);
+        // MPI_Group_size(group_T, &size_T);
+        // MPI_Group_size(group_pairwise, &size_pairwise);
+        // MPI_Group_size(group_global, &size_events);
+        // MPI_Group_rank(group_K, &rank_K);
+        // MPI_Group_rank(group_T, &rank_T);
+        // MPI_Group_rank(group_pairwise, &rank_pairwise);
+        // MPI_Group_rank(group_global, &rank_events);
 
         root_T = 0;
         root_K = 0;
@@ -153,47 +163,6 @@ public:
             }
 
 
-            // if(size_K == 1){
-            //     counts_K[0] = nrows_K;
-            //     displs_K[0] = 0;
-            // }
-            // else if(size_K == 2){
-            //     int rows_per_rank_K = nrows_K / size_K;
-            //     for (int i = 0; i < size_K; ++i) {
-            //         if(i < nrows_K % size_K){
-            //             counts_K[i] = rows_per_rank_K+1;
-            //         }
-            //         else{
-            //             counts_K[i] = rows_per_rank_K;
-            //         }
-            //     }
-            //     displs_K[0] = 0;
-            //     for (int i = 1; i < size_K; ++i) {
-            //         displs_K[i] = displs_K[i-1] + counts_K[i-1];
-            //     }
-
-            // }
-            // else{
-            //     int rows_per_rank_K_boundary = nrows_K / size_K + 0.1 * (nrows_K / size_K);
-            //     int rows_rest = nrows_K - 2*rows_per_rank_K_boundary;
-            //     int rows_per_rank_K_middle = rows_rest / (size_K - 2);
-            //     counts_K[0] = rows_per_rank_K_boundary;
-            //     counts_K[size_K-1] = rows_per_rank_K_boundary;
-            //     for (int i = 1; i < size_K-1; ++i) {
-            //         if(i - 1< rows_rest % (size_K - 2)){
-            //             counts_K[i] = rows_per_rank_K_middle+1;
-            //         }
-            //         else{
-            //             counts_K[i] = rows_per_rank_K_middle;
-            //         }
-            //     }
-            //     displs_K[0] = 0;
-            //     for (int i = 1; i < size_K; ++i) {
-            //         displs_K[i] = displs_K[i-1] + counts_K[i-1];
-            //     }
-
-                
-            // }
             int sum = 0;
             for (int i = 0; i < size_K; ++i) {
                 sum += counts_K[i];
@@ -211,8 +180,8 @@ public:
                     std::cout << std::endl;
                     std::cout << nrows_K << std::endl;
                 }
-                MPI_Barrier(comm_K);
                 std::cerr << "Error in splitting the communicator" << std::endl;
+                MPI_Barrier(comm_K);
                 exit(1);
             }
 
@@ -252,8 +221,8 @@ public:
                     std::cout << std::endl;
                     std::cout << nrows_T << std::endl;
                 }
-                MPI_Barrier(comm_T);
                 std::cerr << "Error in splitting the communicator" << std::endl;
+                MPI_Barrier(comm_T);
                 exit(1);
             }
         }
@@ -290,8 +259,8 @@ public:
                     std::cout << std::endl;
                     std::cout << nrows_pairwise << std::endl;
                 }
-                MPI_Barrier(comm_pairwise);
                 std::cerr << "Error in splitting the communicator" << std::endl;
+                MPI_Barrier(comm_pairwise);
                 exit(1);
             }
 

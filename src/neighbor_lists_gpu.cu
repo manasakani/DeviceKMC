@@ -287,7 +287,6 @@ void compute_neighbor_list(MPI_Comm &event_comm, int *counts, int *displ, Device
         std::cout << "**********************************\n";
         fflush(stdout);
     }
-    MPI_Barrier(MPI_COMM_WORLD);
 }
 
 
@@ -339,6 +338,7 @@ void compute_cutoff_list(MPI_Comm &pairwise_comm, int *counts, int *displ, Devic
     // }
 
     int max_num_cutoff = thrust::reduce(d_num_cutoff_idx, d_num_cutoff_idx + counts_this_rank, 0, thrust::maximum<int>());
+    MPI_Allreduce(MPI_IN_PLACE, &max_num_cutoff, 1, MPI_INT, MPI_MAX, pairwise_comm);
     gpubuf.N_cutoff_ = max_num_cutoff;
     std::cout << "max num cutoff " << max_num_cutoff << std::endl; 
 
@@ -370,5 +370,4 @@ void compute_cutoff_list(MPI_Comm &pairwise_comm, int *counts, int *displ, Devic
         std::cout << "**********************************\n";
         fflush(stdout);
     }
-    MPI_Barrier(MPI_COMM_WORLD);
 }

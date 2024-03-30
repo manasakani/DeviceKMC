@@ -67,18 +67,20 @@ void update_charge_gpu(ELEMENT *d_site_element,
                        int *d_site_charge,
                        int *d_neigh_idx, int N, int nn, 
                        const ELEMENT *d_metals, const int num_metals, 
-                       const int *count, const int *displ, int rank){
+                       const int *count, const int *displ, MPI_Comm &comm){
+
+    int rank;
+    MPI_Comm_rank(comm, &rank);
 
     int num_threads = 1024;
-    int num_blocks = ((size_t)N * (size_t)nn + num_threads - 1) / num_threads;
+    int num_blocks = ((size_t)count[rank] * (size_t)nn + num_threads - 1) / num_threads;
 
     update_charge<<<num_blocks, num_threads>>>(d_site_element, d_site_charge, d_neigh_idx, N, nn, d_metals, num_metals,
                                                displ[rank], displ[rank] + count[rank]);
     hipDeviceSynchronize();
-
     // update the site charge on every rank
     MPI_Allgatherv(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL,
-               d_site_charge, count, displ, MPI_INT, MPI_COMM_WORLD);
+               d_site_charge, count, displ, MPI_INT, comm);
 
 }
 
@@ -1592,7 +1594,7 @@ __global__ void calculate_pairwise_interaction_indexed(const double* posx, const
                 local_potential += v_solve_gpu(dist, charge[j], sigma, k);
             }
         }
-        atomicAdd(&potential[i], local_potential);
+        potential[i] = local_potential;
     }
     
 }
@@ -1667,7 +1669,6 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
 
     // set the inhomogenous poisson solution to zero before populating it
     gpuErrchk( hipMemset(site_potential_charge, 0, N * sizeof(double)) ); 
-    gpuErrchk( hipDeviceSynchronize() );
 
     // // naive implementation, all-to-all
     // calculate_pairwise_interaction<NUM_THREADS><<<num_blocks, NUM_THREADS, NUM_THREADS * sizeof(double)>>>(posx, posy, posz, lattice,
@@ -1686,6 +1687,5 @@ void poisson_gridless_gpu(const int num_atoms_contact, const int pbc, const int 
      // only checks sites which were precomputed to be within the cutoff radius
     hipLaunchKernelGGL(calculate_pairwise_interaction_indexed, num_blocks, num_threads, 0, 0, posx, posy, posz, lattice,
         pbc, N, sigma, k, site_charge, site_potential_charge, count[rank], displ[rank], cutoff_idx, N_cutoff);
-    gpuErrchk( hipDeviceSynchronize() );
 
 }
