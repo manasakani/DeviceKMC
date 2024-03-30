@@ -20,6 +20,7 @@ Distributed_matrix::Distributed_matrix(
     this->matrix_size = matrix_size;
     this->nnz = nnz;
     this->comm = comm;
+    step_count = 0;
     // this->algo = algo;
 
     this->counts = new int[size];
@@ -88,6 +89,7 @@ Distributed_matrix::Distributed_matrix(
     this->comm = comm;
     this->number_of_neighbours = number_of_neighbours;
     // this->algo = algo;
+    step_count = 0;
 
     nnz = 0;
     rows_this_rank = counts_in[rank];
@@ -697,4 +699,7 @@ void Distributed_matrix::destroy_cg_overhead(
     rocsparse_destroy_dnvec_descr(vecAp_local);
     cudaErrchk(hipFree(Ap_local_d));    
     cudaErrchk(hipFree(z_local_d));
+
+
+
 }

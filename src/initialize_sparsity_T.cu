@@ -495,7 +495,7 @@ __global__ void populate_T_tunnel_dist(const double *posx, const double *posy, c
 
 
 // Collect the indices of the contacts and the vacancies
-__global__ void get_is_tunnel_mpi(size_t *is_tunnel, size_t *tunnel_indices, const ELEMENT *element, 
+__global__ void get_is_tunnel_mpi(size_t *is_tunnel, size_t *tunnel_indices, const ELEMENT *element, const double *atom_x,  
                                   int Nsub, int num_layers_contact, int num_source_inj, int num_ground_ext, int counts, int displacements)
 {
     int total_tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -519,6 +519,13 @@ __global__ void get_is_tunnel_mpi(size_t *is_tunnel, size_t *tunnel_indices, con
             {
                 yes = 1;
             }
+
+            // // include all the contacts except the last layer
+            // if ( element[idx] == VACANCY || 
+            // ( (element[idx] == Ti_EL || element[idx] == N_EL) &&  ( atom_x[idx] > -4.2 && atom_x[idx] < 52.65 ) )) 
+            // {
+            //     yes = 1;
+            // }
 
             is_tunnel[idx_local] = yes;
             tunnel_indices[idx_local] = yes * idx;
@@ -610,14 +617,14 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     hipMemset(is_tunnel, 0, counts_this_rank * sizeof(size_t));
     hipMemset(is_tunnel_indices, 0, counts_this_rank * sizeof(size_t));
 
-    hipLaunchKernelGGL(get_is_tunnel_mpi, num_blocks, num_threads, 0, 0, is_tunnel, is_tunnel_indices, gpubuf.atom_element, Nsub, num_layers_contact, num_source_inj, num_ground_ext,
+    hipLaunchKernelGGL(get_is_tunnel_mpi, num_blocks, num_threads, 0, 0, is_tunnel, is_tunnel_indices, gpubuf.atom_element, gpubuf.atom_x, Nsub, num_layers_contact, num_source_inj, num_ground_ext,
                        counts_this_rank, disp_this_rank);
 
     size_t num_tunnel_points_local;
     num_tunnel_points_local = thrust::reduce(thrust::device, is_tunnel, is_tunnel + counts_this_rank, 0); // sum([0, 1, 0, 0, 1...])
 
     // allreduce num_tunnel_points_local
-    // MPI_Allreduce(&num_tunnel_points_local, &num_tunnel_points_global, 1, my_MPI_SIZE_T, MPI_SUM, MPI_COMM_WORLD);
+    // MPI_Allreduce(&num_tunnel_points_local, &num_tunnel_points_global, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
     // std::cout << "size of tunneling submatrix: " << num_tunnel_points_global << "\n";
 
     // allgather the num_tunnel_points_local for every rank
@@ -631,6 +638,19 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
         num_tunnel_points_global += counts_subblock[i];
     }
     std::cout << "size of tunneling submatrix: " << num_tunnel_points_global << "\n";
+
+    // print counts and sipls
+    if (!rank)
+    {
+        for (int i = 0; i < size; i++)
+        {
+            std::cout << "rank " << i << " has " << counts_subblock[i] << " tunnel points\n";
+        }
+    }
+
+    for(int i = 0; i < T_neighbor->number_of_neighbours; i++){
+        std::cout << "rank " << rank << " has " << T_neighbor->nnz_per_neighbour[i] << " nnz per neigh \n";
+    }
 
     // assemble the local indices into the atoms array for the peice owned by each rank
     // int *tunnel_indices_local_d; // [1, 4...]
@@ -646,7 +666,6 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     hipDeviceSynchronize();
     MPI_Allgatherv(tunnel_indices_local_d, num_tunnel_points_local, MPI_INT, tunnel_indices_global_d,
         counts_subblock, displ_subblock, MPI_INT, comm);
-
 
     // make the nnz vector for each rank:    
     // loop over the size to determine neighbours
@@ -739,13 +758,13 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     hipLaunchKernelGGL(shift_vector_by_constant, blocks, threads, 0, 0, tunnel_indices_local_d,
         2-disp_this_rank, counts_subblock[rank]);
 
-    // if (!rank) 
-    //         {
-    //             std::cout << "***************inside T submatrix sparsity before malloc*******************\n";
-    //             std::string rocm_smi_output = exec2("rocm-smi --showmeminfo vram");
-    //             std::cout << rocm_smi_output;
-    //             std::cout << "**********************************\n";
-    //         }
+    if (!rank) 
+            {
+                std::cout << "***************inside T submatrix sparsity before malloc*******************\n";
+                std::string rocm_smi_output = exec2("rocm-smi --showmeminfo vram");
+                std::cout << rocm_smi_output;
+                std::cout << "**********************************\n";
+            }
 
 
     // row reduce the diagonals - diag_tunnel_local is passed in
@@ -758,8 +777,6 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     //             std::cout << rocm_smi_output;
     //             std::cout << "**********************************\n";
     //         }
-
-
 
     hipLaunchKernelGGL(calc_diagonal_T_tunnel,
         blocks, threads, 0, 0, col_indices_subblock_d, row_ptr_subblock_d, data_d,

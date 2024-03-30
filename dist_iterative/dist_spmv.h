@@ -89,4 +89,18 @@ void spmm_split_sparse2(
     hipStream_t &default_stream,
     rocsparse_handle &default_rocsparseHandle);
 
+void spmm_split_sparse3(
+    Distributed_subblock_sparse &A_subblock,
+    Distributed_matrix &A_distributed,    
+    double *p_subblock_d,
+    double *p_subblock_h,
+    rocsparse_dnvec_descr &vecp_subblock,
+    Distributed_vector &p_distributed,
+    double *Ap_subblock_d,
+    rocsparse_dnvec_descr &vecAp_subblock,
+    rocsparse_dnvec_descr &vecAp_local,
+    double *Ap_local_d,
+    hipStream_t &default_stream,
+    rocsparse_handle &default_rocsparseHandle);
+
 } // namespace dspmv_split_sparse

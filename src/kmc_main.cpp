@@ -194,13 +194,13 @@ int main(int argc, char **argv)
 
     if (kmc_comm.comm_events != MPI_COMM_NULL) {
         std::cout << "Rank: " << kmc_comm.rank_events << ", Initialized neighbor lists" << std::endl; fflush(stdout);
-        compute_neighbor_list(kmc_comm.comm_events, kmc_comm.counts_events, kmc_comm.displs_events, device, gpubuf, p);
+        // compute_neighbor_list(kmc_comm.comm_events, kmc_comm.counts_events, kmc_comm.displs_events, device, gpubuf, p);
     }
     if (p.solve_potential)
     {
         if (kmc_comm.comm_pairwise != MPI_COMM_NULL) {
             std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Initialized cutoff lists" << std::endl; fflush(stdout);
-            compute_cutoff_list(kmc_comm.comm_pairwise, kmc_comm.counts_pairwise, kmc_comm.displs_pairwise, device, gpubuf, p);
+            // compute_cutoff_list(kmc_comm.comm_pairwise, kmc_comm.counts_pairwise, kmc_comm.displs_pairwise, device, gpubuf, p);
         }
     }
     
@@ -211,8 +211,8 @@ int main(int argc, char **argv)
     {
         if (kmc_comm.comm_K != MPI_COMM_NULL) {
             std::cout << "Rank: " << kmc_comm.rank_K << ", Initialize sparsity K" << std::endl;                                                             // [1] fraction of power dissipated as heat
-            initialize_sparsity_K(
-                gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer, kmc_comm);
+            // initialize_sparsity_K(
+            //     gpubuf, p.pbc, p.nn_dist, p.num_atoms_first_layer, kmc_comm);
         }
     }
     
@@ -333,123 +333,123 @@ int main(int argc, char **argv)
             MPI_Barrier(kmc_comm.comm_events);
             t_superstep_start = MPI_Wtime();
             // Update potential
-            if (p.solve_potential)
-            {
-                if (kmc_comm.comm_events != MPI_COMM_NULL) {
-                    // Update site-resolved charges
-                    std::cout << "Rank: " << kmc_comm.rank_events << ", Start charge update" << std::endl; fflush(stdout);        
-                    MPI_Barrier(kmc_comm.comm_events);
+            // if (p.solve_potential)
+            // {
+            //     if (kmc_comm.comm_events != MPI_COMM_NULL) {
+            //         // Update site-resolved charges
+            //         std::cout << "Rank: " << kmc_comm.rank_events << ", Start charge update" << std::endl; fflush(stdout);        
+            //         MPI_Barrier(kmc_comm.comm_events);
 
-                    t_charge_update_start = MPI_Wtime();
+            //         t_charge_update_start = MPI_Wtime();
 
-                    update_charge_gpu(gpubuf.site_element,
-                        gpubuf.site_charge,
-                        gpubuf.neigh_idx,
-                        gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_,
-                        kmc_comm.counts_events, kmc_comm.displs_events, kmc_comm.comm_events);
+            //         update_charge_gpu(gpubuf.site_element,
+            //             gpubuf.site_charge,
+            //             gpubuf.neigh_idx,
+            //             gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_,
+            //             kmc_comm.counts_events, kmc_comm.displs_events, kmc_comm.comm_events);
 
-                    t_charge_update_end = MPI_Wtime();
-                }
-            }
+            //         t_charge_update_end = MPI_Wtime();
+            //     }
+            // }
 
-            // Update potential
-            if (p.solve_potential)
-            {
+            // // Update potential
+            // if (p.solve_potential)
+            // {
 
-                // Update site-resolved potential from boundary
+            //     // Update site-resolved potential from boundary
                 
-                if (kmc_comm.comm_K != MPI_COMM_NULL) {
-                    std::cout << "Rank: " << kmc_comm.rank_K << ", Start potential from boundaries" << std::endl;                                                             // [1] fraction of power dissipated as heat
-                    MPI_Barrier(kmc_comm.comm_K);
-                    t_boundary_start = MPI_Wtime();
-                    background_potential_gpu_sparse(handle, handle_cusolver, gpubuf, device.N, p.num_atoms_first_layer, p.num_atoms_first_layer,
-                                            Vd, p.pbc, p.high_G, p.low_G, device.nn_dist, p.metals.size(), kmc_step_count);
+            //     if (kmc_comm.comm_K != MPI_COMM_NULL) {
+            //         std::cout << "Rank: " << kmc_comm.rank_K << ", Start potential from boundaries" << std::endl;                                                             // [1] fraction of power dissipated as heat
+            //         MPI_Barrier(kmc_comm.comm_K);
+            //         t_boundary_start = MPI_Wtime();
+            //         background_potential_gpu_sparse(handle, handle_cusolver, gpubuf, device.N, p.num_atoms_first_layer, p.num_atoms_first_layer,
+            //                                 Vd, p.pbc, p.high_G, p.low_G, device.nn_dist, p.metals.size(), kmc_step_count);
                     
-                    hipDeviceSynchronize();
-                    if(kmc_comm.rank_K == 0){
-                        MPI_Gatherv(MPI_IN_PLACE, NULL, NULL,
-                            gpubuf.site_potential_boundary + p.num_atoms_first_layer,
-                            kmc_comm.counts_K,
-                            kmc_comm.displs_K,
-                            MPI_DOUBLE,
-                            0, kmc_comm.comm_K);
-                    }
-                    else{
-                        MPI_Gatherv(gpubuf.site_potential_boundary + p.num_atoms_first_layer + kmc_comm.displs_K[kmc_comm.rank_K],
-                            kmc_comm.counts_K[kmc_comm.rank_K],
-                            MPI_DOUBLE,
-                            NULL,
-                            kmc_comm.counts_K,
-                            kmc_comm.displs_K,
-                            MPI_DOUBLE,
-                            0, kmc_comm.comm_K);                        
-                    }
+            //         hipDeviceSynchronize();
+            //         if(kmc_comm.rank_K == 0){
+            //             MPI_Gatherv(MPI_IN_PLACE, NULL, NULL,
+            //                 gpubuf.site_potential_boundary + p.num_atoms_first_layer,
+            //                 kmc_comm.counts_K,
+            //                 kmc_comm.displs_K,
+            //                 MPI_DOUBLE,
+            //                 0, kmc_comm.comm_K);
+            //         }
+            //         else{
+            //             MPI_Gatherv(gpubuf.site_potential_boundary + p.num_atoms_first_layer + kmc_comm.displs_K[kmc_comm.rank_K],
+            //                 kmc_comm.counts_K[kmc_comm.rank_K],
+            //                 MPI_DOUBLE,
+            //                 NULL,
+            //                 kmc_comm.counts_K,
+            //                 kmc_comm.displs_K,
+            //                 MPI_DOUBLE,
+            //                 0, kmc_comm.comm_K);                        
+            //         }
 
-                    t_boundary_end = MPI_Wtime();
+            //         t_boundary_end = MPI_Wtime();
 
-                }
+            //     }
                 
-                if (kmc_comm.comm_pairwise != MPI_COMM_NULL) {
-                    int measurements = 1;
-                    double time_pairwise[measurements];
+            //     if (kmc_comm.comm_pairwise != MPI_COMM_NULL) {
+            //         int measurements = 1;
+            //         double time_pairwise[measurements];
 
         
-                    std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Start potential from charges" << std::endl;
-                    for(int i = 0; i < measurements; i++){
-                        hipDeviceSynchronize();
-                        MPI_Barrier(kmc_comm.comm_pairwise);
+            //         std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Start potential from charges" << std::endl;
+            //         for(int i = 0; i < measurements; i++){
+            //             hipDeviceSynchronize();
+            //             MPI_Barrier(kmc_comm.comm_pairwise);
                         
-                        // Update site-resolved potential from charges
-                        auto time_start = std::chrono::high_resolution_clock::now();
-                        poisson_gridless_gpu(p.num_atoms_contact, p.pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
-                                gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
-                                gpubuf.site_charge, gpubuf.site_potential_charge,
-                                kmc_comm.rank_pairwise, kmc_comm.size_pairwise, kmc_comm.counts_pairwise, kmc_comm.displs_pairwise, 
-                                gpubuf.cutoff_window, gpubuf.cutoff_idx, gpubuf.N_cutoff_); 
-                        hipDeviceSynchronize();
-                        if(kmc_comm.rank_pairwise == 0){
-                            MPI_Gatherv(MPI_IN_PLACE, NULL, NULL,
-                                gpubuf.site_potential_charge + kmc_comm.displs_pairwise[kmc_comm.rank_pairwise],
-                                kmc_comm.counts_pairwise,
-                                kmc_comm.displs_pairwise,
-                                MPI_DOUBLE,
-                                0, kmc_comm.comm_pairwise);
-                        }
-                        else{
-                            MPI_Gatherv(gpubuf.site_potential_charge + kmc_comm.displs_pairwise[kmc_comm.rank_pairwise],
-                                kmc_comm.counts_pairwise[kmc_comm.rank_pairwise],
-                                MPI_DOUBLE, NULL,
-                                kmc_comm.counts_pairwise,
-                                kmc_comm.displs_pairwise,
-                                MPI_DOUBLE,
-                                0, kmc_comm.comm_pairwise);
-                        }
-                        MPI_Barrier(kmc_comm.comm_pairwise);
-                        auto time_end = std::chrono::high_resolution_clock::now();
-                        time_pairwise[i] = std::chrono::duration<double>(time_end - time_start).count();
-                        if(kmc_comm.rank_pairwise == 0){
-                            std::cout << "Rank: " << kmc_comm.rank_pairwise << " " << time_pairwise[i] << std::endl;
-                        }
-                    }
-                    // if(kmc_comm.rank_pairwise == 0){
-                    //     std::string base_path = "pairwise/";
-                    //     std::string file_name = base_path + "time_pairwise_" + std::to_string(kmc_comm.size_pairwise) + ".txt";
-                    //     std::ofstream time_file;
-                    //     time_file.open(file_name);
-                    //     for(int i = 0; i < measurements; i++){
-                    //         time_file << time_pairwise[i] << std::endl;
-                    //     }
-                    //     time_file.close();                            
-                    // }
+            //             // Update site-resolved potential from charges
+            //             auto time_start = std::chrono::high_resolution_clock::now();
+            //             poisson_gridless_gpu(p.num_atoms_contact, p.pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
+            //                     gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
+            //                     gpubuf.site_charge, gpubuf.site_potential_charge,
+            //                     kmc_comm.rank_pairwise, kmc_comm.size_pairwise, kmc_comm.counts_pairwise, kmc_comm.displs_pairwise, 
+            //                     gpubuf.cutoff_window, gpubuf.cutoff_idx, gpubuf.N_cutoff_); 
+            //             hipDeviceSynchronize();
+            //             if(kmc_comm.rank_pairwise == 0){
+            //                 MPI_Gatherv(MPI_IN_PLACE, NULL, NULL,
+            //                     gpubuf.site_potential_charge + kmc_comm.displs_pairwise[kmc_comm.rank_pairwise],
+            //                     kmc_comm.counts_pairwise,
+            //                     kmc_comm.displs_pairwise,
+            //                     MPI_DOUBLE,
+            //                     0, kmc_comm.comm_pairwise);
+            //             }
+            //             else{
+            //                 MPI_Gatherv(gpubuf.site_potential_charge + kmc_comm.displs_pairwise[kmc_comm.rank_pairwise],
+            //                     kmc_comm.counts_pairwise[kmc_comm.rank_pairwise],
+            //                     MPI_DOUBLE, NULL,
+            //                     kmc_comm.counts_pairwise,
+            //                     kmc_comm.displs_pairwise,
+            //                     MPI_DOUBLE,
+            //                     0, kmc_comm.comm_pairwise);
+            //             }
+            //             MPI_Barrier(kmc_comm.comm_pairwise);
+            //             auto time_end = std::chrono::high_resolution_clock::now();
+            //             time_pairwise[i] = std::chrono::duration<double>(time_end - time_start).count();
+            //             if(kmc_comm.rank_pairwise == 0){
+            //                 std::cout << "Rank: " << kmc_comm.rank_pairwise << " " << time_pairwise[i] << std::endl;
+            //             }
+            //         }
+            //         // if(kmc_comm.rank_pairwise == 0){
+            //         //     std::string base_path = "pairwise/";
+            //         //     std::string file_name = base_path + "time_pairwise_" + std::to_string(kmc_comm.size_pairwise) + ".txt";
+            //         //     std::ofstream time_file;
+            //         //     time_file.open(file_name);
+            //         //     for(int i = 0; i < measurements; i++){
+            //         //         time_file << time_pairwise[i] << std::endl;
+            //         //     }
+            //         //     time_file.close();                            
+            //         // }
 
 
-                    outputBuffer << "Z - calculation time - charge [s]" <<  t_charge_update_end - t_charge_update_start << "\n";
-                    outputBuffer << "Z - calculation time - potential from boundaries [s]" <<  t_boundary_end - t_boundary_start << "\n";
-                    outputBuffer << "Z - calculation time - potential from charges [s]" << t_charge_end - t_charge_start << "\n";
-                }
+            //         outputBuffer << "Z - calculation time - charge [s]" <<  t_charge_update_end - t_charge_update_start << "\n";
+            //         outputBuffer << "Z - calculation time - potential from boundaries [s]" <<  t_boundary_end - t_boundary_start << "\n";
+            //         outputBuffer << "Z - calculation time - potential from charges [s]" << t_charge_end - t_charge_start << "\n";
+            //     }
 
 
-            }
+            // }
 
             // Update current and joule heating
             if (p.solve_current)
@@ -507,7 +507,7 @@ int main(int argc, char **argv)
 
             } else {           
                 // debug:                                                                         // run in IV or field-solver testing
-                if (kmc_step_count > 10)
+                if (kmc_step_count > 0)
                 {
                     kmc_time = t;
                 }
@@ -541,7 +541,7 @@ int main(int argc, char **argv)
             outputBuffer << "--------------------------------------";
 
             // DEBUG
-            if (kmc_step_count > 10)
+            if (kmc_step_count > 0)
             {
                 std::cout << "kmc step count limit for debug\n";
                 break;

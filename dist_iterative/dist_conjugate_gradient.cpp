@@ -268,10 +268,10 @@ void conjugate_gradient_jacobi(
     }
 
     //end CG
-    // cudaErrchk(hipDeviceSynchronize());
-    // if(A_distributed.rank == 0){
-    //     std::cout << "iteration K = " << k << ", relative residual = " << sqrt(r_norm2_h[0]/norm2_rhs) << std::endl;
-    // }
+    cudaErrchk(hipDeviceSynchronize());
+    if(A_distributed.rank == 0){
+        std::cout << "iteration K = " << k << ", relative residual = " << sqrt(r_norm2_h[0]/norm2_rhs) << std::endl;
+    }
 
 }
 template 

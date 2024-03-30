@@ -331,7 +331,7 @@ void spmm_split_sparse3(
 
 
     if(size > 1){
-        MPI_Wait(&A_distributed.send_requests[1], MPI_STATUS_IGNORE);
+        MPI_Wait(&A_subblock.send_subblock_requests[0], MPI_STATUS_IGNORE);
     }
 
     rocsparse_spmv(

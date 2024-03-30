@@ -1,3 +1,4 @@
+
 #include "hip/hip_runtime.h"
 #include "gpu_solvers.h"
 #define NUM_THREADS 512
@@ -1445,194 +1446,355 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     int rows_this_rank = T_distributed->rows_this_rank;
     int disp_this_rank = T_distributed->displacements[T_distributed->rank];
 
-    // ***************************************************************************************
-    // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
-    update_atom_arrays(gpubuf);
+    int measurements = 1;
+    double time_cg1[measurements];
+    double time_cg2[measurements];
+    double time_cg3[measurements];
+    double time_assemble[measurements];
+    double relative_tolerance = 1e-26 * N_atom;
+    int max_iterations = 2000;
 
-    // ***************************************************************************************
-    // 2. Populate the sparse neighbor matrix of T:                                                                     // N_full minus the ground node which is cut from the graph
-    populate_data_T_neighbor(gpubuf, nn_dist, tol, high_G, low_G, loop_G, Vd, m_e, V0,
-        num_source_inj, num_ground_ext, num_layers_contact, num_metals, Nsub);
+    double *virtual_potentials_global_d;
+    hipMalloc((void**)&virtual_potentials_global_d, Nsub * sizeof(double));
 
-    // ***************************************************************************************
-    // 3. Update the diagonal for the sparse neighbor matrix and collect the preconditioner
+    
+
+    // the initial guess for the solution is the current site-resolved potential inside the device
+    double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials + disp_this_rank;
+
     double *diagonal_local_d;
     gpuErrchk( hipMalloc((void **)&diagonal_local_d, rows_this_rank* sizeof(double)) );
-    gpuErrchk( hipMemset(diagonal_local_d, 0, rows_this_rank * sizeof(double)) );
 
-    update_diagonal_sparse(gpubuf, diagonal_local_d);
+    double *gpu_imacro, *gpu_m;
+    gpuErrchk( hipMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       
+    gpuErrchk( hipMalloc((void **)&gpu_m, rows_this_rank * sizeof(double)) );     
 
-    // dump_csr_matrix_txt(Nsub, T_distributed->nnz, T_distributed->row_ptr_d[0], T_distributed->col_indices_d[0], T_distributed->data_d[0], 0);
-    // std::cout << "dumped matrix" << std::endl;
-    // exit(1); 
 
-    // ***************************************************************************************
-    // 3. Assemble the sparsity for and populate the tunnel submatrix
-
-    Distributed_subblock_sparse T_tunnel_distributed;
     double *diagonal_tunnel_local_d;
     size_t *row_ptr_subblock_d;
     size_t *col_indices_subblock_d;
     double *data_d;
     int *tunnel_indices_local_d; // [1, 4...] after shift by 2
     size_t nnz_subblock_local, num_tunnel_points_global;
+
     int *counts_subblock = new int[size];
     int *displ_subblock = new int[size];
-    int rows_this_rank_tunnel = assemble_sparse_T_submatrix(gpubuf, N_atom, nn_dist, num_source_inj, num_ground_ext, num_layers_contact,
-                                                            high_G, low_G, loop_G, Vd, m_e, V0,
-                                                            T_tunnel_distributed, T_distributed, 
-                                                            diagonal_tunnel_local_d, tunnel_indices_local_d,
-                                                            row_ptr_subblock_d, col_indices_subblock_d, data_d, nnz_subblock_local,
-                                                            counts_subblock, displ_subblock, num_tunnel_points_global);
 
-    // subblock creation
-    double *tmp_in_d;
-    double *tmp_out_d;
-    hipMalloc(&tmp_in_d, num_tunnel_points_global * sizeof(double));
-    hipMalloc(&tmp_out_d, counts_subblock[rank] * sizeof(double));
-
-    // load data into subblock struct:
-    rocsparse_spmat_descr subblock_descriptor;
-    rocsparse_dnvec_descr subblock_vector_descriptor_in;
-    rocsparse_dnvec_descr subblock_vector_descriptor_out;
-
-    rocsparse_create_dnvec_descr(&subblock_vector_descriptor_in,
-                                num_tunnel_points_global,
-                                tmp_in_d,
-                                rocsparse_datatype_f64_r);
-
-    // Create dense vector Y
-    rocsparse_create_dnvec_descr(&subblock_vector_descriptor_out,
-                                counts_subblock[rank],
-                                tmp_out_d,
-                                rocsparse_datatype_f64_r);
-
-    rocsparse_spmv_alg algo = rocsparse_spmv_alg_csr_adaptive;
-    size_t subblock_buffersize;
-
-    rocsparse_create_csr_descr(&subblock_descriptor,
-                                counts_subblock[rank],
-                                num_tunnel_points_global,
-                                nnz_subblock_local,
-                                row_ptr_subblock_d,
-                                col_indices_subblock_d,
-                                data_d,
-                                rocsparse_indextype_i64,
-                                rocsparse_indextype_i64,
-                                rocsparse_index_base_zero,
-                                rocsparse_datatype_f64_r);
-
-
-    rocsparse_handle rocsparse_handle;
-    rocsparse_create_handle(&rocsparse_handle);
-
-    double alpha = 1.0;
-    double beta = 0.0;
-    rocsparse_spmv(rocsparse_handle,
-                    rocsparse_operation_none,
-                    &alpha,
-                    subblock_descriptor,
-                    subblock_vector_descriptor_in,
-                    &beta,
-                    subblock_vector_descriptor_out,
-                    rocsparse_datatype_f64_r,
-                    algo,
-                    &subblock_buffersize,
-                    nullptr);
-    double *subblock_buffer_d;
-    hipMalloc(&subblock_buffer_d, subblock_buffersize);
-
-    // Distributed_subblock_sparse A_subblock;
-    T_tunnel_distributed.subblock_indices_local_d = tunnel_indices_local_d;
-    T_tunnel_distributed.descriptor = &subblock_descriptor;
-    T_tunnel_distributed.algo = algo;
-    T_tunnel_distributed.buffersize = &subblock_buffersize;
-    T_tunnel_distributed.buffer_d = subblock_buffer_d;
-    T_tunnel_distributed.subblock_size = num_tunnel_points_global;
-    T_tunnel_distributed.count_subblock_h = counts_subblock;
-    T_tunnel_distributed.displ_subblock_h = displ_subblock;
+    Distributed_subblock_sparse T_tunnel_distributed;
     T_tunnel_distributed.send_subblock_requests = new MPI_Request[size-1];
     T_tunnel_distributed.recv_subblock_requests = new MPI_Request[size-1];
     T_tunnel_distributed.streams_recv_subblock = new hipStream_t[size-1];
     for(int i = 0; i < size-1; i++){
         hipStreamCreate(&T_tunnel_distributed.streams_recv_subblock[i]);
     }
-    // subblock creation done
 
-    // ***************************************************************************************
-    // 4. Collect the preconditioner (diagonal of the full system)
+    for(int i = 0; i < measurements; i++){
 
-    // diagonal_local_d is the diagonal of the sparse neighbor matrix
-    // diagonal_tunnel_local_d is the diagonal of the sparse neighbor matrix
-    // tunnel_indices_local_d are where this rank inserts its diag into diagonal_local_d for the preconditioning
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);
+        auto t_start = std::chrono::steady_clock::now();
 
-    int threads = 1024;
-    int blocks = (T_tunnel_distributed.count_subblock_h[rank] + threads - 1) / threads;
-    hipLaunchKernelGGL(assemble_preconditioner, blocks, threads, 0, 0, 
-                       diagonal_local_d, diagonal_tunnel_local_d, tunnel_indices_local_d, T_tunnel_distributed.count_subblock_h[rank]);
+        // ***************************************************************************************
+        // 1. Update the atoms array from the sites array using copy_if with is_defect as a filter
+        update_atom_arrays(gpubuf);
+
+        // ***************************************************************************************
+        // 2. Populate the sparse neighbor matrix of T:                                                                     // N_full minus the ground node which is cut from the graph
+        populate_data_T_neighbor(gpubuf, nn_dist, tol, high_G, low_G, loop_G, Vd, m_e, V0,
+            num_source_inj, num_ground_ext, num_layers_contact, num_metals, Nsub);
+
+        // ***************************************************************************************
+        // 3. Update the diagonal for the sparse neighbor matrix and collect the preconditioner
+
+        gpuErrchk( hipMemset(diagonal_local_d, 0, rows_this_rank * sizeof(double)) );
+
+        update_diagonal_sparse(gpubuf, diagonal_local_d);
+
+        dump_csr_matrix_txt(Nsub, T_distributed->nnz, T_distributed->row_ptr_d[0], T_distributed->col_indices_d[0], T_distributed->data_d[0], 0);
+        std::cout << "dumped matrix" << std::endl;
+        exit(1); 
+
+        // ***************************************************************************************
+        // 3. Assemble the sparsity for and populate the tunnel submatrix
+
         
-    // invert the diagonal for the preconditioner
-    blocks = (rows_this_rank + threads - 1) / threads;
-    hipLaunchKernelGGL(invert_diag, blocks, threads, 0, 0, 
-                       diagonal_local_d, rows_this_rank);
 
-    // ***************************************************************************************
-    // 5. Make the rhs (M) which represents the current inflow/outflow
-    double *gpu_imacro, *gpu_m;
-    gpuErrchk( hipMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       // [A] The macroscopic device current
-    gpuErrchk( hipMalloc((void **)&gpu_m, rows_this_rank * sizeof(double)) );                                 // [V] Virtual potential vector    
-    gpuErrchk( hipMemset(gpu_m, 0, rows_this_rank * sizeof(double)) );                                        // initialize the rhs for solving the system                                    
-    
-    if (!rank)
-    {
-        thrust::device_ptr<double> m_ptr = thrust::device_pointer_cast(gpu_m);
-        thrust::fill(m_ptr, m_ptr + 1, -loop_G * Vd);                                                           // max Current extraction (ground)                          
-        thrust::fill(m_ptr + 1, m_ptr + 2, loop_G * Vd);                                                        // max Current injection (source)
+        int rows_this_rank_tunnel = assemble_sparse_T_submatrix(gpubuf, N_atom, nn_dist, num_source_inj, num_ground_ext, num_layers_contact,
+                                                                high_G, low_G, loop_G, Vd, m_e, V0,
+                                                                T_tunnel_distributed, T_distributed, 
+                                                                diagonal_tunnel_local_d, tunnel_indices_local_d,
+                                                                row_ptr_subblock_d, col_indices_subblock_d, data_d, nnz_subblock_local,
+                                                                counts_subblock, displ_subblock, num_tunnel_points_global);
+
+        // subblock creation
+        double *tmp_in_d;
+        double *tmp_out_d;
+        hipMalloc(&tmp_in_d, num_tunnel_points_global * sizeof(double));
+        hipMalloc(&tmp_out_d, counts_subblock[rank] * sizeof(double));
+
+        // load data into subblock struct:
+        rocsparse_spmat_descr subblock_descriptor;
+        rocsparse_dnvec_descr subblock_vector_descriptor_in;
+        rocsparse_dnvec_descr subblock_vector_descriptor_out;
+
+        rocsparse_create_dnvec_descr(&subblock_vector_descriptor_in,
+                                    num_tunnel_points_global,
+                                    tmp_in_d,
+                                    rocsparse_datatype_f64_r);
+
+        // Create dense vector Y
+        rocsparse_create_dnvec_descr(&subblock_vector_descriptor_out,
+                                    counts_subblock[rank],
+                                    tmp_out_d,
+                                    rocsparse_datatype_f64_r);
+
+        rocsparse_spmv_alg algo = rocsparse_spmv_alg_csr_adaptive;
+        size_t subblock_buffersize;
+
+        rocsparse_create_csr_descr(&subblock_descriptor,
+                                    counts_subblock[rank],
+                                    num_tunnel_points_global,
+                                    nnz_subblock_local,
+                                    row_ptr_subblock_d,
+                                    col_indices_subblock_d,
+                                    data_d,
+                                    rocsparse_indextype_i64,
+                                    rocsparse_indextype_i64,
+                                    rocsparse_index_base_zero,
+                                    rocsparse_datatype_f64_r);
+
+
+        rocsparse_handle rocsparse_handle;
+        rocsparse_create_handle(&rocsparse_handle);
+
+        double alpha = 1.0;
+        double beta = 0.0;
+        rocsparse_spmv(rocsparse_handle,
+                        rocsparse_operation_none,
+                        &alpha,
+                        subblock_descriptor,
+                        subblock_vector_descriptor_in,
+                        &beta,
+                        subblock_vector_descriptor_out,
+                        rocsparse_datatype_f64_r,
+                        algo,
+                        &subblock_buffersize,
+                        nullptr);
+        double *subblock_buffer_d;
+        hipMalloc(&subblock_buffer_d, subblock_buffersize);
+
+        rocsparse_destroy_handle(rocsparse_handle);
+        hipFree(tmp_in_d);
+        hipFree(tmp_out_d);
+        rocsparse_destroy_dnvec_descr(subblock_vector_descriptor_in);
+        rocsparse_destroy_dnvec_descr(subblock_vector_descriptor_out);
+
+
+        // Distributed_subblock_sparse A_subblock;
+        T_tunnel_distributed.subblock_indices_local_d = tunnel_indices_local_d;
+        T_tunnel_distributed.descriptor = &subblock_descriptor;
+        T_tunnel_distributed.algo = algo;
+        T_tunnel_distributed.buffersize = &subblock_buffersize;
+        T_tunnel_distributed.buffer_d = subblock_buffer_d;
+        T_tunnel_distributed.subblock_size = num_tunnel_points_global;
+        T_tunnel_distributed.count_subblock_h = counts_subblock;
+        T_tunnel_distributed.displ_subblock_h = displ_subblock;
+
+
+        // subblock creation done
+
+        // ***************************************************************************************
+        // 4. Collect the preconditioner (diagonal of the full system)
+
+        // diagonal_local_d is the diagonal of the sparse neighbor matrix
+        // diagonal_tunnel_local_d is the diagonal of the sparse neighbor matrix
+        // tunnel_indices_local_d are where this rank inserts its diag into diagonal_local_d for the preconditioning
+
+        int threads = 1024;
+        int blocks = (T_tunnel_distributed.count_subblock_h[rank] + threads - 1) / threads;
+        hipLaunchKernelGGL(assemble_preconditioner, blocks, threads, 0, 0, 
+                        diagonal_local_d, diagonal_tunnel_local_d, tunnel_indices_local_d, T_tunnel_distributed.count_subblock_h[rank]);
+            
+        // invert the diagonal for the preconditioner
+        blocks = (rows_this_rank + threads - 1) / threads;
+        hipLaunchKernelGGL(invert_diag, blocks, threads, 0, 0, 
+                        diagonal_local_d, rows_this_rank);
+
+        // ***************************************************************************************
+        // 5. Make the rhs (M) which represents the current inflow/outflow
+        gpuErrchk( hipMemset(gpu_m, 0, rows_this_rank * sizeof(double)) );                                        // initialize the rhs for solving the system                                    
+        if (!rank)
+        {
+            thrust::device_ptr<double> m_ptr = thrust::device_pointer_cast(gpu_m);
+            thrust::fill(m_ptr, m_ptr + 1, -loop_G * Vd);                                                           // max Current extraction (ground)                          
+            thrust::fill(m_ptr + 1, m_ptr + 2, loop_G * Vd);                                                        // max Current injection (source)
+        }
+
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);
+        auto t_end = std::chrono::steady_clock::now();
+        time_assemble[i] = std::chrono::duration<double>(t_end - t_start).count();
+        if(rank == 0){
+            std::cout << "Time taken for assembly " << i << " is " << time_assemble[i] << " seconds" << std::endl;
+        }
+
+
+        if(i < measurements - 1){
+            hipFree(T_tunnel_distributed.subblock_indices_local_d);
+            hipFree(T_tunnel_distributed.buffer_d);
+            rocsparse_destroy_spmat_descr(*T_tunnel_distributed.descriptor);
+            hipFree(row_ptr_subblock_d);
+            hipFree(col_indices_subblock_d);
+            hipFree(data_d);
+            hipFree(diagonal_tunnel_local_d);
+        }
+
+
     }
 
-    // ************************************************************
-    // 2. Solve system of linear equations 
 
-    // the initial guess for the solution is the current site-resolved potential inside the device
-    double *gpu_virtual_potentials = gpubuf.atom_virtual_potentials + disp_this_rank;                                       // [V] Virtual potential vector  
-    
-    // TODO: remove the MPI barrier inside
-    double relative_tolerance = 1e-23 * N_atom;
-    int max_iterations = 50000;
+    double *starting_guess_copy_d;
+    double *right_hand_side_copy_d;
+    hipMalloc((void**)&starting_guess_copy_d, rows_this_rank * sizeof(double));
+    hipMalloc((void**)&right_hand_side_copy_d, rows_this_rank * sizeof(double));
+    hipMemcpy(starting_guess_copy_d, gpu_virtual_potentials, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+    hipMemcpy(right_hand_side_copy_d, gpu_m, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
 
-    iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse1>(
-                    T_tunnel_distributed,
-                    *gpubuf.T_distributed,
-                    *gpubuf.T_p_distributed,
-                    gpu_m,
-                    gpu_virtual_potentials,
-                    diagonal_local_d,
-                    relative_tolerance,
-                    max_iterations,
-                    comm);
 
-    double *virtual_potentials_global_d;
-    hipMalloc((void**)&virtual_potentials_global_d, Nsub * sizeof(double));
+    for(int i = 0; i < measurements; i++){
+
+        hipMemcpy(gpu_virtual_potentials, starting_guess_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        hipMemcpy(gpu_m, right_hand_side_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);
+        auto t_start = std::chrono::steady_clock::now();
+        iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse1>(
+                        T_tunnel_distributed,
+                        *gpubuf.T_distributed,
+                        *gpubuf.T_p_distributed,
+                        gpu_m,
+                        gpu_virtual_potentials,
+                        diagonal_local_d,
+                        relative_tolerance,
+                        max_iterations,
+                        comm);
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);          
+        auto t_end = std::chrono::steady_clock::now();
+        time_cg1[i] = std::chrono::duration<double>(t_end - t_start).count();
+        if(rank == 0){
+            std::cout << "Time taken for iteration 1 " << i << " is " << time_cg1[i] << " seconds" << std::endl;
+        }
+    }
+    for(int i = 0; i < measurements; i++){
+
+        hipMemcpy(gpu_virtual_potentials, starting_guess_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        hipMemcpy(gpu_m, right_hand_side_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);
+        auto t_start = std::chrono::steady_clock::now();
+        iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse2>(
+                        T_tunnel_distributed,
+                        *gpubuf.T_distributed,
+                        *gpubuf.T_p_distributed,
+                        gpu_m,
+                        gpu_virtual_potentials,
+                        diagonal_local_d,
+                        relative_tolerance,
+                        max_iterations,
+                        comm);
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);          
+        auto t_end = std::chrono::steady_clock::now();
+        time_cg2[i] = std::chrono::duration<double>(t_end - t_start).count();
+        if(rank == 0){
+            std::cout << "Time taken for iteration 2 " << i << " is " << time_cg2[i] << " seconds" << std::endl;
+        }
+    }
+
+    for(int i = 0; i < measurements; i++){
+
+        hipMemcpy(gpu_virtual_potentials, starting_guess_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        hipMemcpy(gpu_m, right_hand_side_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);
+        auto t_start = std::chrono::steady_clock::now();
+        iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse3>(
+                        T_tunnel_distributed,
+                        *gpubuf.T_distributed,
+                        *gpubuf.T_p_distributed,
+                        gpu_m,
+                        gpu_virtual_potentials,
+                        diagonal_local_d,
+                        relative_tolerance,
+                        max_iterations,
+                        comm);
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);          
+        auto t_end = std::chrono::steady_clock::now();
+        time_cg3[i] = std::chrono::duration<double>(t_end - t_start).count();
+        if(rank == 0){
+            std::cout << "Time taken for iteration 3 " << i << " is " << time_cg3[i] << " seconds" << std::endl;
+        }
+    }
+
+    // if(rank == 0){
+    //     std::string base_path = "current/";
+    //     std::string filename = base_path + "time_cg1_" + std::to_string(T_distributed->size) + ".txt";
+    //     std::ofstream file(filename);
+    //     for(int i = 0; i < measurements; i++){
+    //         file << time_cg1[i] << std::endl;
+    //     }
+    //     file.close();
+
+    //     std::string filename1 = base_path + "time_cg2_" + std::to_string(T_distributed->size) + ".txt";
+    //     std::ofstream file1(filename1);
+    //     for(int i = 0; i < measurements; i++){
+    //         file1 << time_cg2[i] << std::endl;
+    //     }
+    //     file1.close();
+
+    //     std::string filename2 = base_path + "time_cg3_" + std::to_string(T_distributed->size) + ".txt";
+    //     std::ofstream file2(filename2);
+    //     for(int i = 0; i < measurements; i++){
+    //         file2 << time_cg3[i] << std::endl;
+    //     }
+    //     file2.close();
+
+    //     std::string filename4 = base_path + "time_assemble_" + std::to_string(T_distributed->size) + ".txt";
+    //     std::ofstream file4(filename4);
+    //     for(int i = 0; i < measurements; i++){
+    //         file4 << time_assemble[i] << std::endl;
+    //     }
+    //     file4.close();
+    // }
+
+    hipFree(starting_guess_copy_d);
+    hipFree(right_hand_side_copy_d);
 
 
     // this rank updates the global solution vector to use for the next superstep
     MPI_Gatherv(gpu_virtual_potentials, rows_this_rank, MPI_DOUBLE, virtual_potentials_global_d,
         T_distributed->counts, T_distributed->displacements, MPI_DOUBLE, 0, comm);
     
+
     // debug for solution vector
     // if (!rank)
     // {
     //     // copy back and print the solution vector gpu_virtual_potentials out to a file;
     //     double *virtual_potentials_global_h = (double *)calloc(Nsub, sizeof(double));
     //     gpuErrchk( hipMemcpy(virtual_potentials_global_h, virtual_potentials_global_d, Nsub * sizeof(double), hipMemcpyDeviceToHost) );
-    //     std::ofstream file("gpu_virtual_potentials3.txt");
+    //     std::ofstream file("gpu_virtual_potentials_" + std::to_string(T_distributed->step_count) + ".txt");
     //     for (int i = 0; i < Nsub; i++){
     //         file << virtual_potentials_global_h[i] << " ";
     //     }
     //     file.close();
     //     std::cout << "dumped the solution vector from sparse_dist version\n";
+    //     T_distributed->step_count++;
     // }
-    // MPI_Barrier(MPI_COMM_WORLD);
     // std::cout << "exiting after solving\n"; exit(1);
 
     // // ****************************************************
@@ -1660,25 +1822,25 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     hipFree(gpu_imacro);
     hipFree(gpu_m);
     hipFree(diagonal_local_d);
+
     hipFree(T_tunnel_distributed.subblock_indices_local_d);
     rocsparse_destroy_spmat_descr(*T_tunnel_distributed.descriptor);
     hipFree(T_tunnel_distributed.buffer_d);
+    std::cout << 1 << std::endl;
     delete[] T_tunnel_distributed.count_subblock_h;
+    std::cout << 2 << std::endl;
     delete[] T_tunnel_distributed.displ_subblock_h;
+    std::cout << 3 << std::endl;
     delete[] T_tunnel_distributed.send_subblock_requests;
+    std::cout << 4 << std::endl;
     delete[] T_tunnel_distributed.recv_subblock_requests;
 
     for (int i = 0; i < size; i++)
     {
         hipStreamDestroy(T_tunnel_distributed.streams_recv_subblock[i]);
     }
+    std::cout << 5 << std::endl;
     delete[] T_tunnel_distributed.streams_recv_subblock;
-
-    rocsparse_destroy_handle(rocsparse_handle);
-    hipFree(tmp_in_d);
-    hipFree(tmp_out_d);
-    rocsparse_destroy_dnvec_descr(subblock_vector_descriptor_in);
-    rocsparse_destroy_dnvec_descr(subblock_vector_descriptor_out);
     
     hipFree(row_ptr_subblock_d);
     hipFree(col_indices_subblock_d);

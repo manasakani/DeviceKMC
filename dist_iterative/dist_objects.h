@@ -150,6 +150,8 @@ class Distributed_matrix{
         rocsparse_dnvec_descr vecAp_local;
         double *z_local_d;
 
+        int step_count;
+
     // construct the distributed matrix
     // input is the whol count[rank] * matrix size
     // csr part of the matrix
