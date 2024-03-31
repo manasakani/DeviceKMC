@@ -214,7 +214,7 @@ __global__ void calc_nnz_per_row_tunnel(const double *posx, const double *posy, 
                                         const double nn_dist, const double tol, int *tunnel_indices_global, 
                                         int num_layers_contact, int num_source_inj, int num_ground_ext,
                                         const ELEMENT *metals, int num_metals, size_t num_tunnel_points, int Natom,
-                                        int block_size, int block_start, size_t *nnz_per_row_d)
+                                        int block_size, int block_start, int *nnz_per_row_d)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int num_threads_total = blockDim.x * gridDim.x;
@@ -295,7 +295,7 @@ __global__ void assemble_tunnel_col_indices(const double *posx, const double *po
                                             const double nn_dist, const double tol, int *tunnel_indices_global, 
                                             int num_layers_contact, int num_source_inj, int num_ground_ext,
                                             const ELEMENT *metals, int num_metals, int num_tunnel_points, int Natom,
-                                            int block_size, int block_start, size_t *row_ptr_d, size_t *col_indices_d)
+                                            int block_size, int block_start, int *row_ptr_d, int *col_indices_d)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int num_threads_total = blockDim.x * gridDim.x;
@@ -378,7 +378,7 @@ __global__ void populate_T_tunnel_dist(const double *posx, const double *posy, c
                                        const double Vd, const double m_e, const double V0,
                                        int num_layers_contact, int num_source_inj, int num_ground_ext,
                                        int num_metals, const size_t num_tunnel_points, int *tunnel_indices, 
-                                       size_t *row_ptr_d, size_t *col_indices_d, double *data_d, int Natom,
+                                       int *row_ptr_d, int *col_indices_d, double *data_d, int Natom,
                                        int block_size, int block_start)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -513,24 +513,23 @@ __global__ void get_is_tunnel_mpi(size_t *is_tunnel, size_t *tunnel_indices, con
             // include the first layer of the contacts, as the rest are directly connected to it
             // METALS ARE HARDCODED
 
-            // include all the contacts except the last layer
-            if ( element[idx] == VACANCY || 
-            ( (element[idx] == Ti_EL || element[idx] == N_EL) &&  (idx > (num_layers_contact - 1)*num_source_inj) && (idx < (N_atom - (num_layers_contact - 1)*num_ground_ext)) )) 
-            {
-                yes = 1;
-            }
-
             // // include all the contacts except the last layer
             // if ( element[idx] == VACANCY || 
-            // ( (element[idx] == Ti_EL || element[idx] == N_EL) &&  ( atom_x[idx] > -4.2 && atom_x[idx] < 52.65 ) )) 
+            // ( (element[idx] == Ti_EL || element[idx] == N_EL) &&  (idx > (num_layers_contact - 1)*num_source_inj) && (idx < (N_atom - (num_layers_contact - 1)*num_ground_ext)) )) 
             // {
             //     yes = 1;
             // }
 
+            // include all the contacts except the last layer
+            if ( element[idx] == VACANCY || 
+            ( (element[idx] == Ti_EL || element[idx] == N_EL) &&  ( atom_x[idx] > -4.2 && atom_x[idx] < 52.65 ) )) 
+            {
+                yes = 1;
+            }
+
             is_tunnel[idx_local] = yes;
             tunnel_indices[idx_local] = yes * idx;
         }
-
     }
 }
 
@@ -547,7 +546,7 @@ __global__ void shift_vector_by_constant(int *vec, int constant, int N)
 }
 
 
-__global__ void calc_diagonal_T_tunnel( size_t *col_indices, size_t *row_ptr, double *data, int matrix_size, int displacement, double *diagonal)
+__global__ void calc_diagonal_T_tunnel( int *col_indices, int *row_ptr, double *data, int matrix_size, int displacement, double *diagonal)
 {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     for(int i = idx; i < matrix_size; i += blockDim.x * gridDim.x){ 
@@ -588,8 +587,8 @@ std::string exec2(const char* cmd) {
 int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact, 
                                  const double high_G, const double low_G, const double loop_G, const double Vd, const double m_e, const double V0,
                                  Distributed_subblock_sparse &T_tunnel, Distributed_matrix *T_neighbor, double *&diag_tunnel_local,
-                                 int *&tunnel_indices_local_d, size_t *&row_ptr_subblock_d, 
-                                 size_t *&col_indices_subblock_d, double *&data_d, size_t &nnz_subblock_local, int *&counts_subblock, int *&displ_subblock,
+                                 int *&tunnel_indices_local_d, int *&row_ptr_subblock_d, 
+                                 int *&col_indices_subblock_d, double *&data_d, size_t &nnz_subblock_local, int *&counts_subblock, int *&displ_subblock,
                                  size_t &num_tunnel_points_global)
 {
     // The tunnel submatrix has size num_tunnel_points x num_tunnel_points
@@ -669,10 +668,10 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
 
     // make the nnz vector for each rank:    
     // loop over the size to determine neighbours
-    size_t *dist_nnz_per_row_d;
+    int *dist_nnz_per_row_d;
 
-    gpuErrchk( hipMalloc((void **)&dist_nnz_per_row_d, counts_subblock[rank] * sizeof(size_t)) );
-    gpuErrchk(hipMemset(dist_nnz_per_row_d, 0, counts_subblock[rank] * sizeof(size_t)));
+    gpuErrchk( hipMalloc((void **)&dist_nnz_per_row_d, counts_subblock[rank] * sizeof(int)) );
+    gpuErrchk(hipMemset(dist_nnz_per_row_d, 0, counts_subblock[rank] * sizeof(int)));
 
     int threads = 1024;
     //start with self
@@ -693,8 +692,8 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
                         dist_nnz_per_row_d);
 
 
-    gpuErrchk( hipMalloc((void **)&row_ptr_subblock_d, (counts_subblock[rank] + 1) * sizeof(size_t)) );    
-    gpuErrchk( hipMemset(row_ptr_subblock_d, 0, (counts_subblock[rank] + 1) * sizeof(size_t)));
+    gpuErrchk( hipMalloc((void **)&row_ptr_subblock_d, (counts_subblock[rank] + 1) * sizeof(int)) );    
+    gpuErrchk( hipMemset(row_ptr_subblock_d, 0, (counts_subblock[rank] + 1) * sizeof(int)));
 
     // create row ptr    
     // void     *temp_storage_d = NULL;
@@ -707,14 +706,14 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     // gpuErrchk(hipFree(temp_storage_d));
 
     // create row ptr with thrust:
-    thrust::device_ptr<size_t> dist_nnz_per_row_ptr(dist_nnz_per_row_d);
-    thrust::device_ptr<size_t> row_ptr_subblock_ptr(row_ptr_subblock_d + 1);
+    thrust::device_ptr<int> dist_nnz_per_row_ptr(dist_nnz_per_row_d);
+    thrust::device_ptr<int> row_ptr_subblock_ptr(row_ptr_subblock_d + 1);
     thrust::inclusive_scan(thrust::device, dist_nnz_per_row_ptr, dist_nnz_per_row_ptr + counts_subblock[rank], row_ptr_subblock_ptr);
 
     // copy the last element of row_ptr_subblock_d back to host
-    // int nnz_subblock_local;
-    gpuErrchk( hipMemcpy(&nnz_subblock_local, row_ptr_subblock_d + counts_subblock[rank], sizeof(size_t), hipMemcpyDeviceToHost) );
-
+    int nnz_subblock_local_tmp;
+    gpuErrchk( hipMemcpy(&nnz_subblock_local_tmp, row_ptr_subblock_d + counts_subblock[rank], sizeof(int), hipMemcpyDeviceToHost) );
+    nnz_subblock_local = (size_t) nnz_subblock_local_tmp;
     if (!rank) 
     {
         std::cout << "***************inside T submatrix sparsity*******************\n";
@@ -722,11 +721,12 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
         std::cout << rocm_smi_output;
         std::cout << "**********************************\n";
     }
+    std::cout << "rank " << rank << " has " << nnz_subblock_local << " nnz in the tunnel submatrix\n";
     std::cout << "rank " << rank << " needs to allocate " << (size_t)nnz_subblock_local * (size_t)sizeof(size_t) / 1e9 << " GB" << std::endl;
 
     // make col indices
     // int *col_indices_subblock_d;
-    gpuErrchk( hipMalloc((void **)&col_indices_subblock_d, (size_t)nnz_subblock_local * sizeof(size_t)) );
+    gpuErrchk( hipMalloc((void **)&col_indices_subblock_d, (size_t)nnz_subblock_local * sizeof(int)) );
     hipLaunchKernelGGL(assemble_tunnel_col_indices, blocks, threads, 0, 0, 
                         gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z, gpubuf.atom_CB_edge,
                         gpubuf.atom_element, gpubuf.atom_charge,
@@ -782,8 +782,12 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
         blocks, threads, 0, 0, col_indices_subblock_d, row_ptr_subblock_d, data_d,
         counts_subblock[rank], displ_subblock[rank], diag_tunnel_local);
 
-    // dump_csr_matrix_txt(num_tunnel_points_local, nnz_subblock_local, row_ptr_subblock_d, col_indices_subblock_d, data_d, 0);
-    // std::cout << "dumped tunnel matrix after diag - v2" << std::endl;
+    // write tunnel indices to file
+
+
+    std::cout << "dumped tunnel indices" << nnz_subblock_local << " " << num_tunnel_points_local <<  std::endl;
+    // dump_csr_matrix_txt(num_tunnel_points_local, nnz_subblock_local, row_ptr_subblock_d, col_indices_subblock_d, data_d, 5);
+    std::cout << "dumped tunnel matrix after diag - v2" << std::endl;
     // exit(1);
 
     gpuErrchk( hipFree(is_tunnel) );
@@ -948,6 +952,11 @@ void initialize_sparsity_T(GPUBuffers &gpubuf,
                            col_indices_d[i], rows_this_rank, rows_neighbour, disp_this_rank, disp_neighbour);
     }
 
+    rocsparse_spmv_alg algos_generic[neighbor_count];
+    algos_generic[0] = rocsparse_spmv_alg_csr_adaptive;
+    for(int k = 1; k < neighbor_count; k++){
+        algos_generic[k] = rocsparse_spmv_alg_csr_stream;
+    }
     gpubuf.T_distributed = new Distributed_matrix(
         N_sub,
         kmc_comm.counts_T,
@@ -957,7 +966,7 @@ void initialize_sparsity_T(GPUBuffers &gpubuf,
         col_indices_d,
         row_ptr_d,
         neighbor_nnz_h,
-        rocsparse_spmv_alg_csr_adaptive,
+        algos_generic,
         kmc_comm.comm_T
     );
 

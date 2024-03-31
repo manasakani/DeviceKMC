@@ -42,6 +42,10 @@ class GPUBuffers;
 class KMCParameters;
 class Device;
 
+
+
+
+
 extern "C" {
 
 //*****************************************************
@@ -68,8 +72,8 @@ void initialize_sparsity_T(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
 int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const double nn_dist, int num_source_inj, int num_ground_ext, int num_layers_contact, 
                                  const double high_G, const double low_G, const double loop_G, const double Vd, const double m_e, const double V0,
                                  Distributed_subblock_sparse &T_tunnel, Distributed_matrix *T_neighbor, double *&diag_tunnel_local,
-                                 int *&tunnel_indices_local_d, size_t *&row_ptr_subblock_d, 
-                                 size_t *&col_indices_subblock_d, double *&data_d, size_t &nnz_subblock_local, int *&counts_subblock, int *&displ_subblock,
+                                 int *&tunnel_indices_local_d, int *&row_ptr_subblock_d, 
+                                 int *&col_indices_subblock_d, double *&data_d, size_t &nnz_subblock_local, int *&counts_subblock, int *&displ_subblock,
                                  size_t &num_tunnel_points_global);
                          
 // check that sparse and dense versions are the same

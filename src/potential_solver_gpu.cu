@@ -882,8 +882,10 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
 
     // TODO: remove the MPI barrier inside
     double relative_tolerance = 1e-14 * N_interface;
-    int max_iterations = 3000;
+    int max_iterations = 50000;
     int measurements = 1;
+    std::string name_save = "reorder_mixed_";
+
 
     double time_assembly[measurements];
     
@@ -1038,19 +1040,6 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
         }
     }
 
-    // if(A_distributed->rank == 0){
-    //     std::string base_path =  "cg_assembly/";
-
-    //     // dump time to txt file
-    //     std::ofstream time_file;
-    //     std::string name1 = base_path + "time_assembly_"+ std::to_string(A_distributed->size) +".txt";
-    //     time_file.open(name1);
-    //     for(int i = 0; i < measurements; i++){
-    //         time_file << time_assembly[i] << std::endl;
-    //     }
-    //     time_file.close();
-
-    // }
 
 
 
@@ -1101,55 +1090,85 @@ void background_potential_gpu_sparse(hipblasHandle_t handle_cublas, hipsolverDnH
     }
 
 
-    for(int i = 0; i < measurements; i++){
+    // for(int i = 0; i < measurements; i++){
 
-        hipMemcpy(rhs_local_d, rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
-        hipMemcpy(v_soln, starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
-        hipDeviceSynchronize(); 
-        MPI_Barrier(A_distributed->comm);
-        auto time_start = std::chrono::high_resolution_clock::now();
-        iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing>(
-            *gpubuf.K_distributed,
-            *gpubuf.K_p_distributed,
-            rhs_local_d,
-            v_soln,
-            inv_diagonal_d,
-            relative_tolerance,
-            max_iterations,
-            A_distributed->comm);
-        hipDeviceSynchronize(); 
-        MPI_Barrier(A_distributed->comm);    
-        auto time_end = std::chrono::high_resolution_clock::now();
-        time_method_4[i] = std::chrono::duration<double>(time_end - time_start).count();
-        if(A_distributed->rank == 0){
-            std::cout << "Time method 4: " << time_method_4[i] << std::endl;
-        }
-    }
-
-    // if(A_distributed->rank == 0){
-    //     std::string base_path = std::to_string(max_iterations) + "/";
+    //     hipMemcpy(rhs_local_d, rhs_local_d_copy, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+    //     hipMemcpy(v_soln, starting_guess_copy_d, A_distributed->rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+    //     hipDeviceSynchronize(); 
+    //     MPI_Barrier(A_distributed->comm);
+    //     auto time_start = std::chrono::high_resolution_clock::now();
+    //     iterative_solver::conjugate_gradient_jacobi<dspmv::gpu_packing>(
+    //         *gpubuf.K_distributed,
+    //         *gpubuf.K_p_distributed,    // if(A_distributed->rank == 0){
+    //     std::string base_path =  "cg_assembly/";
 
     //     // dump time to txt file
     //     std::ofstream time_file;
-    //     std::string name1 = base_path + "time_1_"+ std::to_string(A_distributed->size) +".txt";
+    //     std::string name1 = base_path + "time_assembly_"+ std::to_string(A_distributed->size) +".txt";
     //     time_file.open(name1);
     //     for(int i = 0; i < measurements; i++){
-    //         time_file << time_method_1[i] << std::endl;
+    //         time_file << time_assembly[i] << std::endl;
     //     }
     //     time_file.close();
 
-    //     std::string name4 = base_path + "time_4_"+ std::to_string(A_distributed->size) +".txt";
-    //     time_file.open(name4);
-    //     for(int i = 0; i < measurements; i++){
-    //         time_file << time_method_4[i] << std::endl;
+    // }
+
+    //         rhs_local_d,
+    //         v_soln,
+    //         inv_diagonal_d,
+    //         relative_tolerance,
+    //         max_iterations,
+    //         A_distributed->comm);
+    //     hipDeviceSynchronize(); 
+    //     MPI_Barrier(A_distributed->comm);    
+    //     auto time_end = std::chrono::high_resolution_clock::now();
+    //     time_method_4[i] = std::chrono::duration<double>(time_end - time_start).count();
+    //     if(A_distributed->rank == 0){
+    //         std::cout << "Time method 4: " << time_method_4[i] << std::endl;
     //     }
-    //     time_file.close();
     // }
 
 
+    if(A_distributed->rank == 0){
+        std::string base_path =  "cg_assembly/";
 
-    // MPI_Barrier(A_distributed->comm);
-    // exit(1);
+        // dump time to txt file
+        std::ofstream time_file;
+        std::string name1 = base_path + "time_assembly_reordered_"
+        + name_save + std::to_string(A_distributed->size) +".txt";
+        time_file.open(name1);
+        for(int i = 0; i < measurements; i++){
+            time_file << time_assembly[i] << std::endl;
+        }
+        time_file.close();
+
+    }
+
+
+    if(A_distributed->rank == 0){
+        std::string base_path = std::to_string(max_iterations) + "/";
+
+        // dump time to txt file
+        std::ofstream time_file;
+        std::string name1 = base_path + "time_1_" + name_save + std::to_string(A_distributed->size) +".txt";
+        time_file.open(name1);
+        for(int i = 0; i < measurements; i++){
+            time_file << time_method_1[i] << std::endl;
+        }
+        time_file.close();
+
+        // std::string name4 = base_path + "time_4_"+ std::to_string(A_distributed->size) +".txt";
+        // time_file.open(name4);
+        // for(int i = 0; i < measurements; i++){
+        //     time_file << time_method_4[i] << std::endl;
+        // }
+        // time_file.close();
+    }
+
+
+
+    MPI_Barrier(A_distributed->comm);
+    exit(1);
 
     // hipsparseDestroy(cusparseHandle);
     hipFree(VL);

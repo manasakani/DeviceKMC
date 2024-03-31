@@ -163,7 +163,7 @@ class Distributed_matrix{
         int *col_indices_in,
         int *row_ptr_in,
         double *data_in,
-        rocsparse_spmv_alg algo,
+        rocsparse_spmv_alg *algos,
         MPI_Comm comm);
 
     // construct the distributed matrix
@@ -178,7 +178,7 @@ class Distributed_matrix{
         int **col_indices_in_d,
         int **row_ptr_in_d,
         int *nnz_per_neighbour_in,
-        rocsparse_spmv_alg algo,
+        rocsparse_spmv_alg *algos,
         MPI_Comm comm);
 
 
@@ -224,7 +224,7 @@ class Distributed_matrix{
 
         void create_device_memory();
 
-        void prepare_spmv();
+        void prepare_spmv(rocsparse_spmv_alg *algos);
 
         void create_cg_overhead();
 

@@ -10,7 +10,7 @@ Distributed_matrix::Distributed_matrix(
     int *col_indices_in,
     int *row_ptr_in,
     double *data_in,
-    rocsparse_spmv_alg algo,
+    rocsparse_spmv_alg *algos,
     MPI_Comm comm)
 {
 
@@ -21,7 +21,6 @@ Distributed_matrix::Distributed_matrix(
     this->nnz = nnz;
     this->comm = comm;
     step_count = 0;
-    // this->algo = algo;
 
     this->counts = new int[size];
     this->displacements = new int[size];
@@ -63,7 +62,7 @@ Distributed_matrix::Distributed_matrix(
         cudaErrchk(hipMemcpy(col_indices_d[k], col_indices_h[k], nnz_per_neighbour[k]*sizeof(int), hipMemcpyHostToDevice));
         cudaErrchk(hipMemcpy(row_ptr_d[k], row_ptr_h[k], (rows_this_rank+1)*sizeof(int), hipMemcpyHostToDevice));
     }
-    prepare_spmv();
+    prepare_spmv(algos);
 
     create_cg_overhead();
 }
@@ -78,7 +77,7 @@ Distributed_matrix::Distributed_matrix(
     int **col_indices_in_d,
     int **row_ptr_in_d,
     int *nnz_per_neighbour_in,
-    rocsparse_spmv_alg algo,
+    rocsparse_spmv_alg *algos,
     MPI_Comm comm)
 {
 
@@ -129,7 +128,8 @@ Distributed_matrix::Distributed_matrix(
         cudaErrchk(hipMemcpy(col_indices_h[k], col_indices_in_d[k], nnz_per_neighbour[k]*sizeof(int), hipMemcpyDeviceToHost));
         cudaErrchk(hipMemcpy(row_ptr_h[k], row_ptr_in_d[k], (rows_this_rank+1)*sizeof(int), hipMemcpyDeviceToHost));
     }
-    prepare_spmv();
+
+    prepare_spmv(algos);
     construct_nnz_cols_per_neighbour();
     construct_nnz_rows_per_neighbour();
     construct_cols_per_neighbour();
@@ -584,7 +584,9 @@ void Distributed_matrix::create_device_memory(){
     }
 }
 
-void Distributed_matrix::prepare_spmv(){
+void Distributed_matrix::prepare_spmv(
+    rocsparse_spmv_alg *algos
+){
     buffer_size = new size_t[number_of_neighbours];
     buffer_d = new double*[number_of_neighbours];
     descriptors = new rocsparse_spmat_descr[number_of_neighbours];
@@ -593,13 +595,18 @@ void Distributed_matrix::prepare_spmv(){
     rocsparse_create_handle(&rocsparseHandle);
 
     algos_generic = new rocsparse_spmv_alg[number_of_neighbours];
+    for(int i = 0; i < number_of_neighbours; i++){
+        algos_generic[i] = algos[i];
+    }
+    // algos_generic[0] = rocsparse_spmv_alg_csr_adaptive;
+    // for(int k = 1; k < number_of_neighbours; k++){
+    //     algos_generic[k] = rocsparse_spmv_alg_csr_stream;
+    // }
+
     infos_low = new rocsparse_mat_info[number_of_neighbours];
     descr_low = new rocsparse_mat_descr[number_of_neighbours];
 
-    algos_generic[0] = rocsparse_spmv_alg_csr_adaptive;
-    for(int k = 1; k < number_of_neighbours; k++){
-        algos_generic[k] = rocsparse_spmv_alg_csr_stream;
-    }
+
 
     for(int k = 0; k < number_of_neighbours; k++){
         int neighbour_idx = neighbours[k];

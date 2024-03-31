@@ -1451,12 +1451,11 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     double time_cg2[measurements];
     double time_cg3[measurements];
     double time_assemble[measurements];
-    double relative_tolerance = 1e-26 * N_atom;
-    int max_iterations = 2000;
+    double relative_tolerance = 1e-23 * N_atom; // 1e-26 * N_atom;
+    int max_iterations = 50000; //2000;
 
     double *virtual_potentials_global_d;
     hipMalloc((void**)&virtual_potentials_global_d, Nsub * sizeof(double));
-
     
 
     // the initial guess for the solution is the current site-resolved potential inside the device
@@ -1471,8 +1470,8 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
 
 
     double *diagonal_tunnel_local_d;
-    size_t *row_ptr_subblock_d;
-    size_t *col_indices_subblock_d;
+    int *row_ptr_subblock_d;
+    int *col_indices_subblock_d;
     double *data_d;
     int *tunnel_indices_local_d; // [1, 4...] after shift by 2
     size_t nnz_subblock_local, num_tunnel_points_global;
@@ -1510,14 +1509,13 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
 
         update_diagonal_sparse(gpubuf, diagonal_local_d);
 
-        dump_csr_matrix_txt(Nsub, T_distributed->nnz, T_distributed->row_ptr_d[0], T_distributed->col_indices_d[0], T_distributed->data_d[0], 0);
+        std::cout << "Nsub " << Nsub << " nnz " << T_distributed->nnz_per_neighbour[0] << std::endl;
+        // dump_csr_matrix_txt(Nsub, T_distributed->nnz_per_neighbour[0], T_distributed->row_ptr_d[0], T_distributed->col_indices_d[0], T_distributed->data_d[0], 4);
         std::cout << "dumped matrix" << std::endl;
-        exit(1); 
+        // exit(1); 
 
         // ***************************************************************************************
         // 3. Assemble the sparsity for and populate the tunnel submatrix
-
-        
 
         int rows_this_rank_tunnel = assemble_sparse_T_submatrix(gpubuf, N_atom, nn_dist, num_source_inj, num_ground_ext, num_layers_contact,
                                                                 high_G, low_G, loop_G, Vd, m_e, V0,
@@ -1525,6 +1523,9 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
                                                                 diagonal_tunnel_local_d, tunnel_indices_local_d,
                                                                 row_ptr_subblock_d, col_indices_subblock_d, data_d, nnz_subblock_local,
                                                                 counts_subblock, displ_subblock, num_tunnel_points_global);
+
+        std::cout << "rank " << rank << " Nnz subblock local and num tunnel global " << nnz_subblock_local << " " << num_tunnel_points_global << std::endl;
+        // exit(1);
 
         // subblock creation
         double *tmp_in_d;
@@ -1558,8 +1559,8 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
                                     row_ptr_subblock_d,
                                     col_indices_subblock_d,
                                     data_d,
-                                    rocsparse_indextype_i64,
-                                    rocsparse_indextype_i64,
+                                    rocsparse_indextype_i32,
+                                    rocsparse_indextype_i32,
                                     rocsparse_index_base_zero,
                                     rocsparse_datatype_f64_r);
 
@@ -1687,59 +1688,59 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
             std::cout << "Time taken for iteration 1 " << i << " is " << time_cg1[i] << " seconds" << std::endl;
         }
     }
-    for(int i = 0; i < measurements; i++){
+    // for(int i = 0; i < measurements; i++){
 
-        hipMemcpy(gpu_virtual_potentials, starting_guess_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
-        hipMemcpy(gpu_m, right_hand_side_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+    //     hipMemcpy(gpu_virtual_potentials, starting_guess_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+    //     hipMemcpy(gpu_m, right_hand_side_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
 
-        hipDeviceSynchronize();
-        MPI_Barrier(comm);
-        auto t_start = std::chrono::steady_clock::now();
-        iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse2>(
-                        T_tunnel_distributed,
-                        *gpubuf.T_distributed,
-                        *gpubuf.T_p_distributed,
-                        gpu_m,
-                        gpu_virtual_potentials,
-                        diagonal_local_d,
-                        relative_tolerance,
-                        max_iterations,
-                        comm);
-        hipDeviceSynchronize();
-        MPI_Barrier(comm);          
-        auto t_end = std::chrono::steady_clock::now();
-        time_cg2[i] = std::chrono::duration<double>(t_end - t_start).count();
-        if(rank == 0){
-            std::cout << "Time taken for iteration 2 " << i << " is " << time_cg2[i] << " seconds" << std::endl;
-        }
-    }
+    //     hipDeviceSynchronize();
+    //     MPI_Barrier(comm);
+    //     auto t_start = std::chrono::steady_clock::now();
+    //     iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse2>(
+    //                     T_tunnel_distributed,
+    //                     *gpubuf.T_distributed,
+    //                     *gpubuf.T_p_distributed,
+    //                     gpu_m,
+    //                     gpu_virtual_potentials,
+    //                     diagonal_local_d,
+    //                     relative_tolerance,
+    //                     max_iterations,
+    //                     comm);
+    //     hipDeviceSynchronize();
+    //     MPI_Barrier(comm);          
+    //     auto t_end = std::chrono::steady_clock::now();
+    //     time_cg2[i] = std::chrono::duration<double>(t_end - t_start).count();
+    //     if(rank == 0){
+    //         std::cout << "Time taken for iteration 2 " << i << " is " << time_cg2[i] << " seconds" << std::endl;
+    //     }
+    // }
 
-    for(int i = 0; i < measurements; i++){
+    // for(int i = 0; i < measurements; i++){
 
-        hipMemcpy(gpu_virtual_potentials, starting_guess_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
-        hipMemcpy(gpu_m, right_hand_side_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+    //     hipMemcpy(gpu_virtual_potentials, starting_guess_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+    //     hipMemcpy(gpu_m, right_hand_side_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
 
-        hipDeviceSynchronize();
-        MPI_Barrier(comm);
-        auto t_start = std::chrono::steady_clock::now();
-        iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse3>(
-                        T_tunnel_distributed,
-                        *gpubuf.T_distributed,
-                        *gpubuf.T_p_distributed,
-                        gpu_m,
-                        gpu_virtual_potentials,
-                        diagonal_local_d,
-                        relative_tolerance,
-                        max_iterations,
-                        comm);
-        hipDeviceSynchronize();
-        MPI_Barrier(comm);          
-        auto t_end = std::chrono::steady_clock::now();
-        time_cg3[i] = std::chrono::duration<double>(t_end - t_start).count();
-        if(rank == 0){
-            std::cout << "Time taken for iteration 3 " << i << " is " << time_cg3[i] << " seconds" << std::endl;
-        }
-    }
+    //     hipDeviceSynchronize();
+    //     MPI_Barrier(comm);
+    //     auto t_start = std::chrono::steady_clock::now();
+    //     iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse3>(
+    //                     T_tunnel_distributed,
+    //                     *gpubuf.T_distributed,
+    //                     *gpubuf.T_p_distributed,
+    //                     gpu_m,
+    //                     gpu_virtual_potentials,
+    //                     diagonal_local_d,
+    //                     relative_tolerance,
+    //                     max_iterations,
+    //                     comm);
+    //     hipDeviceSynchronize();
+    //     MPI_Barrier(comm);          
+    //     auto t_end = std::chrono::steady_clock::now();
+    //     time_cg3[i] = std::chrono::duration<double>(t_end - t_start).count();
+    //     if(rank == 0){
+    //         std::cout << "Time taken for iteration 3 " << i << " is " << time_cg3[i] << " seconds" << std::endl;
+    //     }
+    // }
 
     // if(rank == 0){
     //     std::string base_path = "current/";
@@ -1782,19 +1783,20 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     
 
     // debug for solution vector
-    // if (!rank)
-    // {
-    //     // copy back and print the solution vector gpu_virtual_potentials out to a file;
-    //     double *virtual_potentials_global_h = (double *)calloc(Nsub, sizeof(double));
-    //     gpuErrchk( hipMemcpy(virtual_potentials_global_h, virtual_potentials_global_d, Nsub * sizeof(double), hipMemcpyDeviceToHost) );
-    //     std::ofstream file("gpu_virtual_potentials_" + std::to_string(T_distributed->step_count) + ".txt");
-    //     for (int i = 0; i < Nsub; i++){
-    //         file << virtual_potentials_global_h[i] << " ";
-    //     }
-    //     file.close();
-    //     std::cout << "dumped the solution vector from sparse_dist version\n";
-    //     T_distributed->step_count++;
-    // }
+    if (!rank)
+    {
+        // copy back and print the solution vector gpu_virtual_potentials out to a file;
+        double *virtual_potentials_global_h = (double *)calloc(Nsub, sizeof(double));
+        gpuErrchk( hipMemcpy(virtual_potentials_global_h, virtual_potentials_global_d, Nsub * sizeof(double), hipMemcpyDeviceToHost) );
+        std::ofstream file("gpu_virtual_potentials_" + std::to_string(T_distributed->step_count) + ".txt");
+        for (int i = 0; i < Nsub; i++){
+            file << virtual_potentials_global_h[i] << " ";
+        }
+        file.close();
+        std::cout << "dumped the solution vector from sparse_dist version\n";
+        T_distributed->step_count++;
+    }
+    MPI_Barrier(comm);
     // std::cout << "exiting after solving\n"; exit(1);
 
     // // ****************************************************
@@ -1941,8 +1943,9 @@ void update_power_gpu_sparse(hipblasHandle_t handle, hipsolverDnHandle_t handle_
                 num_metals, &X_data, &X_row_indices, &X_row_ptr, &X_col_indices, &X_nnz);
     hipDeviceSynchronize();
 
-    dump_csr_matrix_txt(Nsub, X_nnz, X_row_ptr, X_col_indices, X_data, 0); // figure out why the vector lengths are wrong according to the python script
-    std::cout << "dumped original sparse T matrix\n";
+    // dump_csr_matrix_txt(Nsub, X_nnz, X_row_ptr, X_col_indices, X_data, 0); // figure out why the vector lengths are wrong according to the python script
+    // std::cout << "dumped original sparse T matrix\n";
+
     // exit(1);
     
     // gpuErrchk( hipFree(X_row_indices) );

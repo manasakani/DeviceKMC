@@ -410,6 +410,17 @@ void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
             col_indices_d[i]
         );
     }
+    // rocsparse_spmv_alg algos_generic[neighbor_count];
+    // algos_generic[0] = rocsparse_spmv_alg_csr_adaptive;
+    // for(int k = 1; k < neighbor_count; k++){
+    //     algos_generic[k] = rocsparse_spmv_alg_csr_stream;
+    // }
+    rocsparse_spmv_alg algos_generic[neighbor_count];
+    algos_generic[0] = rocsparse_spmv_alg_csr_adaptive;
+    for(int k = 1; k < neighbor_count; k++){
+        algos_generic[k] = rocsparse_spmv_alg_csr_stream;
+    }
+
 
     // TODO: replace with unique ptrs
     gpubuf.K_distributed = new Distributed_matrix(
@@ -421,7 +432,7 @@ void initialize_sparsity_K(GPUBuffers &gpubuf, int pbc, const double nn_dist, in
         col_indices_d,
         row_ptr_d,
         neighbor_nnz_h,
-        rocsparse_spmv_alg_csr_adaptive,
+        algos_generic,
         kmc_comm.comm_K
     );
 
