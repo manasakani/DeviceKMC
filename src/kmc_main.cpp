@@ -328,19 +328,24 @@ int main(int argc, char **argv)
 
 
         std::cout << "Rank: " << kmc_comm.rank_events << ", Starting KMC loop" << std::endl;
+
+        double time_loop;
+        hipDeviceSynchronize();
+        MPI_Barrier(MPI_COMM_WORLD);
+        auto time_start = std::chrono::high_resolution_clock::now();
         while (kmc_time < t)
         {
-            MPI_Barrier(kmc_comm.comm_events);
-            t_superstep_start = MPI_Wtime();
+            // MPI_Barrier(kmc_comm.comm_events);
+            // t_superstep_start = MPI_Wtime();
             // Update potential
             if (p.solve_potential)
             {
                 if (kmc_comm.comm_events != MPI_COMM_NULL) {
                     // Update site-resolved charges
-                    std::cout << "Rank: " << kmc_comm.rank_events << ", Start charge update" << std::endl; fflush(stdout);        
-                    MPI_Barrier(kmc_comm.comm_events);
+                    // std::cout << "Rank: " << kmc_comm.rank_events << ", Start charge update" << std::endl; fflush(stdout);        
+                    // MPI_Barrier(kmc_comm.comm_events);
 
-                    t_charge_update_start = MPI_Wtime();
+                    // t_charge_update_start = MPI_Wtime();
 
                     update_charge_gpu(gpubuf.site_element,
                         gpubuf.site_charge,
@@ -348,7 +353,7 @@ int main(int argc, char **argv)
                         gpubuf.N_, gpubuf.nn_, gpubuf.metal_types, gpubuf.num_metal_types_,
                         kmc_comm.counts_events, kmc_comm.displs_events, kmc_comm.comm_events);
 
-                    t_charge_update_end = MPI_Wtime();
+                    // t_charge_update_end = MPI_Wtime();
                 }
             }
 
@@ -359,9 +364,9 @@ int main(int argc, char **argv)
                 // Update site-resolved potential from boundary
                 
                 if (kmc_comm.comm_K != MPI_COMM_NULL) {
-                    std::cout << "Rank: " << kmc_comm.rank_K << ", Start potential from boundaries" << std::endl;                                                             // [1] fraction of power dissipated as heat
-                    MPI_Barrier(kmc_comm.comm_K);
-                    t_boundary_start = MPI_Wtime();
+                    // std::cout << "Rank: " << kmc_comm.rank_K << ", Start potential from boundaries" << std::endl;                                                             // [1] fraction of power dissipated as heat
+                    // MPI_Barrier(kmc_comm.comm_K);
+                    // t_boundary_start = MPI_Wtime();
                     background_potential_gpu_sparse(handle, handle_cusolver, gpubuf, device.N, p.num_atoms_first_layer, p.num_atoms_first_layer,
                                             Vd, p.pbc, p.high_G, p.low_G, device.nn_dist, p.metals.size(), kmc_step_count);
                     
@@ -385,22 +390,24 @@ int main(int argc, char **argv)
                             0, kmc_comm.comm_K);                        
                     }
 
-                    t_boundary_end = MPI_Wtime();
+                    // t_boundary_end = MPI_Wtime();
 
                 }
                 
                 if (kmc_comm.comm_pairwise != MPI_COMM_NULL) {
-                    int measurements = 110;
-                    double time_pairwise[measurements];
+                    int measurements = 1;
+                    // double time_pairwise[measurements];
 
         
                     std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Start potential from charges" << std::endl;
                     for(int i = 0; i < measurements; i++){
-                        hipDeviceSynchronize();
-                        MPI_Barrier(kmc_comm.comm_pairwise);
+                        // hipDeviceSynchronize();
+                        // MPI_Barrier(kmc_comm.comm_pairwise);
+
+                        // t_charge_start = MPI_Wtime();
                         
-                        // Update site-resolved potential from charges
-                        auto time_start = std::chrono::high_resolution_clock::now();
+                        // // Update site-resolved potential from charges
+                        // auto time_start = std::chrono::high_resolution_clock::now();
                         poisson_gridless_gpu(p.num_atoms_contact, p.pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                                 gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
                                 gpubuf.site_charge, gpubuf.site_potential_charge,
@@ -424,30 +431,33 @@ int main(int argc, char **argv)
                                 MPI_DOUBLE,
                                 0, kmc_comm.comm_pairwise);
                         }
-                        MPI_Barrier(kmc_comm.comm_pairwise);
-                        auto time_end = std::chrono::high_resolution_clock::now();
-                        time_pairwise[i] = std::chrono::duration<double>(time_end - time_start).count();
-                        if(kmc_comm.rank_pairwise == 0){
-                            std::cout << "Rank: " << kmc_comm.rank_pairwise << " " << time_pairwise[i] << std::endl;
-                        }
+
+                        // t_charge_end = MPI_Wtime();
+
+                        // MPI_Barrier(kmc_comm.comm_pairwise);
+                        // auto time_end = std::chrono::high_resolution_clock::now();
+                        // time_pairwise[i] = std::chrono::duration<double>(time_end - time_start).count();
+                        // if(kmc_comm.rank_pairwise == 0){
+                        //     std::cout << "Rank: " << kmc_comm.rank_pairwise << " " << time_pairwise[i] << std::endl;
+                        // }
                     }
 
-                    std::string name_save = "reordered_";
-                    if(kmc_comm.rank_pairwise == 0){
-                        std::string base_path = "pairwise/";
-                        std::string file_name = base_path + "time_pairwise_" + name_save + std::to_string(kmc_comm.size_pairwise) + ".txt";
-                        std::ofstream time_file;
-                        time_file.open(file_name);
-                        for(int i = 0; i < measurements; i++){
-                            time_file << time_pairwise[i] << std::endl;
-                        }
-                        time_file.close();                            
-                    }
+                    // std::string name_save = "reordered_";
+                    // if(kmc_comm.rank_pairwise == 0){
+                    //     std::string base_path = "pairwise/";
+                    //     std::string file_name = base_path + "time_pairwise_" + name_save + std::to_string(kmc_comm.size_pairwise) + ".txt";
+                    //     std::ofstream time_file;
+                    //     time_file.open(file_name);
+                    //     for(int i = 0; i < measurements; i++){
+                    //         time_file << time_pairwise[i] << std::endl;
+                    //     }
+                    //     time_file.close();                            
+                    // }
 
 
-                    outputBuffer << "Z - calculation time - charge [s]" <<  t_charge_update_end - t_charge_update_start << "\n";
-                    outputBuffer << "Z - calculation time - potential from boundaries [s]" <<  t_boundary_end - t_boundary_start << "\n";
-                    outputBuffer << "Z - calculation time - potential from charges [s]" << t_charge_end - t_charge_start << "\n";
+                    // outputBuffer << "Z - calculation time - charge [s]" <<  t_charge_update_end - t_charge_update_start << "\n";
+                    // outputBuffer << "Z - calculation time - potential from boundaries [s]" <<  t_boundary_end - t_boundary_start << "\n";
+                    // outputBuffer << "Z - calculation time - potential from charges [s]" << t_charge_end - t_charge_start << "\n";
                 }
 
 
@@ -491,9 +501,9 @@ int main(int argc, char **argv)
             // Execute events and update kmc_time
             if (p.perturb_structure){     
                 if (kmc_comm.comm_events != MPI_COMM_NULL) {
-                    std::cout << "Rank: " << kmc_comm.rank_events << ", Start events" << std::endl;                                                             // [1] fraction of power dissipated as heat
-                    MPI_Barrier(kmc_comm.comm_events);
-                    t_events_start = MPI_Wtime();
+                    // std::cout << "Rank: " << kmc_comm.rank_events << ", Start events" << std::endl;                                                             // [1] fraction of power dissipated as heat
+                    // // MPI_Barrier(kmc_comm.comm_events);
+                    // t_events_start = MPI_Wtime();
 
                     double event_time = execute_kmc_step_mpi(kmc_comm.comm_events,
                                                 device.N, kmc_comm.counts_events,kmc_comm.displs_events,
@@ -503,8 +513,8 @@ int main(int argc, char **argv)
                                                 gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
                                                 gpubuf.site_potential_charge, gpubuf.site_temperature,
                                                 gpubuf.site_element, gpubuf.site_charge, sim.random_generator);    
-                    t_events_end = MPI_Wtime();
-                    outputBuffer << "Z - calculation time - kmc events [s]" <<  t_events_end - t_events_start << "\n";
+                    // t_events_end = MPI_Wtime();
+                    // outputBuffer << "Z - calculation time - kmc events [s]" <<  t_events_end - t_events_start << "\n";
                 }
 
             } else {           
@@ -515,7 +525,7 @@ int main(int argc, char **argv)
                 }
             }
 
-            t_superstep_end = MPI_Wtime();
+            // t_superstep_end = MPI_Wtime();
 
             // if (!rank_global) 
             // {
@@ -529,28 +539,41 @@ int main(int argc, char **argv)
             // ******************** Log results ***********************
             // ********************************************************
 
-            outputBuffer << "KMC time is: " << kmc_time << "\n";
+            // outputBuffer << "KMC time is: " << kmc_time << "\n";
             
-            // dump print buffer into the output file
-            if (!(kmc_step_count % p.output_freq))
-            {
-                outputFile << outputBuffer.str();
-                outputBuffer.str(std::string());
-            }
+            // // dump print buffer into the output file
+            // if (!(kmc_step_count % p.output_freq))
+            // {
+            //     outputFile << outputBuffer.str();
+            //     outputBuffer.str(std::string());
+            // }
             kmc_step_count++;
 
-            outputBuffer << "Z - calculation time - KMC superstep [s]: " << t_superstep_end - t_superstep_start  << "\n";
-            outputBuffer << "--------------------------------------";
+            // outputBuffer << "Z - calculation time - KMC superstep [s]: " << t_superstep_end - t_superstep_start  << "\n";
+            // outputBuffer << "--------------------------------------";
 
             // DEBUG
-            if (kmc_step_count > 0)
+            if (kmc_step_count > 1000)
             {
                 std::cout << "kmc step count limit for debug\n";
                 break;
             }
             
-            
         } // while (kmc_time < t)
+        hipDeviceSynchronize();
+        MPI_Barrier(MPI_COMM_WORLD);
+        auto time_end = std::chrono::high_resolution_clock::now();
+        time_loop = std::chrono::duration<double>(time_end - time_start).count();
+
+        if(rank_global == 0){
+            // append to file
+            std::cout << "Time loop " << time_loop << std::endl;
+            std::string file_name = "full_application/time_loop_" + std::to_string(size_global) + "_" + std::to_string(Vd) + ".txt";
+            std::ofstream time_file;
+            time_file.open(file_name, std::ios_base::app);
+            time_file << time_loop << std::endl;
+            time_file.close();
+        }
 
 // Get device attributes from GPU memory
 #ifdef USE_CUDA

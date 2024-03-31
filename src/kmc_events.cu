@@ -365,7 +365,7 @@ double execute_kmc_step_mpi(
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
 
-    int measurements = 110;
+    int measurements = 1;
     double time_list[measurements];
     double time_events[measurements];
 
@@ -400,10 +400,10 @@ double execute_kmc_step_mpi(
         gpuErrchk( hipMemset(event_type_local_d, 0, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE)) );
 
 
-        hipDeviceSynchronize();
-        MPI_Barrier(comm);
+        // hipDeviceSynchronize();
+        // MPI_Barrier(comm);
 
-        auto start = std::chrono::high_resolution_clock::now();
+        // auto start = std::chrono::high_resolution_clock::now();
 
 
         int num_threads = 1024;
@@ -422,23 +422,23 @@ double execute_kmc_step_mpi(
                                                     site_element, site_charge,
                                                     event_type_local_d, event_prob_local_d);
 
-        hipDeviceSynchronize();
-        MPI_Barrier(comm);
+        // hipDeviceSynchronize();
+        // MPI_Barrier(comm);
         
-        auto end = std::chrono::high_resolution_clock::now();
-        time_list[i] = std::chrono::duration<double>(end - start).count();
-        if(rank == 0){
-            std::cout << "Time to build event list: " << time_list[i] << std::endl;
-        }
+        // auto end = std::chrono::high_resolution_clock::now();
+        // time_list[i] = std::chrono::duration<double>(end - start).count();
+        // if(rank == 0){
+        //     std::cout << "Time to build event list: " << time_list[i] << std::endl;
+        // }
 
     }
-    EVENTTYPE *event_type_local_d_copy; 
-    double    *event_prob_local_d_copy; 
-    gpuErrchk( hipMalloc((void**)&event_type_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE)) );
-    gpuErrchk( hipMalloc((void**)&event_prob_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
+    // EVENTTYPE *event_type_local_d_copy; 
+    // double    *event_prob_local_d_copy; 
+    // gpuErrchk( hipMalloc((void**)&event_type_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE)) );
+    // gpuErrchk( hipMalloc((void**)&event_prob_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
 
-    gpuErrchk( hipMemcpy(event_type_local_d_copy, event_type_local_d, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE), hipMemcpyDeviceToDevice) );
-    gpuErrchk( hipMemcpy(event_prob_local_d_copy, event_prob_local_d, (size_t)count[rank] * (size_t)nn * sizeof(double), hipMemcpyDeviceToDevice) );
+    // gpuErrchk( hipMemcpy(event_type_local_d_copy, event_type_local_d, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE), hipMemcpyDeviceToDevice) );
+    // gpuErrchk( hipMemcpy(event_prob_local_d_copy, event_prob_local_d, (size_t)count[rank] * (size_t)nn * sizeof(double), hipMemcpyDeviceToDevice) );
 
 
     // **************************
@@ -449,21 +449,21 @@ double execute_kmc_step_mpi(
         event_time = 0.0;
         event_counter = 0;
 
-        gpuErrchk( hipMemcpy(event_type_local_d, event_type_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE), hipMemcpyDeviceToDevice) );
-        gpuErrchk( hipMemcpy(event_prob_local_d, event_prob_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(double), hipMemcpyDeviceToDevice) );
-        gpuErrchk( hipMemset(event_prob_cum_local_d, 0, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
-        hipDeviceSynchronize();
-        MPI_Barrier(comm);
+        // gpuErrchk( hipMemcpy(event_type_local_d, event_type_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE), hipMemcpyDeviceToDevice) );
+        // gpuErrchk( hipMemcpy(event_prob_local_d, event_prob_local_d_copy, (size_t)count[rank] * (size_t)nn * sizeof(double), hipMemcpyDeviceToDevice) );
+        // gpuErrchk( hipMemset(event_prob_cum_local_d, 0, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
+        // hipDeviceSynchronize();
+        // MPI_Barrier(comm);
 
-        auto start = std::chrono::high_resolution_clock::now();
+        // auto start = std::chrono::high_resolution_clock::now();
 
         int threads_single_block = 64;
 
 
         double freq_h;
         gpuErrchk( hipMemcpy(&freq_h, freq, 1 * sizeof(double), hipMemcpyDeviceToHost) );
-        // while (event_time < 1 / freq_h) {
-        while (event_counter < 2000) {
+        while (event_time < 1 / freq_h) {
+        // while (event_counter < 2000) {
             event_counter++;  
 
             // get the cumulative sum of the probabilities
@@ -531,42 +531,42 @@ double execute_kmc_step_mpi(
                 nn, i_host, j_host);
             event_time = -log(rng.getRandomNumber()) / event_prob_cum_global_h[size-1];
         }
-        hipDeviceSynchronize();
-        MPI_Barrier(comm);
+        // hipDeviceSynchronize();
+        // MPI_Barrier(comm);
         
-        auto end = std::chrono::high_resolution_clock::now();
-        time_events[i] = std::chrono::duration<double>(end - start).count();
+        // auto end = std::chrono::high_resolution_clock::now();
+        // time_events[i] = std::chrono::duration<double>(end - start).count();
 
-        if(rank == 0){
-            std::cout << "Time to execute events: " << time_events[i] << std::endl;
-            std::cout << "Number of KMC events: " << event_counter << "\n";
-            std::cout << "Event time: " << event_time << "\n";
-        }
+        // if(rank == 0){
+        //     std::cout << "Time to execute events: " << time_events[i] << std::endl;
+        //     std::cout << "Number of KMC events: " << event_counter << "\n";
+        //     std::cout << "Event time: " << event_time << "\n";
+        // }
     }
-    std::string name_save = "reordered_";
-    if(rank == 0){
-        std::string base_path =  "events/";
-        std::ofstream time_file;
-        std::string time_file_name = base_path + "time_list_" + name_save + std::to_string(size) +".txt";
-        time_file.open(time_file_name);
-        for(int i = 0; i < measurements; i++){
-            time_file << time_list[i] << "\n";
-        }
-        time_file.close();
+    // std::string name_save = "reordered_";
+    // if(rank == 0){
+    //     std::string base_path =  "events/";
+    //     std::ofstream time_file;
+    //     std::string time_file_name = base_path + "time_list_" + name_save + std::to_string(size) +".txt";
+    //     time_file.open(time_file_name);
+    //     for(int i = 0; i < measurements; i++){
+    //         time_file << time_list[i] << "\n";
+    //     }
+    //     time_file.close();
 
 
-        std::ofstream time_file_events;
-        std::string time_file_events_name = base_path + "time_events_" + name_save + std::to_string(size) +".txt";
-        time_file_events.open(time_file_events_name);
-        for(int i = 0; i < measurements; i++){
-            time_file_events << time_events[i] << "\n";
-        }
-        time_file_events.close();
-    }
+    //     std::ofstream time_file_events;
+    //     std::string time_file_events_name = base_path + "time_events_" + name_save + std::to_string(size) +".txt";
+    //     time_file_events.open(time_file_events_name);
+    //     for(int i = 0; i < measurements; i++){
+    //         time_file_events << time_events[i] << "\n";
+    //     }
+    //     time_file_events.close();
+    // }
 
 
-    MPI_Barrier(comm);
-    exit(0);
+    // MPI_Barrier(comm);
+    // exit(0);
 
 
     gpuErrchk( hipFree(event_prob_cum_local_d) );
