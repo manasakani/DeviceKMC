@@ -1446,13 +1446,14 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     int rows_this_rank = T_distributed->rows_this_rank;
     int disp_this_rank = T_distributed->displacements[T_distributed->rank];
 
-    int measurements = 1;
+    int measurements = 110;
     double time_cg1[measurements];
     double time_cg2[measurements];
     double time_cg3[measurements];
     double time_assemble[measurements];
-    double relative_tolerance = 1e-23 * N_atom; // 1e-26 * N_atom;
-    int max_iterations = 50000; //2000;
+    // double relative_tolerance = 1e-15 * N_atom; // 1e-26 * N_atom;
+    double relative_tolerance = 1e-30 * N_atom;
+    int max_iterations = 100; //2000;
 
     double *virtual_potentials_global_d;
     hipMalloc((void**)&virtual_potentials_global_d, Nsub * sizeof(double));
@@ -1466,8 +1467,7 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
 
     double *gpu_imacro, *gpu_m;
     gpuErrchk( hipMalloc((void **)&gpu_imacro, 1 * sizeof(double)) );                                       
-    gpuErrchk( hipMalloc((void **)&gpu_m, rows_this_rank * sizeof(double)) );     
-
+    gpuErrchk( hipMalloc((void **)&gpu_m, rows_this_rank * sizeof(double)) );  
 
     double *diagonal_tunnel_local_d;
     int *row_ptr_subblock_d;
@@ -1509,9 +1509,9 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
 
         update_diagonal_sparse(gpubuf, diagonal_local_d);
 
-        std::cout << "Nsub " << Nsub << " nnz " << T_distributed->nnz_per_neighbour[0] << std::endl;
+        // std::cout << "Nsub " << Nsub << " nnz " << T_distributed->nnz_per_neighbour[0] << std::endl;
         // dump_csr_matrix_txt(Nsub, T_distributed->nnz_per_neighbour[0], T_distributed->row_ptr_d[0], T_distributed->col_indices_d[0], T_distributed->data_d[0], 4);
-        std::cout << "dumped matrix" << std::endl;
+        // std::cout << "dumped matrix" << std::endl;
         // exit(1); 
 
         // ***************************************************************************************
@@ -1550,6 +1550,7 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
                                     rocsparse_datatype_f64_r);
 
         rocsparse_spmv_alg algo = rocsparse_spmv_alg_csr_adaptive;
+        // rocsparse_spmv_alg algo = rocsparse_spmv_alg_csr_stream;
         size_t subblock_buffersize;
 
         rocsparse_create_csr_descr(&subblock_descriptor,
@@ -1715,63 +1716,63 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     //     }
     // }
 
-    // for(int i = 0; i < measurements; i++){
+    for(int i = 0; i < measurements; i++){
 
-    //     hipMemcpy(gpu_virtual_potentials, starting_guess_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
-    //     hipMemcpy(gpu_m, right_hand_side_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        hipMemcpy(gpu_virtual_potentials, starting_guess_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
+        hipMemcpy(gpu_m, right_hand_side_copy_d, rows_this_rank * sizeof(double), hipMemcpyDeviceToDevice);
 
-    //     hipDeviceSynchronize();
-    //     MPI_Barrier(comm);
-    //     auto t_start = std::chrono::steady_clock::now();
-    //     iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse3>(
-    //                     T_tunnel_distributed,
-    //                     *gpubuf.T_distributed,
-    //                     *gpubuf.T_p_distributed,
-    //                     gpu_m,
-    //                     gpu_virtual_potentials,
-    //                     diagonal_local_d,
-    //                     relative_tolerance,
-    //                     max_iterations,
-    //                     comm);
-    //     hipDeviceSynchronize();
-    //     MPI_Barrier(comm);          
-    //     auto t_end = std::chrono::steady_clock::now();
-    //     time_cg3[i] = std::chrono::duration<double>(t_end - t_start).count();
-    //     if(rank == 0){
-    //         std::cout << "Time taken for iteration 3 " << i << " is " << time_cg3[i] << " seconds" << std::endl;
-    //     }
-    // }
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);
+        auto t_start = std::chrono::steady_clock::now();
+        iterative_solver::conjugate_gradient_jacobi_split_sparse<dspmv_split_sparse::spmm_split_sparse3>(
+                        T_tunnel_distributed,
+                        *gpubuf.T_distributed,
+                        *gpubuf.T_p_distributed,
+                        gpu_m,
+                        gpu_virtual_potentials,
+                        diagonal_local_d,
+                        relative_tolerance,
+                        max_iterations,
+                        comm);
+        hipDeviceSynchronize();
+        MPI_Barrier(comm);          
+        auto t_end = std::chrono::steady_clock::now();
+        time_cg3[i] = std::chrono::duration<double>(t_end - t_start).count();
+        if(rank == 0){
+            std::cout << "Time taken for iteration 3 " << i << " is " << time_cg3[i] << " seconds" << std::endl;
+        }
+    }
 
-    // if(rank == 0){
-    //     std::string base_path = "current/";
-    //     std::string filename = base_path + "time_cg1_" + std::to_string(T_distributed->size) + ".txt";
-    //     std::ofstream file(filename);
-    //     for(int i = 0; i < measurements; i++){
-    //         file << time_cg1[i] << std::endl;
-    //     }
-    //     file.close();
+    if(rank == 0){
+        std::string base_path = "current/";
+        std::string filename = base_path + "time_cg1_" + std::to_string(T_distributed->size) + ".txt";
+        std::ofstream file(filename);
+        for(int i = 0; i < measurements; i++){
+            file << time_cg1[i] << std::endl;
+        }
+        file.close();
 
-    //     std::string filename1 = base_path + "time_cg2_" + std::to_string(T_distributed->size) + ".txt";
-    //     std::ofstream file1(filename1);
-    //     for(int i = 0; i < measurements; i++){
-    //         file1 << time_cg2[i] << std::endl;
-    //     }
-    //     file1.close();
+        // std::string filename1 = base_path + "time_cg2_" + std::to_string(T_distributed->size) + ".txt";
+        // std::ofstream file1(filename1);
+        // for(int i = 0; i < measurements; i++){
+        //     file1 << time_cg2[i] << std::endl;
+        // }
+        // file1.close();
 
-    //     std::string filename2 = base_path + "time_cg3_" + std::to_string(T_distributed->size) + ".txt";
-    //     std::ofstream file2(filename2);
-    //     for(int i = 0; i < measurements; i++){
-    //         file2 << time_cg3[i] << std::endl;
-    //     }
-    //     file2.close();
+        std::string filename2 = base_path + "time_cg3_" + std::to_string(T_distributed->size) + ".txt";
+        std::ofstream file2(filename2);
+        for(int i = 0; i < measurements; i++){
+            file2 << time_cg3[i] << std::endl;
+        }
+        file2.close();
 
-    //     std::string filename4 = base_path + "time_assemble_" + std::to_string(T_distributed->size) + ".txt";
-    //     std::ofstream file4(filename4);
-    //     for(int i = 0; i < measurements; i++){
-    //         file4 << time_assemble[i] << std::endl;
-    //     }
-    //     file4.close();
-    // }
+        std::string filename4 = base_path + "time_assemble_" + std::to_string(T_distributed->size) + ".txt";
+        std::ofstream file4(filename4);
+        for(int i = 0; i < measurements; i++){
+            file4 << time_assemble[i] << std::endl;
+        }
+        file4.close();
+    }
 
     hipFree(starting_guess_copy_d);
     hipFree(right_hand_side_copy_d);
@@ -1783,20 +1784,21 @@ void update_power_gpu_sparse_dist(hipblasHandle_t handle, hipsolverDnHandle_t ha
     
 
     // debug for solution vector
-    if (!rank)
-    {
-        // copy back and print the solution vector gpu_virtual_potentials out to a file;
-        double *virtual_potentials_global_h = (double *)calloc(Nsub, sizeof(double));
-        gpuErrchk( hipMemcpy(virtual_potentials_global_h, virtual_potentials_global_d, Nsub * sizeof(double), hipMemcpyDeviceToHost) );
-        std::ofstream file("gpu_virtual_potentials_" + std::to_string(T_distributed->step_count) + ".txt");
-        for (int i = 0; i < Nsub; i++){
-            file << virtual_potentials_global_h[i] << " ";
-        }
-        file.close();
-        std::cout << "dumped the solution vector from sparse_dist version\n";
-        T_distributed->step_count++;
-    }
+    // if (!rank)
+    // {
+    //     // copy back and print the solution vector gpu_virtual_potentials out to a file;
+    //     double *virtual_potentials_global_h = (double *)calloc(Nsub, sizeof(double));
+    //     gpuErrchk( hipMemcpy(virtual_potentials_global_h, virtual_potentials_global_d, Nsub * sizeof(double), hipMemcpyDeviceToHost) );
+    //     std::ofstream file("gpu_virtual_potentials_" + std::to_string(T_distributed->step_count) + ".txt");
+    //     for (int i = 0; i < Nsub; i++){
+    //         file << virtual_potentials_global_h[i] << " ";
+    //     }
+    //     file.close();
+    //     std::cout << "dumped the solution vector from sparse_dist version\n";
+    //     T_distributed->step_count++;
+    // }
     MPI_Barrier(comm);
+    exit(1);
     // std::cout << "exiting after solving\n"; exit(1);
 
     // // ****************************************************

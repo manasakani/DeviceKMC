@@ -494,6 +494,126 @@ __global__ void populate_T_tunnel_dist(const double *posx, const double *posy, c
 }
 
 
+__global__ void populate_T_tunnel_dist2(const double *posx, const double *posy, const double *posz,
+                                       const ELEMENT *metals, const ELEMENT *element, const int *atom_charge, const double *atom_CB_edge, 
+                                       const double nn_dist, const double tol, const double high_G, const double low_G, const double loop_G, 
+                                       const double Vd, const double m_e, const double V0,
+                                       int num_layers_contact, int num_source_inj, int num_ground_ext,
+                                       int num_metals, const size_t num_tunnel_points, int *tunnel_indices, 
+                                       int *row_indices_d, int *col_indices_d, int nnz, double *data_d, int Natom,
+                                       int block_size, int block_start)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int num_threads_total = blockDim.x * gridDim.x;
+    int Nsub = Natom + 1;
+
+    // for(int row_id = idx; row_id < block_size; row_id += blockDim.x * gridDim.x){  // Nsub x Nsub matrix divided into blocks by rank
+    //     int nnz_row = 0;
+    //     for(int col_id = row_ptr_d[row_id]; col_id < row_ptr_d[row_id+1]; col_id++){ 
+    for(int id = idx; id < nnz; id += num_threads_total){ 
+        int i = block_start + row_indices_d[id]; // this is where this rank's rows start, i indexes the matrix 
+        int j = col_indices_d[id]; 
+
+        //  ACCCESS INDIRECTLY THOUGH TUNNEL INDICES
+        double posx_i = posx[tunnel_indices[i]];
+        double posx_j = posx[tunnel_indices[j]];
+
+        double posy_i = posy[tunnel_indices[i]];
+        double posy_j = posy[tunnel_indices[j]];
+
+        double posz_i = posz[tunnel_indices[i]];
+        double posz_j = posz[tunnel_indices[j]];
+
+        double atom_CB_edge_i = atom_CB_edge[tunnel_indices[i]];
+        double atom_CB_edge_j = atom_CB_edge[tunnel_indices[j]];
+
+        ELEMENT element_i = element[tunnel_indices[i]];
+        ELEMENT element_j = element[tunnel_indices[j]];
+
+        int ind_i = tunnel_indices[i];
+        int ind_j = tunnel_indices[j];
+
+        double dist_angstrom = site_dist_gpu(posx_i, posy_i, posz_i, 
+                                                posx_j, posy_j, posz_j);
+
+            bool neighbor = (dist_angstrom < nn_dist) && (i != j);
+
+            // tunneling terms occur between not-neighbors
+            if (i != j && !neighbor)
+            {  
+            bool any_vacancy1 = element_i == VACANCY;
+            bool any_vacancy2 = element_j == VACANCY;
+
+            // contacts, excluding the last layer 
+            bool metal1p = is_in_array_gpu(metals, element_i, num_metals)
+                                        && (ind_i > ((num_layers_contact - 1)*num_source_inj))
+                                        && (ind_i < (Natom - (num_layers_contact - 1)*num_ground_ext)); 
+
+            bool metal2p = is_in_array_gpu(metals, element_j, num_metals)
+                                        && (ind_j > ((num_layers_contact - 1)*num_source_inj))
+                                        && (ind_j < (Natom - (num_layers_contact - 1)*num_ground_ext));  
+
+            // types of tunnelling conditions considered
+            bool trap_to_trap = (any_vacancy1 && any_vacancy2);
+            bool contact_to_trap = (any_vacancy1 && metal2p) || (any_vacancy2 && metal1p);
+            bool contact_to_contact = (metal1p && metal2p);
+            double local_E_drop = atom_CB_edge_i - atom_CB_edge_j;                
+
+            if ((trap_to_trap || contact_to_trap || contact_to_contact)  && (fabs(local_E_drop) > tol))
+            {
+                double prefac = -(sqrt( 2 * m_e ) / h_bar) * (2.0 / 3.0);           // [s/(kg^1/2 * m^2)] coefficient inside the exponential
+                double dist = (1e-10)*dist_angstrom;                                // [m] 3D distance between atoms i and j
+
+                if (contact_to_trap)
+                {
+                    double energy_window = fabs(local_E_drop);                      // [eV] energy window for tunneling from the contacts
+                    double dV = 0.01;                                               // [V] energy spacing for numerical integration
+                    // double dE = eV_to_J * dV;                                       // [eV] energy spacing for numerical integration
+                    double dE = eV_to_J * dV * 10000000000; // NOTE: @Manasa this is a temporary fix to avoid MPI issues!
+
+
+                    // integrate over all the occupied energy levels in the contact
+                    double T = 0.0;
+                    for (double iv = 0; iv < energy_window; iv += dE)
+                    {
+                        double E1 = eV_to_J * V0 + iv;                                  // [J] Energy distance to CB before tunnelling
+                        double E2 = E1 - fabs(local_E_drop);                            // [J] Energy distance to CB after tunnelling
+
+                        if (E2 > 0)                                                     // trapezoidal potential barrier (low field)                 
+                        {                                                           
+                            T += exp(prefac * (dist / fabs(local_E_drop)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
+                        }
+
+                        if (E2 < 0)                                                      // triangular potential barrier (high field)                               
+                        {
+                            T += exp(prefac * (dist / fabs(local_E_drop)) * ( pow(E1, 1.5) )); 
+                        } 
+                    }
+                    data_d[id] = -T;
+                } 
+                else 
+                {
+                    double E1 = eV_to_J * V0;                                        // [J] Energy distance to CB before tunnelling
+                    double E2 = E1 - fabs(local_E_drop);                             // [J] Energy distance to CB after tunnelling
+                                    
+                    if (E2 > 0)                                                      // trapezoidal potential barrier (low field)
+                    {                                                           
+                        double T = exp(prefac * (dist / fabs(E1 - E2)) * ( pow(E1, 1.5) - pow(E2, 1.5) ) );
+                        data_d[id] = -T;
+                    }
+
+                    if (E2 < 0)                                                        // triangular potential barrier (high field)
+                    {
+                        double T = exp(prefac * (dist / fabs(E1 - E2)) * ( pow(E1, 1.5) ));
+                        data_d[id] = -T;
+                    }
+                }
+            }
+        }
+    }
+}
+
+
 // Collect the indices of the contacts and the vacancies
 __global__ void get_is_tunnel_mpi(size_t *is_tunnel, size_t *tunnel_indices, const ELEMENT *element, const double *atom_x,  
                                   int Nsub, int num_layers_contact, int num_source_inj, int num_ground_ext, int counts, int displacements)
@@ -740,16 +860,42 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
                         displ_subblock[rank],
                         row_ptr_subblock_d, col_indices_subblock_d);
 
+    // csr 2 coo
+    int *row_indices_subblock_d;
+    hipMalloc((void **)&row_indices_subblock_d, nnz_subblock_local * sizeof(int));
+    hipDeviceSynchronize();
+    rocsparse_csr2coo(
+        T_neighbor->default_rocsparseHandle,
+        row_ptr_subblock_d,
+        nnz_subblock_local,
+        counts_subblock[rank],
+        row_indices_subblock_d,
+        rocsparse_index_base_zero
+    );
+    hipDeviceSynchronize();
+
+
+
     // make the values (remmember the x10 for numerical stability)
     // double *data_d;
     gpuErrchk( hipMalloc((void **)&data_d, nnz_subblock_local * sizeof(double)) );
-    hipLaunchKernelGGL(populate_T_tunnel_dist, blocks, threads, 0, 0, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+    // hipLaunchKernelGGL(populate_T_tunnel_dist, blocks, threads, 0, 0, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
+    //                     gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
+    //                     nn_dist, tol, high_G, low_G, loop_G, Vd, m_e, V0,
+    //                     num_layers_contact, num_source_inj, num_ground_ext,
+    //                     num_metals, num_tunnel_points_local,
+    //                     tunnel_indices_global_d,
+    //                     row_ptr_subblock_d, col_indices_subblock_d, data_d, N_atom,
+    //                     counts_subblock[rank], displ_subblock[rank]);
+
+    int blocks3 = (nnz_subblock_local - 1) / threads + 1;
+    hipLaunchKernelGGL(populate_T_tunnel_dist2, blocks3, threads, 0, 0, gpubuf.atom_x, gpubuf.atom_y, gpubuf.atom_z,
                         gpubuf.metal_types, gpubuf.atom_element, gpubuf.atom_charge, gpubuf.atom_CB_edge,
                         nn_dist, tol, high_G, low_G, loop_G, Vd, m_e, V0,
                         num_layers_contact, num_source_inj, num_ground_ext,
                         num_metals, num_tunnel_points_local,
                         tunnel_indices_global_d,
-                        row_ptr_subblock_d, col_indices_subblock_d, data_d, N_atom,
+                        row_indices_subblock_d, col_indices_subblock_d, nnz_subblock_local, data_d, N_atom,
                         counts_subblock[rank], displ_subblock[rank]);
 
 
@@ -781,6 +927,7 @@ int assemble_sparse_T_submatrix(GPUBuffers &gpubuf, const int N_atom, const doub
     hipLaunchKernelGGL(calc_diagonal_T_tunnel,
         blocks, threads, 0, 0, col_indices_subblock_d, row_ptr_subblock_d, data_d,
         counts_subblock[rank], displ_subblock[rank], diag_tunnel_local);
+    hipFree(row_indices_subblock_d);
 
     // write tunnel indices to file
 
@@ -953,10 +1100,20 @@ void initialize_sparsity_T(GPUBuffers &gpubuf,
     }
 
     rocsparse_spmv_alg algos_generic[neighbor_count];
-    algos_generic[0] = rocsparse_spmv_alg_csr_adaptive;
-    for(int k = 1; k < neighbor_count; k++){
-        algos_generic[k] = rocsparse_spmv_alg_csr_stream;
+    if(rank == 0){
+        algos_generic[0] = rocsparse_spmv_alg_csr_adaptive;
+        for(int k = 1; k < neighbor_count-1; k++){
+            algos_generic[k] = rocsparse_spmv_alg_csr_stream;
+        }        
+        algos_generic[neighbor_count-1] = rocsparse_spmv_alg_csr_adaptive;
     }
+    else{
+        algos_generic[0] = rocsparse_spmv_alg_csr_adaptive;
+        for(int k = 1; k < neighbor_count; k++){
+            algos_generic[k] = rocsparse_spmv_alg_csr_stream;
+        }     
+    }
+
     gpubuf.T_distributed = new Distributed_matrix(
         N_sub,
         kmc_comm.counts_T,

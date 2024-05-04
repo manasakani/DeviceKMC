@@ -161,12 +161,17 @@ int main(int argc, char **argv)
     //******************************
     // Initialize the KMC Comm
     //******************************
+    bool split = false;
+    int ratio[2] = {8, 24};
+    std::string name = "hybrid_split";
 
     KMC_comm kmc_comm(MPI_COMM_WORLD,
         device.N - 2*p.num_atoms_first_layer,
         device.N_atom + 1,
         device.N,
-        device.N);
+        device.N,
+        split,
+        ratio);
 
     //******************************
     // Initialize the KMC Simulation
@@ -286,8 +291,8 @@ int main(int argc, char **argv)
             }
             const int error = mkdir(folder_name.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
             outputBuffer << "Created folder: " << folder_name << '\n';
-            std::string file_name = "snapshot_init.xyz";
-            device.writeSnapshot(file_name, folder_name);            
+            // std::string file_name = "snapshot_init.xyz";
+            // device.writeSnapshot(file_name, folder_name);            
         }
 
         //***********************************
@@ -333,6 +338,11 @@ int main(int argc, char **argv)
         hipDeviceSynchronize();
         MPI_Barrier(MPI_COMM_WORLD);
         auto time_start = std::chrono::high_resolution_clock::now();
+
+        double time_pairwise_tot = 0.0;
+        double time_K = 0.0;
+        double time_events = 0.0;
+
         while (kmc_time < t)
         {
             // MPI_Barrier(kmc_comm.comm_events);
@@ -367,10 +377,13 @@ int main(int argc, char **argv)
                     // std::cout << "Rank: " << kmc_comm.rank_K << ", Start potential from boundaries" << std::endl;                                                             // [1] fraction of power dissipated as heat
                     // MPI_Barrier(kmc_comm.comm_K);
                     // t_boundary_start = MPI_Wtime();
+
+                    // MPI_Barrier(kmc_comm.comm_K);
+                    // auto time_start = std::chrono::high_resolution_clock::now();
+
                     background_potential_gpu_sparse(handle, handle_cusolver, gpubuf, device.N, p.num_atoms_first_layer, p.num_atoms_first_layer,
                                             Vd, p.pbc, p.high_G, p.low_G, device.nn_dist, p.metals.size(), kmc_step_count);
                     
-                    hipDeviceSynchronize();
                     if(kmc_comm.rank_K == 0){
                         MPI_Gatherv(MPI_IN_PLACE, NULL, NULL,
                             gpubuf.site_potential_boundary + p.num_atoms_first_layer,
@@ -389,8 +402,10 @@ int main(int argc, char **argv)
                             MPI_DOUBLE,
                             0, kmc_comm.comm_K);                        
                     }
-
-                    // t_boundary_end = MPI_Wtime();
+                    // hipDeviceSynchronize();
+                    // MPI_Barrier(kmc_comm.comm_K);
+                    // auto time_end = std::chrono::high_resolution_clock::now();
+                    // time_K += std::chrono::duration<double>(time_end - time_start).count(); 
 
                 }
                 
@@ -399,14 +414,12 @@ int main(int argc, char **argv)
                     // double time_pairwise[measurements];
 
         
-                    std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Start potential from charges" << std::endl;
-                    for(int i = 0; i < measurements; i++){
+                    // std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Start potential from charges" << std::endl;
+                    for(int j = 0; j < measurements; j++){
+
+                        // // Update site-resolved potential from charges
                         // hipDeviceSynchronize();
                         // MPI_Barrier(kmc_comm.comm_pairwise);
-
-                        // t_charge_start = MPI_Wtime();
-                        
-                        // // Update site-resolved potential from charges
                         // auto time_start = std::chrono::high_resolution_clock::now();
                         poisson_gridless_gpu(p.num_atoms_contact, p.pbc, gpubuf.N_, gpubuf.lattice, gpubuf.sigma, gpubuf.k,
                                 gpubuf.site_x, gpubuf.site_y, gpubuf.site_z,
@@ -431,21 +444,21 @@ int main(int argc, char **argv)
                                 MPI_DOUBLE,
                                 0, kmc_comm.comm_pairwise);
                         }
-
-                        // t_charge_end = MPI_Wtime();
-
+                        // hipDeviceSynchronize();
                         // MPI_Barrier(kmc_comm.comm_pairwise);
                         // auto time_end = std::chrono::high_resolution_clock::now();
-                        // time_pairwise[i] = std::chrono::duration<double>(time_end - time_start).count();
+
+                        // time_pairwise_tot += std::chrono::duration<double>(time_end - time_start).count();
+                        
+                        // time_pairwise[j] = std::chrono::duration<double>(time_end - time_start).count();
                         // if(kmc_comm.rank_pairwise == 0){
-                        //     std::cout << "Rank: " << kmc_comm.rank_pairwise << " " << time_pairwise[i] << std::endl;
+                        //     std::cout << "Rank: " << kmc_comm.rank_pairwise << " " << time_pairwise[j] << std::endl;
                         // }
                     }
 
-                    // std::string name_save = "reordered_";
                     // if(kmc_comm.rank_pairwise == 0){
-                    //     std::string base_path = "pairwise/";
-                    //     std::string file_name = base_path + "time_pairwise_" + name_save + std::to_string(kmc_comm.size_pairwise) + ".txt";
+                    //     std::string base_path = "final_reordered/";
+                    //     std::string file_name = base_path + "time_pairwise_" + std::to_string(kmc_comm.size_pairwise) + ".txt";
                     //     std::ofstream time_file;
                     //     time_file.open(file_name);
                     //     for(int i = 0; i < measurements; i++){
@@ -501,10 +514,10 @@ int main(int argc, char **argv)
             // Execute events and update kmc_time
             if (p.perturb_structure){     
                 if (kmc_comm.comm_events != MPI_COMM_NULL) {
-                    // std::cout << "Rank: " << kmc_comm.rank_events << ", Start events" << std::endl;                                                             // [1] fraction of power dissipated as heat
-                    // // MPI_Barrier(kmc_comm.comm_events);
-                    // t_events_start = MPI_Wtime();
-
+                    // std::cout << "Rank: " << kmc_comm.rank_events << ", Start events" << std::endl;   
+                                                                              // [1] fraction of power dissipated as heat
+                    // MPI_Barrier(kmc_comm.comm_events);
+                    // auto time_start = std::chrono::high_resolution_clock::now();
                     double event_time = execute_kmc_step_mpi(kmc_comm.comm_events,
                                                 device.N, kmc_comm.counts_events,kmc_comm.displs_events,
                                                 device.max_num_neighbors, gpubuf.neigh_idx, gpubuf.site_layer,
@@ -512,8 +525,10 @@ int main(int argc, char **argv)
                                                 gpubuf.freq, gpubuf.sigma, gpubuf.k,
                                                 gpubuf.site_x, gpubuf.site_y, gpubuf.site_z, 
                                                 gpubuf.site_potential_charge, gpubuf.site_temperature,
-                                                gpubuf.site_element, gpubuf.site_charge, sim.random_generator);    
-                    // t_events_end = MPI_Wtime();
+                                                gpubuf.site_element, gpubuf.site_charge, sim.random_generator);   
+                    // MPI_Barrier(kmc_comm.comm_events);
+                    // auto time_end = std::chrono::high_resolution_clock::now();
+                    // time_events += std::chrono::duration<double>(time_end - time_start).count();
                     // outputBuffer << "Z - calculation time - kmc events [s]" <<  t_events_end - t_events_start << "\n";
                 }
 
@@ -565,10 +580,20 @@ int main(int argc, char **argv)
         auto time_end = std::chrono::high_resolution_clock::now();
         time_loop = std::chrono::duration<double>(time_end - time_start).count();
 
+        // if (kmc_comm.comm_pairwise != MPI_COMM_NULL) {
+        //     std::cout << "Rank: " << kmc_comm.rank_pairwise << ", Time spent in pairwise: " << time_pairwise_tot << std::endl;
+        // }
+        // if (kmc_comm.comm_K != MPI_COMM_NULL) {
+        //     std::cout << "Rank: " << kmc_comm.rank_K << ", Time spent in K: " << time_K << std::endl;
+        // }
+        // if (kmc_comm.comm_events != MPI_COMM_NULL) {
+        //     std::cout << "Rank: " << kmc_comm.rank_events << ", Time spent in Events: " << time_events << std::endl;
+        // }
+
         if(rank_global == 0){
             // append to file
             std::cout << "Time loop " << time_loop << std::endl;
-            std::string file_name = "full_application/time_loop_" + std::to_string(size_global) + "_" + std::to_string(Vd) + ".txt";
+            std::string file_name = "final_reordered/time_full_application" + name +"_" + std::to_string(size_global) + "_" + std::to_string(Vd) + ".txt";
             std::ofstream time_file;
             time_file.open(file_name, std::ios_base::app);
             time_file << time_loop << std::endl;
@@ -576,17 +601,17 @@ int main(int argc, char **argv)
         }
 
 // Get device attributes from GPU memory
-#ifdef USE_CUDA
-        gpubuf.sync_GPUToHost(device);
-#endif
-        if (!rank_global)
-        {
-            const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
-            std::cout << "logging the last snapshot\n";
-            //print kmc step count
-            std::cout << "KMC step count: " << kmc_step_count << "\n";
-            device.writeSnapshot(file_name, folder_name);
-        }
+// #ifdef USE_CUDA
+//         gpubuf.sync_GPUToHost(device);
+// #endif
+//         if (!rank_global)
+//         {
+//             const std::string file_name = "snapshot_" + std::to_string(kmc_step_count) + ".xyz";
+//             std::cout << "logging the last snapshot\n";
+//             //print kmc step count
+//             std::cout << "KMC step count: " << kmc_step_count << "\n";
+//             device.writeSnapshot(file_name, folder_name);
+//         }
 
         // // TODO: remove the reset inside each bias point
         // // 3. Re-fix the boundary (for changes in applied potential across an IV sweep)

@@ -366,8 +366,8 @@ double execute_kmc_step_mpi(
     MPI_Comm_size(comm, &size);
 
     int measurements = 1;
-    double time_list[measurements];
-    double time_events[measurements];
+    // double time_list[measurements];
+    // double time_events[measurements];
 
     // the KMC event list arrays only exist in gpu memory
     EVENTTYPE *event_type_local_d; 
@@ -396,8 +396,8 @@ double execute_kmc_step_mpi(
 
     for(int i = 0; i < measurements; i++){
 
-        gpuErrchk( hipMemset(event_prob_local_d, 0, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
-        gpuErrchk( hipMemset(event_type_local_d, 0, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE)) );
+        // gpuErrchk( hipMemset(event_prob_local_d, 0, (size_t)count[rank] * (size_t)nn * sizeof(double)) );
+        // gpuErrchk( hipMemset(event_type_local_d, 0, (size_t)count[rank] * (size_t)nn * sizeof(EVENTTYPE)) );
 
 
         // hipDeviceSynchronize();
@@ -444,7 +444,7 @@ double execute_kmc_step_mpi(
     // **************************
     // ** Event Execution Loop **
     // **************************
-    for(int i = 0; i < measurements; i++){
+    for(int j = 0; j < measurements; j++){
 
         event_time = 0.0;
         event_counter = 0;
@@ -463,7 +463,7 @@ double execute_kmc_step_mpi(
         double freq_h;
         gpuErrchk( hipMemcpy(&freq_h, freq, 1 * sizeof(double), hipMemcpyDeviceToHost) );
         while (event_time < 1 / freq_h) {
-        // while (event_counter < 2000) {
+        // while (event_counter < 1000) {
             event_counter++;  
 
             // get the cumulative sum of the probabilities
@@ -535,19 +535,18 @@ double execute_kmc_step_mpi(
         // MPI_Barrier(comm);
         
         // auto end = std::chrono::high_resolution_clock::now();
-        // time_events[i] = std::chrono::duration<double>(end - start).count();
+        // time_events[j] = std::chrono::duration<double>(end - start).count();
 
         // if(rank == 0){
-        //     std::cout << "Time to execute events: " << time_events[i] << std::endl;
+        //     std::cout << "Time to execute events: " << time_events[j] << std::endl;
         //     std::cout << "Number of KMC events: " << event_counter << "\n";
         //     std::cout << "Event time: " << event_time << "\n";
         // }
     }
-    // std::string name_save = "reordered_";
     // if(rank == 0){
-    //     std::string base_path =  "events/";
+    //     std::string base_path =  "final_reordered/";
     //     std::ofstream time_file;
-    //     std::string time_file_name = base_path + "time_list_" + name_save + std::to_string(size) +".txt";
+    //     std::string time_file_name = base_path + "time_event_list_" + std::to_string(size) +".txt";
     //     time_file.open(time_file_name);
     //     for(int i = 0; i < measurements; i++){
     //         time_file << time_list[i] << "\n";
@@ -556,7 +555,7 @@ double execute_kmc_step_mpi(
 
 
     //     std::ofstream time_file_events;
-    //     std::string time_file_events_name = base_path + "time_events_" + name_save + std::to_string(size) +".txt";
+    //     std::string time_file_events_name = base_path + "time_event_selection_" + std::to_string(size) +".txt";
     //     time_file_events.open(time_file_events_name);
     //     for(int i = 0; i < measurements; i++){
     //         time_file_events << time_events[i] << "\n";
@@ -564,6 +563,10 @@ double execute_kmc_step_mpi(
     //     time_file_events.close();
     // }
 
+    if(rank == 0){
+        std::cout << "Number of KMC events: " << event_counter << "\n";
+        std::cout << "Event time: " << event_time << "\n";
+    }
 
     // MPI_Barrier(comm);
     // exit(0);
